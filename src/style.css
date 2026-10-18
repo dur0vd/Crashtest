@@ -957,3 +957,79 @@ button {
 .refbox .sign-big {
   max-height: 110px;
 }
+
+/* ---------- каталог знаков ---------- */
+.picker h2 {
+  margin: 0 40px 10px 0;
+}
+.sign-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.sign-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+}
+.sign-cell.on,
+.sign-cell:hover {
+  border-color: var(--accent);
+}
+.sign-thumb {
+  object-fit: contain;
+}
+.sign-thumb.ph {
+  display: inline-grid;
+  place-items: center;
+  background: #3d4655;
+  border-radius: 50%;
+  font-size: 11px;
+}
+.sign-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.sign-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 10px 4px 6px;
+  text-align: left;
+}
+.sign-pick small {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.pick-hint {
+  color: var(--accent);
+  font-size: 12px;
+}
+.plate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.plate-row span {
+  flex: 1;
+  font-size: 13px;
+}

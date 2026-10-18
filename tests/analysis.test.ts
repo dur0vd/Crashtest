@@ -95,3 +95,17 @@ describe('разбор готовых ситуаций', () => {
     expect(verdict(rep, ids[1]).status).toBe('clean');
   });
 });
+
+describe('знаки и грузы в готовых ситуациях', () => {
+  it('необозначенный свес груза: нарушение п. 23.4 и удар пришёлся на груз', () => {
+    const { rep, ids } = run('overhang');
+    expect(rep.collisions.length).toBeGreaterThan(0);
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:23.4']));
+    expect(rep.collisions[0].notes.join(' ')).toMatch(/груз/);
+  });
+
+  it('поворот под запрещающий знак 3.18.1', () => {
+    const { rep, ids } = run('no-right-turn');
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['sign:3.18.1']));
+  });
+});

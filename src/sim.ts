@@ -14,7 +14,7 @@ import {
   pathAt,
   sub,
 } from './geom';
-import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, actorSpec } from './scene';
+import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf } from './scene';
 
 export const DT = 0.025;
 const G = 9.81;
@@ -92,10 +92,12 @@ interface Rt {
   /** замедление, на которое рассчитывает водитель при планировании торможения (как на сухой дороге) */
   plan: number;
   box: { hl: number; hw: number };
+  /** смещение центра кузова с грузом относительно опорной точки вдоль курса */
+  shift: number;
 }
 
 function makeRuntime(a: Actor, mu: number): Rt {
-  const spec = actorSpec(a);
+  const spec = dimsOf(a);
   const start: Vec = { x: a.x, y: a.y };
   const ctrl: Vec[] = [start, ...a.path.map((w) => ({ x: w.x, y: w.y }))];
   if (ctrl.length === 1) ctrl.push(add(start, mul(fromAngle(a.heading), 2000)));
@@ -107,7 +109,8 @@ function makeRuntime(a: Actor, mu: number): Rt {
   let plan = 3;
   if (a.kind === 'vehicle') {
     const vs = VEHICLES[a.type as VehicleType];
-    accel = vs.accel;
+    // гружёный автомобиль разгоняется медленнее
+    accel = (vs.accel * vs.mass) / spec.mass;
     brake = Math.min(vs.brakeCap ?? Infinity, mu * G * vs.brakeFactor);
     plan = Math.min(vs.brakeCap ?? Infinity, SURFACES.dry.mu * G * vs.brakeFactor);
   }
@@ -131,11 +134,12 @@ function makeRuntime(a: Actor, mu: number): Rt {
     brake,
     plan,
     box: { hl: spec.length / 2, hw: spec.width / 2 },
+    shift: spec.shift,
   };
 }
 
 function boxOf(r: Rt): OBB {
-  return { cx: r.pos.x, cy: r.pos.y, hl: r.box.hl, hw: r.box.hw, a: r.h };
+  return { cx: r.pos.x + Math.cos(r.h) * r.shift, cy: r.pos.y + Math.sin(r.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: r.h };
 }
 
 function stepPath(r: Rt, dt: number): void {

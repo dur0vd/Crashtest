@@ -7,7 +7,9 @@ import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
 import { DISCLAIMER, LAW_CHECKED } from './law';
-import { type AppApi, buildEnv, buildInspector, buildReport, h, setRefOpener } from './ui';
+import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
+import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
+import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -172,6 +174,7 @@ const TOOLS: [Tool, string, string][] = [
   ['crosswalk', '🦓', 'Переход'],
   ['light', '🚦', 'Светофор'],
   ['sign', '⚠️', 'Знак'],
+  ['marking', '═', 'Разметка'],
   ['obstacle', '🏢', 'Препятствие'],
   ['vehicle', '🚗', 'Транспорт'],
   ['ped', '🚶', 'Пешеход'],
@@ -186,6 +189,7 @@ const HINTS: Partial<Record<Tool, string>> = {
   track: 'Рисуйте путь по направлению движения трамвая. «Готово» — завершить.',
   crosswalk: 'Нажмите на дороге — переход встанет поперёк. Потяните, чтобы задать направление.',
   light: 'Нажмите у края дороги: светофор и стоп-линия встанут по ходу полосы. Потяните, чтобы задать направление.',
+  marking: 'Выберите вид разметки. Линии и площадки рисуются точками («Готово» — завершить), стрелы ставятся нажатием на полосу.',
   sign: 'Нажмите у края дороги — знак встанет лицом к ближайшей полосе. Потяните, чтобы задать направление.',
   obstacle: 'Нажмите, чтобы поставить препятствие. Потяните, чтобы повернуть.',
   vehicle: 'Нажмите на полосе — машина встанет по ходу движения. Потяните, чтобы задать курс вручную.',
@@ -223,7 +227,7 @@ function updateHint(): void {
   hint.textContent = HINTS[editor.tool] ?? '';
   const d = editor.drawing;
   const bar = $('drawbar');
-  const active = !!d && (POLY_TOOLS.includes(editor.tool) || editor.tool === 'path');
+  const active = !!d && (POLY_TOOLS.includes(editor.tool) || editor.tool === 'path' || editor.tool === 'marking');
   bar.classList.toggle('hidden', !active);
   if (active) {
     $('drawText').textContent =
@@ -273,16 +277,26 @@ function renderPalette(): void {
       break;
     case 'sign':
       el.append(
-        chips(
-          [['main', '2.1 Главная'], ['giveway', '2.4 Уступи'], ['stop', '2.5 Без остановки'], ['noentry', '3.1 Въезд запрещён'], ['limit', '3.24 Скорость'], ['noovertake', '3.20 Обгон'], ['crosswalk', '5.19 Переход']],
-          b.sign,
-          (v) => ((b.sign = v), again()),
+        h('button', { type: 'button', class: 'sign-pick', onclick: () => openSignPicker({ current: b.sign, onPick: (id) => { b.sign = id; b.signValue = VALUE_SIGNS[id]?.def ?? b.signValue; again(); } }) },
+          signThumb(b.sign, 44),
+          h('span', {}, h('b', {}, `Знак ${b.sign}`), h('small', {}, signTitle(b.sign))),
+          h('span', { class: 'pick-hint' }, 'сменить'),
         ),
       );
-      if (b.sign === 'limit') {
-        el.append(opt('км/ч', sel([['20', '20'], ['40', '40'], ['50', '50'], ['60', '60'], ['70', '70'], ['80', '80']], String(b.signValue) as '40', (v) => (b.signValue = parseInt(v, 10)))));
+      if (VALUE_SIGNS[b.sign]) {
+        const vs = VALUE_SIGNS[b.sign];
+        const num = h('input', { type: 'number', value: b.signValue, min: vs.min, max: vs.max, step: vs.step });
+        num.addEventListener('change', () => (b.signValue = parseFloat(num.value) || vs.def));
+        el.append(h('label', { class: 'popt' }, h('span', {}, vs.unit), num));
       }
       break;
+    case 'marking': {
+      el.append(opt('Разметка', sel(MARKINGS.map((m) => [m.id, `${m.id} ${m.name}`] as [string, string]), b.markingKind, (v) => ((b.markingKind = v), editor.brushChanged(), again()))));
+      const spec = MARKING_BY_ID[b.markingKind];
+      if (spec?.arrows) el.append(opt('Стрела', sel(Object.entries(ARROW_VARIANTS).map(([k, v]) => [k, v.name] as [string, string]), b.arrowVariant, (v) => (b.arrowVariant = v))));
+      if (spec?.form === 'line') el.append(radiusOpt());
+      break;
+    }
     case 'obstacle':
       el.append(chips([['building', 'Здание'], ['fence', 'Забор'], ['tree', 'Дерево'], ['barrier', 'Барьер']], b.obstacle, (v) => ((b.obstacle = v), again())));
       break;
@@ -549,6 +563,7 @@ function init(): void {
     save();
   });
 
+  renderer.onImage = () => (dirty = true);
   editor.onView = () => (dirty = true);
   editor.onTool = updateTools;
   editor.onSelect = () => {

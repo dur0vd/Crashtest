@@ -180,7 +180,7 @@ const TOOLS: [Tool, string, string][] = [
 const HINTS: Partial<Record<Tool, string>> = {
   select: 'Нажмите на объект, чтобы изменить. Перетаскивайте пустое место — двигаете карту.',
   pan: 'Перетаскивайте карту. Колесо мыши или два пальца — масштаб.',
-  road: 'Нажимайте, чтобы ставить точки оси дороги. Двойной клик или «Готово» — завершить.',
+  road: 'Нажимайте, чтобы ставить точки оси. Повороты скругляются по выбранному радиусу. Двойной клик или «Готово» — завершить. Кромки и сужения — после выбора дороги.',
   sidewalk: 'Нажимайте, чтобы ставить точки тротуара. Двойной клик или «Готово» — завершить.',
   track: 'Рисуйте путь по направлению движения трамвая. «Готово» — завершить.',
   crosswalk: 'Нажмите на дороге — переход встанет поперёк. Потяните, чтобы задать направление.',
@@ -256,6 +256,13 @@ function renderPalette(): void {
     i.addEventListener('change', () => on(i.checked));
     return h('label', { class: 'popt' }, i, h('span', {}, label));
   };
+  const radiusOpt = () =>
+    opt('Поворот', sel([['0', 'Острый угол'], ['6', 'Радиус 6 м'], ['12', 'Радиус 12 м'], ['25', 'Радиус 25 м'], ['50', 'Радиус 50 м'], ['-1', 'Плавная кривая']], b.smooth ? '-1' : String(b.radius), (v) => {
+      const n = parseInt(v, 10);
+      b.smooth = n < 0;
+      b.radius = n < 0 ? 0 : n;
+      dirty = true;
+    }));
   switch (editor.tool) {
     case 'vehicle':
       el.append(chips((Object.keys(VEHICLES) as (keyof typeof VEHICLES)[]).map((k) => [k, VEHICLES[k].name] as [string, string]), b.vehicle, (v) => ((b.vehicle = v as typeof b.vehicle), again())));
@@ -284,14 +291,14 @@ function renderPalette(): void {
         opt('Разметка', sel([['dashed', 'Прерывистая'], ['solid', 'Сплошная'], ['double', 'Двойная'], ['none', 'Нет']], b.center, (v) => (b.center = v))),
         opt('Зона', sel([['city', 'Город'], ['outside', 'Вне города'], ['residential', 'Жилая зона']], b.zone, (v) => (b.zone = v))),
         chk('Односторонняя', b.oneWay, (v) => (b.oneWay = v)),
-        chk('Сглаживать', b.smooth, (v) => (b.smooth = v)),
+        radiusOpt(),
       );
       break;
     case 'sidewalk':
-      el.append(opt('Ширина, м', sel([['2', '2'], ['3', '3'], ['4', '4'], ['6', '6']], String(b.sidewalkWidth) as '3', (v) => (b.sidewalkWidth = parseInt(v, 10)))), chk('Сглаживать', b.smooth, (v) => (b.smooth = v)));
+      el.append(opt('Ширина, м', sel([['2', '2'], ['3', '3'], ['4', '4'], ['6', '6']], String(b.sidewalkWidth) as '3', (v) => (b.sidewalkWidth = parseInt(v, 10)))), radiusOpt());
       break;
     case 'track':
-      el.append(chk('Выделенный путь', b.separated, (v) => (b.separated = v)), chk('Сглаживать', b.smooth, (v) => (b.smooth = v)));
+      el.append(chk('Выделенный путь', b.separated, (v) => (b.separated = v)), radiusOpt());
       break;
     default:
       break;
@@ -416,6 +423,7 @@ function frame(now: number): void {
       pathActor: editor.tool === 'path' ? (editor.sel?.id ?? null) : null,
       ghost: editor.ghost,
       grid: grid && mode === 'edit',
+      brush: editor.brush,
       focus,
     });
   }

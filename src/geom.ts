@@ -300,3 +300,62 @@ export function distToSegment(p: Vec, a: Vec, b: Vec): number {
   const t = l2 < 1e-12 ? 0 : clamp(dot(sub(p, a), ab) / l2, 0, 1);
   return dist(p, { x: a.x + ab.x * t, y: a.y + ab.y * t });
 }
+
+/**
+ * Скругляет углы ломаной дугами заданного радиуса (в метрах).
+ * Радиус автоматически уменьшается, если соседние отрезки слишком коротки.
+ */
+export function filletPolyline(pts: Vec[], radius: number, steps = 12): Vec[] {
+  if (pts.length < 3 || radius <= 0.05) return pts.slice();
+  const out: Vec[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const v = pts[i];
+    const toPrev = sub(pts[i - 1], v);
+    const toNext = sub(pts[i + 1], v);
+    const lp = len(toPrev);
+    const ln = len(toNext);
+    if (lp < 1e-6 || ln < 1e-6) {
+      out.push(v);
+      continue;
+    }
+    const a = mul(toPrev, 1 / lp);
+    const b = mul(toNext, 1 / ln);
+    const cosInt = clamp(dot(a, b), -1, 1);
+    const interior = Math.acos(cosInt); // угол между отрезками
+    if (interior > Math.PI - 0.02 || interior < 0.02) {
+      out.push(v); // почти прямая или разворот на месте
+      continue;
+    }
+    // длина касательной от вершины до начала дуги
+    let t = radius / Math.tan(interior / 2);
+    t = Math.min(t, lp * 0.5, ln * 0.5);
+    const p0 = add(v, mul(a, t));
+    const p1 = add(v, mul(b, t));
+    for (let k = 0; k <= steps; k++) {
+      const u = k / steps;
+      // квадратичная кривая Безье с управляющей точкой в вершине даёт гладкую дугу
+      const x = (1 - u) * (1 - u) * p0.x + 2 * (1 - u) * u * v.x + u * u * p1.x;
+      const y = (1 - u) * (1 - u) * p0.y + 2 * (1 - u) * u * v.y + u * u * p1.y;
+      out.push({ x, y });
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/** Точка и курс на расстоянии s вдоль ломаной с заранее посчитанными накопленными длинами. */
+export function frameAtStation(pts: Vec[], cum: number[], s: number): { p: Vec; a: number } {
+  if (pts.length < 2) return { p: pts[0] ?? { x: 0, y: 0 }, a: 0 };
+  const total = cum[cum.length - 1];
+  const ss = clamp(s, 0, total);
+  let lo = 0;
+  let hi = cum.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cum[mid] <= ss) lo = mid;
+    else hi = mid - 1;
+  }
+  const seg = cum[lo + 1] - cum[lo];
+  const t = seg < 1e-9 ? 0 : (ss - cum[lo]) / seg;
+  return { p: lerp(pts[lo], pts[lo + 1], t), a: angleOf(sub(pts[lo + 1], pts[lo])) };
+}

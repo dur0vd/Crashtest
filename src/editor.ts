@@ -1,4 +1,4 @@
-import { buildGeo, roadsAt } from './geo';
+import { buildGeo, roadsAt, widthsAt } from './geo';
 import {
   type Vec,
   add,
@@ -6,6 +6,7 @@ import {
   clamp,
   dist,
   distToSegment,
+  frameAtStation,
   mul,
   nearestOnPolyline,
   pointInObb,
@@ -18,14 +19,15 @@ import { type Camera, type DrawingState, type GhostState, type Selection, Render
 import {
   type Actor,
   type CenterMarking,
+  type EdgePt,
   type Collection,
   type ObstacleKind,
   type PedestrianType,
   type RoadZone,
+  type Road,
   type Scene,
   type SignKind,
   type VehicleType,
-  LANE_WIDTH,
   PEDESTRIANS,
   VEHICLES,
   actorSpec,
@@ -58,6 +60,8 @@ export interface Brush {
   oneWay: boolean;
   zone: RoadZone;
   smooth: boolean;
+  /** радиус скругления поворотов, м */
+  radius: number;
   sidewalkWidth: number;
   separated: boolean;
 }
@@ -70,6 +74,7 @@ type Drag =
   | { kind: 'body'; sel: Selection; last: Vec }
   | { kind: 'vertex'; sel: Selection; index: number }
   | { kind: 'wp'; actor: string; index: number }
+  | { kind: 'edge'; road: string; side: 'l' | 'r'; pt: EdgePt }
   | { kind: 'rot'; sel: Selection }
   | { kind: 'place'; start: Vec; angle: number; dragged: boolean }
   | { kind: 'click'; start: Vec; moved: boolean };
@@ -94,6 +99,7 @@ export class Editor {
     oneWay: false,
     zone: 'city',
     smooth: false,
+    radius: 12,
     sidewalkWidth: 3,
     separated: false,
   };
@@ -273,17 +279,17 @@ export class Editor {
       this.checkpoint();
       const b = this.brush;
       const id = newId(s, 'roads');
-      s.roads.push({ id, pts: d.pts, lanes: b.lanes, center: b.oneWay ? 'none' : b.center, oneWay: b.oneWay, zone: b.zone, smooth: b.smooth });
+      s.roads.push({ id, pts: d.pts, lanes: b.lanes, center: b.oneWay ? 'none' : b.center, oneWay: b.oneWay, zone: b.zone, smooth: b.smooth, radius: b.radius });
       this.sel = { col: 'roads', id };
     } else if (d.tool === 'sidewalk' && d.pts.length >= 2) {
       this.checkpoint();
       const id = newId(s, 'sidewalks');
-      s.sidewalks.push({ id, pts: d.pts, width: this.brush.sidewalkWidth, smooth: this.brush.smooth });
+      s.sidewalks.push({ id, pts: d.pts, width: this.brush.sidewalkWidth, smooth: this.brush.smooth, radius: this.brush.radius });
       this.sel = { col: 'sidewalks', id };
     } else if (d.tool === 'track' && d.pts.length >= 2) {
       this.checkpoint();
       const id = newId(s, 'tracks');
-      s.tracks.push({ id, pts: d.pts, separated: this.brush.separated, smooth: this.brush.smooth });
+      s.tracks.push({ id, pts: d.pts, separated: this.brush.separated, smooth: this.brush.smooth, radius: Math.max(this.brush.radius, 20) });
       this.sel = { col: 'tracks', id };
     }
     const wasPath = d.tool === 'path';
@@ -405,10 +411,14 @@ export class Editor {
 
   // ---- попадание -----------------------------------------------------------
 
-  private hit(p: Vec): { sel: Selection; part: 'body' | 'rot' | 'vertex' | 'wp'; index: number } | null {
+  private hit(p: Vec): { sel: Selection; part: 'body' | 'rot' | 'vertex' | 'wp' | 'edge'; index: number; edge?: { side: 'l' | 'r'; pt: EdgePt } } | null {
     const px = 1 / this.cam.s;
     const s = this.scene;
     // ручки выбранного объекта
+    if (this.sel?.col === 'roads') {
+      const eh = this.edgeHandleAt(p, 14 * px);
+      if (eh) return { sel: this.sel, part: 'edge', index: 0, edge: eh };
+    }
     if (this.sel) {
       const it = this.find(this.sel) as Record<string, unknown> | undefined;
       if (it) {
@@ -463,7 +473,63 @@ export class Editor {
     const hits = roadsAt(geo, p, 3);
     if (!hits.length) return null;
     const h = hits[0];
-    return { road: h.rg.road, half: h.rg.half, width: h.rg.width, near: h.near, angle: angleOf(h.near.tangent) };
+    const w = widthsAt(h.rg, h.near.s);
+    return { road: h.rg.road, wl: w.l, wr: w.r, near: h.near, angle: angleOf(h.near.tangent) };
+  }
+
+  // ---- кромки дороги ---------------------------------------------------------
+
+  /** Положение точки профиля кромки в мире. */
+  private edgePos(rg: ReturnType<typeof buildGeo>['roads'][number], side: 'l' | 'r', e: EdgePt): Vec {
+    const f = frameAtStation(rg.pts, rg.cum, e.s);
+    return add(f.p, mul(rightOf(f.a), side === 'l' ? -e.w : e.w));
+  }
+
+  private edgeHandleAt(p: Vec, tol: number): { side: 'l' | 'r'; pt: EdgePt } | null {
+    if (this.sel?.col !== 'roads') return null;
+    const rg = buildGeo(this.scene).roads.find((r) => r.road.id === this.sel!.id);
+    if (!rg || rg.pts.length < 2) return null;
+    for (const side of ['l', 'r'] as const) {
+      for (const e of (side === 'l' ? rg.road.wl : rg.road.wr) ?? []) {
+        if (dist(p, this.edgePos(rg, side, e)) < tol) return { side, pt: e };
+      }
+    }
+    return null;
+  }
+
+  /** Добавляет точку профиля на кромке в станции s с текущей шириной. */
+  addEdgePoint(road: Road, side: 'l' | 'r', s: number): EdgePt {
+    const rg = buildGeo({ ...this.scene, roads: [road] }).roads[0];
+    const w = widthsAt(rg, s);
+    const key = side === 'l' ? 'wl' : 'wr';
+    const prof = road[key] ?? [];
+    // фиксируем ширину на концах, чтобы профиль вне новых точек не «поплыл»
+    if (!prof.length) prof.push({ s: 0, w: side === 'l' ? w.l : w.r }, { s: rg.total, w: side === 'l' ? w.l : w.r });
+    const pt: EdgePt = { s: +s.toFixed(2), w: +(side === 'l' ? w.l : w.r).toFixed(2) };
+    prof.push(pt);
+    prof.sort((a, b) => a.s - b.s);
+    road[key] = prof;
+    return pt;
+  }
+
+  /** Быстрое сужение: трапеция на выбранной кромке (или обеих) посередине дороги. */
+  addNarrowing(road: Road, sides: ('l' | 'r')[], opts: { length?: number; taper?: number; factor?: number } = {}): void {
+    const rg = buildGeo({ ...this.scene, roads: [road] }).roads[0];
+    if (rg.total < 10) return;
+    const length = Math.min(opts.length ?? 20, rg.total * 0.4);
+    const taper = Math.min(opts.taper ?? 10, rg.total * 0.2);
+    const mid = rg.total / 2;
+    const stations = [mid - length / 2 - taper, mid - length / 2, mid + length / 2, mid + length / 2 + taper];
+    for (const side of sides) {
+      const key = side === 'l' ? 'wl' : 'wr';
+      const nominal = rg.half;
+      const narrow = Math.max(1.2, nominal * (opts.factor ?? 0.55));
+      const prof: EdgePt[] = (road[key] ?? []).filter((e) => e.s < stations[0] - 0.01 || e.s > stations[3] + 0.01);
+      if (!prof.length) prof.push({ s: 0, w: nominal }, { s: rg.total, w: nominal });
+      prof.push({ s: stations[0], w: nominal }, { s: stations[1], w: narrow }, { s: stations[2], w: narrow }, { s: stations[3], w: nominal });
+      prof.sort((a, b) => a.s - b.s);
+      road[key] = prof.map((e) => ({ s: +e.s.toFixed(2), w: +e.w.toFixed(2) }));
+    }
   }
 
   // ---- события -------------------------------------------------------------
@@ -490,7 +556,8 @@ export class Editor {
     if (this.tool === 'select') {
       const h = this.hit(w);
       if (h) {
-        if (h.part === 'rot') this.drag = { kind: 'rot', sel: h.sel };
+        if (h.part === 'edge' && h.edge) this.drag = { kind: 'edge', road: h.sel.id, side: h.edge.side, pt: h.edge.pt };
+        else if (h.part === 'rot') this.drag = { kind: 'rot', sel: h.sel };
         else if (h.part === 'vertex') this.drag = { kind: 'vertex', sel: h.sel, index: h.index };
         else if (h.part === 'wp') {
           this.selWp = h.index;
@@ -627,6 +694,20 @@ export class Editor {
         this.changed(false);
         break;
       }
+      case 'edge': {
+        this.touch();
+        const road = this.scene.roads.find((r) => r.id === drag.road);
+        if (!road) break;
+        const rg = buildGeo(this.scene).roads.find((r) => r.road.id === drag.road)!;
+        const near = nearestOnPolyline(rg.pts, w);
+        const lat = drag.side === 'r' ? near.d : -near.d;
+        const step = this.snap ? 0.5 : 0.05;
+        drag.pt.s = clamp(Math.round(near.s / step) * step, 0, rg.total);
+        drag.pt.w = clamp(Math.round(lat / step) * step, 0.8, 40);
+        (drag.side === 'l' ? road.wl : road.wr)?.sort((a, b) => a.s - b.s);
+        this.changed(false);
+        break;
+      }
       case 'wp': {
         this.touch();
         const a = this.scene.actors.find((x) => x.id === drag.actor);
@@ -678,6 +759,7 @@ export class Editor {
       case 'body':
       case 'vertex':
       case 'wp':
+      case 'edge':
       case 'rot':
         this.changed(true);
         this.onSelect();
@@ -700,6 +782,7 @@ export class Editor {
     const it = this.find(this.sel) as { pts?: Vec[] } | undefined;
     if (!it?.pts) return;
     const px = 1 / this.cam.s;
+    if (this.sel.col === 'roads' && this.dblClickEdge(w, 12 * px)) return;
     const pts = it.pts;
     // двойной клик по вершине — удалить, по отрезку — добавить вершину
     const vi = pts.findIndex((q) => dist(q, w) < 12 * px);
@@ -719,6 +802,38 @@ export class Editor {
       if (bi >= 0) pts.splice(bi + 1, 0, this.snapPt(w));
     }
     this.changed(true);
+  }
+
+  /** Двойной клик по кромке: удалить точку профиля или добавить новую. */
+  private dblClickEdge(w: Vec, tol: number): boolean {
+    const road = this.scene.roads.find((r) => r.id === this.sel?.id);
+    if (!road) return false;
+    const eh = this.edgeHandleAt(w, tol);
+    if (eh) {
+      this.checkpoint();
+      const key = eh.side === 'l' ? 'wl' : 'wr';
+      road[key] = (road[key] ?? []).filter((e) => e !== eh.pt);
+      if ((road[key] ?? []).length <= 2 && road[key]!.every((e, _i, a) => e.w === a[0].w)) delete road[key];
+      this.changed(true);
+      this.onSelect();
+      return true;
+    }
+    const rg = buildGeo(this.scene).roads.find((r) => r.road.id === road.id);
+    if (!rg) return false;
+    for (const side of ['l', 'r'] as const) {
+      const edge = side === 'l' ? rg.left : rg.right;
+      for (let i = 0; i < edge.length - 1; i++) {
+        if (distToSegment(w, edge[i], edge[i + 1]) < tol) {
+          const near = nearestOnPolyline(rg.pts, w);
+          this.checkpoint();
+          this.addEdgePoint(road, side, near.s);
+          this.changed(true);
+          this.onSelect();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private wheel(e: WheelEvent): void {
@@ -791,17 +906,21 @@ export class Editor {
       let pos = at;
       let heading = angle ?? 0;
       if (angle === null && frame && !frame.road.oneWay) {
-        // встаём в центр полосы по ходу движения
+        // встаём в центр полосы по ходу движения; ширина полосы зависит от местного сужения
         const fwd = frame.near.d >= 0;
-        const lane = clamp(Math.floor(Math.abs(frame.near.d) / LANE_WIDTH), 0, frame.road.lanes - 1);
-        const lateral = (lane + 0.5) * LANE_WIDTH;
+        const sideW = fwd ? frame.wr : frame.wl;
+        const laneW = sideW / frame.road.lanes;
+        const lane = clamp(Math.floor(Math.abs(frame.near.d) / laneW), 0, frame.road.lanes - 1);
+        const lateral = (lane + 0.5) * laneW;
         heading = fwd ? frame.angle : frame.angle + Math.PI;
         const rightVec = rightOf(frame.angle);
         pos = add(frame.near.point, mul(rightVec, fwd ? lateral : -lateral));
       } else if (angle === null && frame) {
-        const lane = clamp(Math.floor((frame.near.d + frame.half) / LANE_WIDTH), 0, frame.road.lanes - 1);
+        const total = frame.wl + frame.wr;
+        const laneW = total / frame.road.lanes;
+        const lane = clamp(Math.floor((frame.near.d + frame.wl) / laneW), 0, frame.road.lanes - 1);
         heading = frame.angle;
-        pos = add(frame.near.point, mul(rightOf(frame.angle), -frame.half + (lane + 0.5) * LANE_WIDTH));
+        pos = add(frame.near.point, mul(rightOf(frame.angle), -frame.wl + (lane + 0.5) * laneW));
       }
       id = newId(s, 'actors');
       const idx = s.actors.filter((a) => a.kind === 'vehicle').length;
@@ -843,7 +962,7 @@ export class Editor {
       if (angle === null && frame) {
         pos = frame.near.point;
         ang = frame.angle + Math.PI / 2;
-        length = frame.width + 1.5;
+        length = frame.wl + frame.wr + 1.5;
       }
       s.crosswalks.push({ id, x: pos.x, y: pos.y, angle: wrapAngle(ang), length, width: 4 });
     } else if (t === 'light') {
@@ -855,8 +974,9 @@ export class Editor {
       if (angle === null && frame) {
         const fwd = frame.road.oneWay ? true : frame.near.d >= 0;
         ang = fwd ? frame.angle : frame.angle + Math.PI;
-        pos = add(frame.near.point, mul(rightOf(frame.angle), fwd ? frame.half : -frame.half));
-        len = frame.road.oneWay ? frame.width : frame.half;
+        const sideW = fwd ? frame.wr : frame.wl;
+        pos = add(frame.near.point, mul(rightOf(frame.angle), fwd ? sideW : -sideW));
+        len = frame.road.oneWay ? frame.wl + frame.wr : sideW;
       }
       s.lights.push({ id, x: pos.x, y: pos.y, angle: wrapAngle(ang), lineLength: len, green: 10, yellow: 3, red: 12, offset: 0 });
     } else if (t === 'sign') {
@@ -867,7 +987,8 @@ export class Editor {
       if (angle === null && frame) {
         const fwd = frame.road.oneWay ? true : frame.near.d >= 0;
         ang = fwd ? frame.angle : frame.angle + Math.PI;
-        pos = add(frame.near.point, mul(rightOf(frame.angle), fwd ? frame.half + 0.8 : -(frame.half + 0.8)));
+        const sideW = (fwd ? frame.wr : frame.wl) + 0.8;
+        pos = add(frame.near.point, mul(rightOf(frame.angle), fwd ? sideW : -sideW));
       }
       s.signs.push({ id, x: pos.x, y: pos.y, angle: wrapAngle(ang), kind: this.brush.sign, value: this.brush.sign === 'limit' ? this.brush.signValue : undefined });
     } else if (t === 'obstacle') {

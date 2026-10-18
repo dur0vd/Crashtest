@@ -88,9 +88,20 @@ export const GAUGE = 1.52;
 export type CenterMarking = 'none' | 'dashed' | 'solid' | 'double';
 export type RoadZone = 'city' | 'outside' | 'residential';
 
+/** Точка профиля кромки: на расстоянии s от начала оси дорога от оси до края имеет ширину w. */
+export interface EdgePt {
+  s: number;
+  w: number;
+}
+
 export interface Road {
   id: string;
   pts: Vec[];
+  /** радиус скругления поворотов оси, м (0 — без скругления) */
+  radius?: number;
+  /** профиль левой и правой кромок; если не задан — ширина постоянна */
+  wl?: EdgePt[];
+  wr?: EdgePt[];
   /** полос в каждом направлении (для односторонней — всего полос) */
   lanes: number;
   center: CenterMarking;
@@ -102,6 +113,7 @@ export interface Road {
 export interface Sidewalk {
   id: string;
   pts: Vec[];
+  radius?: number;
   width: number;
   smooth: boolean;
 }
@@ -109,6 +121,7 @@ export interface Sidewalk {
 export interface TramTrack {
   id: string;
   pts: Vec[];
+  radius?: number;
   /** путь выделен бордюром или разделительной полосой */
   separated: boolean;
   smooth: boolean;
@@ -338,6 +351,12 @@ export function normalizeScene(raw: unknown): Scene {
     road.oneWay = !!road.oneWay;
     road.zone = road.zone ?? 'city';
     road.smooth = !!road.smooth;
+    road.radius = Number.isFinite(road.radius) ? Math.max(0, road.radius as number) : 0;
+    for (const k of ['wl', 'wr'] as const) {
+      const prof = road[k];
+      if (!Array.isArray(prof)) delete road[k];
+      else road[k] = prof.filter((e) => e && Number.isFinite(e.s) && Number.isFinite(e.w)).sort((a, b) => a.s - b.s);
+    }
   }
   for (const a of scene.actors) {
     a.path = a.path ?? [];

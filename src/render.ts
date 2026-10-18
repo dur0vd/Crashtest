@@ -1,12 +1,11 @@
-import { type Geo, buildGeo } from './geo';
-import { type Vec, add, angleOf, fromAngle, kmh, mul, norm, rightOf, sub } from './geom';
+import { type Geo, buildGeo, densify, roadOutlinePoly, widthsAt } from './geo';
+import { type Vec, add, angleOf, frameAtStation, fromAngle, kmh, mul, norm, rightOf, sub } from './geom';
 import type { Report } from './analysis';
 import {
   type Actor,
   type Scene,
   type Sign,
   type TrafficLight,
-  LANE_WIDTH,
   GAUGE,
   PEDESTRIANS,
   VEHICLES,
@@ -44,7 +43,11 @@ export interface GhostState {
   angle: number;
 }
 
+const POLY = ['road', 'sidewalk', 'track'];
+
 export interface ViewState {
+  /** настройки кисти (для предпросмотра сглаживания) */
+  brush?: { smooth: boolean; radius: number };
   scene: Scene;
   cam: Camera;
   mode: 'edit' | 'play';
@@ -107,10 +110,6 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: Vec[], close = false): vo
   ctx.beginPath();
   pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
   if (close) ctx.closePath();
-}
-
-function roadOutline(pts: Vec[], half: number): Vec[] {
-  return [...offsetPolyline(pts, half), ...offsetPolyline(pts, -half).reverse()];
 }
 
 export class Renderer {
@@ -213,23 +212,25 @@ export class Renderer {
     const { ctx } = this;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
+    ctx.fillStyle = C.asphalt;
     for (const rg of geo.roads) {
       if (rg.pts.length < 2) continue;
-      tracePath(ctx, rg.pts);
+      tracePath(ctx, roadOutlinePoly(rg), true);
+      ctx.fill();
+      // тонкая обводка скрывает щели между соседними многоугольниками
       ctx.strokeStyle = C.asphalt;
-      ctx.lineWidth = rg.width;
+      ctx.lineWidth = 0.05;
       ctx.stroke();
     }
     // разметка: не рисуем внутри других дорог (перекрёстки)
     for (const rg of geo.roads) {
       if (rg.pts.length < 2) continue;
       ctx.save();
-      const big = { x0: -1e5, y0: -1e5, x1: 1e5, y1: 1e5 };
       for (const other of geo.roads) {
         if (other === rg || other.pts.length < 2) continue;
         ctx.beginPath();
-        ctx.rect(big.x0, big.y0, big.x1 - big.x0, big.y1 - big.y0);
-        const o = roadOutline(other.pts, other.half);
+        ctx.rect(-1e5, -1e5, 2e5, 2e5);
+        const o = roadOutlinePoly(other);
         o.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
         ctx.closePath();
         ctx.clip('evenodd');
@@ -242,53 +243,48 @@ export class Renderer {
   private drawRoadMarkings(rg: Geo['roads'][number]): void {
     const { ctx } = this;
     const r = rg.road;
-    const half = rg.half;
+    const S = rg.samples;
     ctx.strokeStyle = C.mark;
     ctx.lineJoin = 'round';
-    const line = (off: number, dash: number[], w = 0.15) => {
-      tracePath(ctx, offsetPolyline(rg.pts, off));
+    /** линия, смещённая от оси на off(sample) метров вправо (отрицательное — влево) */
+    const line = (off: (m: Geo['roads'][number]['samples'][number]) => number, dash: number[], w = 0.15) => {
+      tracePath(ctx, S.map((m) => add(m.p, mul(m.n, off(m)))));
       ctx.lineWidth = w;
       ctx.setLineDash(dash);
       ctx.stroke();
       ctx.setLineDash([]);
     };
-    line(half - 0.3, []);
-    line(-(half - 0.3), []);
+    const inset = (w: number) => Math.max(0.2, w - 0.3);
+    line((m) => inset(m.wr), []);
+    line((m) => -inset(m.wl), []);
     if (r.oneWay) {
-      for (let k = 1; k < r.lanes; k++) line(-half + k * LANE_WIDTH, [2, 4]);
-      // стрелки направления
+      for (let k = 1; k < r.lanes; k++) line((m) => -m.wl + ((m.wl + m.wr) * k) / r.lanes, [2, 4]);
+      // стрелки направления: по одной на каждую полосу каждые 24 м
       ctx.fillStyle = 'rgba(242,244,248,0.55)';
-      let acc = 0;
-      for (let i = 1; i < rg.pts.length; i++) {
-        const a = rg.pts[i - 1];
-        const b = rg.pts[i];
-        const d = Math.hypot(b.x - a.x, b.y - a.y);
-        const dir = norm(sub(b, a));
-        for (let s = 12 - (acc % 24); s < d; s += 24) {
-          const p = add(a, mul(dir, s));
-          for (let k = 0; k < r.lanes; k++) {
-            const lp = add(p, mul(rightOf(angleOf(dir)), -half + LANE_WIDTH * (k + 0.5)));
-            this.arrow(lp, angleOf(dir), 1.6);
-          }
+      for (let s = 12; s < rg.total; s += 24) {
+        const f = frameAtStation(rg.pts, rg.cum, s);
+        const w = widthsAt(rg, s);
+        for (let k = 0; k < r.lanes; k++) {
+          const off = -w.l + ((w.l + w.r) * (k + 0.5)) / r.lanes;
+          this.arrow(add(f.p, mul(rightOf(f.a), off)), f.a, 1.6);
         }
-        acc += d;
       }
       return;
     }
     for (let k = 1; k < r.lanes; k++) {
-      line(k * LANE_WIDTH, [2, 4]);
-      line(-k * LANE_WIDTH, [2, 4]);
+      line((m) => (m.wr * k) / r.lanes, [2, 4]);
+      line((m) => -(m.wl * k) / r.lanes, [2, 4]);
     }
     switch (r.center) {
       case 'dashed':
-        line(0, [3, 6]);
+        line(() => 0, [3, 6]);
         break;
       case 'solid':
-        line(0, []);
+        line(() => 0, []);
         break;
       case 'double':
-        line(0.17, []);
-        line(-0.17, []);
+        line(() => 0.17, []);
+        line(() => -0.17, []);
         break;
       default:
         break;
@@ -810,6 +806,32 @@ export class Renderer {
         ctx.stroke();
         ctx.setLineDash([]);
         it.pts.forEach((p) => handle(p));
+        if (v.sel.col === 'roads') {
+          const rg = geo.roads.find((x) => x.road.id === v.sel!.id);
+          if (rg && rg.pts.length >= 2) {
+            // кромки и их точки профиля: левая — оранжевая, правая — бирюзовая
+            for (const side of ['l', 'r'] as const) {
+              const col = side === 'l' ? '#ff9f43' : '#3ddbd9';
+              tracePath(ctx, side === 'l' ? rg.left : rg.right);
+              ctx.strokeStyle = col;
+              ctx.lineWidth = 2 * px;
+              ctx.stroke();
+              for (const e of (side === 'l' ? rg.road.wl : rg.road.wr) ?? []) {
+                const f = frameAtStation(rg.pts, rg.cum, e.s);
+                const n = rightOf(f.a);
+                const p = add(f.p, mul(n, side === 'l' ? -e.w : e.w));
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6 * px, 0, Math.PI * 2);
+                ctx.fillStyle = col;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5 * px;
+                ctx.stroke();
+              }
+            }
+            ctx.strokeStyle = C.sel;
+          }
+        }
         break;
       }
       case 'actors': {
@@ -843,15 +865,15 @@ export class Renderer {
         break;
       }
     }
-    void geo;
-  }
+      }
 
   private drawDrawing(v: ViewState): void {
     const d = v.drawing;
     if (!d || !d.pts.length) return;
     const { ctx } = this;
     const px = 1 / v.cam.s;
-    const pts = d.cursor ? [...d.pts, d.cursor] : d.pts;
+    const raw = d.cursor ? [...d.pts, d.cursor] : d.pts;
+    const pts = POLY.includes(d.tool) ? densify(raw, !!v.brush?.smooth, v.brush?.radius ?? 0) : raw;
     tracePath(ctx, pts);
     ctx.strokeStyle = d.tool === 'path' ? '#ffd166' : d.tool === 'road' ? 'rgba(255,255,255,0.55)' : 'rgba(255,209,102,0.8)';
     ctx.lineWidth = d.tool === 'road' ? 3.5 : d.tool === 'sidewalk' ? 2 : 0.2;

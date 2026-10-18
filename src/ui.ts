@@ -4,6 +4,7 @@ import { deg, rad } from './geom';
 import { DISCLAIMER, LAW, LAW_CHECKED } from './law';
 import {
   type Actor,
+  type Road,
   type Scene,
   type VehicleType,
   PEDESTRIANS,
@@ -130,17 +131,24 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
             if (v) it.center = 'none';
           }, true);
         }),
-        check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))),
+        field('Радиус скругления поворотов, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100, step: 1 }), '0 — острые углы. Скругление дугой по радиусу.'),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
       );
+      narrowingForm(box, it as unknown as Road, app);
       break;
     case 'sidewalks':
-      box.append(field('Ширина, м', num(it.width, set((v) => (it.width = v)), { min: 1, max: 8, step: 0.5 })), check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))));
+      box.append(
+        field('Ширина, м', num(it.width, set((v) => (it.width = v)), { min: 1, max: 8, step: 0.5 })),
+        field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100 })),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
+      );
       break;
     case 'tracks':
       box.append(
         check('Выделенный путь (отделён бордюром)', it.separated, set((v) => (it.separated = v))),
-        check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))),
+        field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 200 })),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
         h('small', {}, 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
       );
@@ -198,6 +206,41 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
 
   box.append(h('div', { class: 'row' }, button('Дублировать', () => ed.duplicateSelection()), button('Удалить', () => ed.deleteSelection(), 'danger')));
   root.append(box);
+}
+
+/** Сужения и расширения: точки профиля левой и правой кромок. */
+function narrowingForm(box: HTMLElement, road: Road, app: AppApi): void {
+  const ed = app.editor;
+  const group = h('div', { class: 'group' }, h('h4', {}, 'Сужения и кромки'));
+  group.append(
+    h('div', { class: 'row' },
+      button('Сузить справа', () => app.edit(() => ed.addNarrowing(road, ['r']), true)),
+      button('Сузить слева', () => app.edit(() => ed.addNarrowing(road, ['l']), true)),
+      button('Сузить с двух сторон', () => app.edit(() => ed.addNarrowing(road, ['l', 'r']), true)),
+    ),
+    h('small', {}, 'Кромки (оранжевая — левая, бирюзовая — правая) можно гнуть: потяните точку на кромке. Двойной клик по кромке добавляет точку, по точке — удаляет. Сужение любой длины получается из нескольких точек.'),
+  );
+  const rows: { side: 'l' | 'r'; pt: { s: number; w: number } }[] = [];
+  for (const e of road.wl ?? []) rows.push({ side: 'l', pt: e });
+  for (const e of road.wr ?? []) rows.push({ side: 'r', pt: e });
+  if (rows.length) {
+    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, 'Кромка'), h('th', {}, 'от начала, м'), h('th', {}, 'от оси, м'), h('th', {})));
+    for (const r of rows) {
+      table.append(
+        h('tr', {},
+          h('td', {}, r.side === 'l' ? 'левая' : 'правая'),
+          h('td', {}, num(r.pt.s, (v) => app.edit(() => ((r.pt.s = v), (r.side === 'l' ? road.wl : road.wr)?.sort((a, b) => a.s - b.s)), true), { min: 0, step: 0.5 })),
+          h('td', {}, num(r.pt.w, (v) => app.edit(() => (r.pt.w = v)), { min: 0.8, max: 40, step: 0.1 })),
+          h('td', {}, h('button', { type: 'button', class: 'x', title: 'Удалить точку', onclick: () => app.edit(() => {
+            const key = r.side === 'l' ? 'wl' : 'wr';
+            road[key] = (road[key] ?? []).filter((e) => e !== r.pt);
+          }, true) }, '✕')),
+        ),
+      );
+    }
+    group.append(table, h('div', { class: 'row' }, button('Вернуть постоянную ширину', () => app.edit(() => { delete road.wl; delete road.wr; }, true))));
+  }
+  box.append(group);
 }
 
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {

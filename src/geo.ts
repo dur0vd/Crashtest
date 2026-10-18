@@ -79,6 +79,23 @@ export function gateFor(x: number, y: number, angle: number, reach: number, back
   return { a: add(p, mul(r, back)), b: add(p, mul(r, -reach)) };
 }
 
+/** Ширина «простреливаемой» зоны знака: по ширине проезжей части рядом с ним. */
+function signReach(scene: Scene, sign: Sign): number {
+  let best = SIGN_REACH;
+  let bestDist = 12;
+  for (const road of scene.roads) {
+    if (road.pts.length < 2) continue;
+    const pts = densify(road.pts, road.smooth);
+    const near = nearestOnPolyline(pts, { x: sign.x, y: sign.y });
+    const w = roadWidth(road);
+    if (near.dist < bestDist) {
+      bestDist = near.dist;
+      best = (road.oneWay ? w : w / 2) + 0.5;
+    }
+  }
+  return best;
+}
+
 export function buildGeo(scene: Scene): Geo {
   return {
     scene,
@@ -88,7 +105,7 @@ export function buildGeo(scene: Scene): Geo {
     }),
     sidewalks: scene.sidewalks.map((item) => ({ item, pts: densify(item.pts, item.smooth) })),
     tracks: scene.tracks.map((item) => ({ item, pts: densify(item.pts, item.smooth) })),
-    signs: scene.signs.map((sign) => ({ sign, gate: gateFor(sign.x, sign.y, sign.angle, SIGN_REACH, 1) })),
+    signs: scene.signs.map((sign) => ({ sign, gate: gateFor(sign.x, sign.y, sign.angle, signReach(scene, sign), 1) })),
     lights: scene.lights.map((light) => ({ light, line: gateFor(light.x, light.y, light.angle, light.lineLength) })),
     crosswalks: scene.crosswalks.map((item) => ({
       item,

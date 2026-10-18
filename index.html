@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#12161c" />
+    <meta name="description" content="Нарисуйте дорожную ситуацию, задайте движение — и получите разбор по ПДД РФ, КоАП РФ и УК РФ." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <title>Crashtest — симулятор дорожных ситуаций</title>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><img src="icon.svg" alt="" width="26" height="26" /><span>Crashtest</span></div>
+      <input id="sceneName" class="name" aria-label="Название ситуации" maxlength="80" />
+      <div class="spacer"></div>
+      <button id="btnUndo" class="icon" title="Отменить (Ctrl+Z)" aria-label="Отменить">↶</button>
+      <button id="btnRedo" class="icon" title="Повторить (Ctrl+Y)" aria-label="Повторить">↷</button>
+      <div class="menu">
+        <button id="btnExamples" class="btn">Примеры</button>
+        <div id="menuExamples" class="dropdown hidden"></div>
+      </div>
+      <div class="menu">
+        <button id="btnMenu" class="icon" aria-label="Меню">⋯</button>
+        <div id="menuMain" class="dropdown right hidden"></div>
+      </div>
+    </header>
+
+    <div class="work">
+      <nav id="tools" class="tools" aria-label="Инструменты"></nav>
+
+      <section class="stage" id="stage">
+        <canvas id="cv"></canvas>
+        <div id="palette" class="palette"></div>
+        <div id="drawbar" class="drawbar hidden">
+          <span id="drawText"></span>
+          <button id="btnDone" class="btn primary">Готово</button>
+          <button id="btnCancel" class="btn">Отмена</button>
+        </div>
+        <div id="hint" class="hint"></div>
+        <div class="zoom">
+          <button id="zoomIn" class="icon" aria-label="Приблизить">+</button>
+          <button id="zoomOut" class="icon" aria-label="Отдалить">−</button>
+          <button id="zoomFit" class="icon" aria-label="Показать всю сцену" title="Показать всю сцену">⌖</button>
+          <button id="zoomFollow" class="icon on" aria-label="Камера следит за участниками" title="Камера следит за участниками">🎥</button>
+        </div>
+        <div id="toast" class="toast hidden"></div>
+      </section>
+
+      <aside id="side" class="side">
+        <div class="tabs" role="tablist">
+          <button class="tab on" data-tab="props" role="tab">Свойства</button>
+          <button class="tab" data-tab="env" role="tab">Среда</button>
+          <button class="tab" data-tab="report" role="tab">Разбор <i id="repBadge" class="badge hidden"></i></button>
+          <button id="sheetClose" class="icon only-mobile" aria-label="Свернуть">✕</button>
+        </div>
+        <div id="pane-props" class="pane"></div>
+        <div id="pane-env" class="pane hidden"></div>
+        <div id="pane-report" class="pane hidden"></div>
+      </aside>
+    </div>
+
+    <footer class="player">
+      <button id="btnSheet" class="icon only-mobile" aria-label="Панель">☰</button>
+      <button id="btnRestart" class="icon" title="В начало" aria-label="В начало">⏮</button>
+      <button id="btnPlay" class="play" title="Запустить симуляцию" aria-label="Запустить">▶</button>
+      <button id="btnEdit" class="btn" title="Вернуться к редактированию">✎ Править</button>
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Время" />
+      <span id="timeLabel" class="time-label">0.0 / 20.0 с</span>
+      <select id="speed" aria-label="Скорость воспроизведения">
+        <option value="0.25">×0.25</option>
+        <option value="0.5">×0.5</option>
+        <option value="1" selected>×1</option>
+        <option value="2">×2</option>
+      </select>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <button id="modalClose" class="icon" aria-label="Закрыть">✕</button>
+        <div id="modalBody"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

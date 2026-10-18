@@ -5,11 +5,13 @@ import {
   type Vec,
   add,
   buildPath,
+  dist,
   dot,
   fromAngle,
   len,
   mul,
   ms,
+  nearestOnPolyline,
   obbContact,
   pathAt,
   sub,
@@ -94,14 +96,84 @@ interface Rt {
   box: { hl: number; hw: number };
   /** смещение центра кузова с грузом относительно опорной точки вдоль курса */
   shift: number;
+  /** едет по рельсам: путь лежит на колее, а удар не сбивает с неё (если нет схода) */
+  rail: boolean;
 }
 
-function makeRuntime(a: Actor, mu: number): Rt {
+/** Закрытие скорости при ударе, с которой трамвай с разрешённым сходом покидает рельсы, м/с (≈ 20 км/ч). */
+const DERAIL_REL = 5.5;
+
+/**
+ * Путь трамвая строго по колее: контрольные точки проецируются на ближайший путь,
+ * между ними берутся вершины самого пути. Если пути рядом нет, возвращается null.
+ */
+function railPath(a: Actor, tracks: Vec[][]): { path: PathData; nodeS: number[] } | null {
+  const ctrl: Vec[] = [{ x: a.x, y: a.y }, ...a.path.map((w) => ({ x: w.x, y: w.y }))];
+  let best: { pts: Vec[]; d: number } | null = null;
+  for (const pts of tracks) {
+    if (pts.length < 2) continue;
+    const d = nearestOnPolyline(pts, ctrl[0]).dist;
+    if (d <= 4 && (!best || d < best.d)) best = { pts, d };
+  }
+  if (!best) return null;
+  const pts = best.pts;
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
+  const total = cum[cum.length - 1];
+  const at = (st: number): Vec => {
+    const q = pathAt({ pts, cum, total, nodeS: [] }, Math.max(0, Math.min(total, st)));
+    return q.p;
+  };
+  const near0 = nearestOnPolyline(pts, ctrl[0]);
+  const stations = ctrl.map((c) => nearestOnPolyline(pts, c).s);
+  // направление движения: по последней точке, а без неё — по курсу
+  let fwd = dot(near0.tangent, fromAngle(a.heading)) >= 0;
+  if (ctrl.length > 1) {
+    const last = stations[stations.length - 1];
+    if (Math.abs(last - stations[0]) > 0.5) fwd = last > stations[0];
+  }
+  const sign = fwd ? 1 : -1;
+  const out: Vec[] = [at(stations[0])];
+  const nodeIdx: number[] = [0];
+  let cur = stations[0];
+  for (let i = 1; i < ctrl.length; i++) {
+    const target = sign > 0 ? Math.max(cur, stations[i]) : Math.min(cur, stations[i]);
+    for (let j = 0; j < pts.length; j++) {
+      if (sign > 0 ? cum[j] > cur + 1e-6 && cum[j] < target - 1e-6 : cum[j] < cur - 1e-6 && cum[j] > target + 1e-6) out.push(pts[j]);
+    }
+    if (sign < 0) {
+      // вершины при движении назад идут в обратном порядке
+      const k = nodeIdx[nodeIdx.length - 1];
+      const seg = out.splice(k + 1).reverse();
+      out.push(...seg);
+    }
+    out.push(at(target));
+    nodeIdx.push(out.length - 1);
+    cur = target;
+  }
+  if (ctrl.length === 1) {
+    // без маршрута: до конца пути в сторону движения
+    for (let j = 0; j < pts.length; j++) {
+      if (sign > 0 ? cum[j] > cur + 1e-6 : cum[j] < cur - 1e-6) out.push(pts[j]);
+    }
+    if (sign < 0) {
+      const seg = out.splice(1).reverse();
+      out.push(...seg);
+    }
+  }
+  const c2 = [0];
+  for (let i = 1; i < out.length; i++) c2.push(c2[i - 1] + dist(out[i - 1], out[i]));
+  return { path: { pts: out, cum: c2, total: c2[c2.length - 1], nodeS: nodeIdx.map((i) => c2[i]) }, nodeS: nodeIdx.map((i) => c2[i]) };
+}
+
+function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
   const spec = dimsOf(a);
   const start: Vec = { x: a.x, y: a.y };
   const ctrl: Vec[] = [start, ...a.path.map((w) => ({ x: w.x, y: w.y }))];
   if (ctrl.length === 1) ctrl.push(add(start, mul(fromAngle(a.heading), 2000)));
-  const path = buildPath(ctrl, true);
+  const onRail = a.kind === 'vehicle' && VEHICLES[a.type as VehicleType].rail;
+  const rp = onRail ? railPath(a, tracks) : null;
+  const path = rp ? rp.path : buildPath(ctrl, true);
   const nodes: Node[] = [{ s: 0, V: ms(a.speed), hold: 0 }];
   a.path.forEach((w, i) => nodes.push({ s: path.nodeS[i + 1], V: ms(Math.max(0, w.v)), hold: w.hold ?? 0 }));
   let accel = 2;
@@ -135,6 +207,7 @@ function makeRuntime(a: Actor, mu: number): Rt {
     plan,
     box: { hl: spec.length / 2, hw: spec.width / 2 },
     shift: spec.shift,
+    rail: !!rp,
   };
 }
 
@@ -186,6 +259,25 @@ function stepPath(r: Rt, dt: number): void {
   r.h = p.a;
 }
 
+/** Реакция на удар: обычное ТС и пешеход слетают с траектории, трамвай остаётся на рельсах и тормозит. */
+function hit(r: Rt, rel: number): void {
+  if (!r.rail || r.mode !== 'path') {
+    toFree(r);
+    return;
+  }
+  if (r.a.derail && rel >= DERAIL_REL) {
+    r.rail = false;
+    toFree(r);
+    return;
+  }
+  const d = (r.v * r.v) / (2 * Math.min(r.brake, r.plan));
+  r.nodes = [
+    { s: r.s, V: r.v, hold: 0 },
+    { s: r.s + d, V: 0, hold: 0 },
+  ];
+  r.next = 1;
+}
+
 function velocityOf(r: Rt): Vec {
   return r.mode === 'free' ? r.vel : mul(fromAngle(r.h), r.v);
 }
@@ -202,7 +294,7 @@ export function simulate(scene: Scene): Timeline {
   const duration = Math.max(1, scene.env.duration);
   const n = Math.floor(duration / DT) + 1;
 
-  const rts = scene.actors.map((a) => makeRuntime(a, mu));
+  const rts = scene.actors.map((a) => makeRuntime(a, mu, geo.tracks.map((t) => t.pts)));
   const tracks = new Map<string, Track>();
   for (const r of rts) {
     tracks.set(r.a.id, {
@@ -285,16 +377,17 @@ export function simulate(scene: Scene): Timeline {
         contacts.add(key);
         const vA = velocityOf(A);
         const vB = B ? velocityOf(B) : { x: 0, y: 0 };
-        toFree(A);
-        if (B) toFree(B);
         const rel = dot(sub(vA, vB), c.n);
+        for (const r of B ? [A, B] : [A]) hit(r, rel);
+        const railA = A.rail && A.mode === 'path';
+        const railB = !!B && B.rail && B.mode === 'path';
         let dvA = 0;
         let dvB = 0;
         if (rel > 0) {
           const e = 0.12;
           const j = ((1 + e) * rel) / (invA + invB);
-          A.vel = sub(A.vel, mul(c.n, j * invA));
-          if (B) B.vel = add(B.vel, mul(c.n, j * invB));
+          if (!railA) A.vel = sub(A.vel, mul(c.n, j * invA));
+          if (B && !railB) B.vel = add(B.vel, mul(c.n, j * invB));
           dvA = j * invA;
           dvB = j * invB;
         }
@@ -317,10 +410,13 @@ export function simulate(scene: Scene): Timeline {
         });
       }
       // раздвигаем пересёкшиеся тела
-      const tot = invA + invB;
+      // трамвай на рельсах с места не сдвигается: другое тело отодвигается целиком
+      const wA = A.rail && A.mode === 'path' ? 0 : invA;
+      const wB = B && B.rail && B.mode === 'path' ? 0 : invB;
+      const tot = wA + wB;
       if (tot > 0) {
-        A.pos = sub(A.pos, mul(c.n, (c.depth * invA) / tot));
-        if (B) B.pos = add(B.pos, mul(c.n, (c.depth * invB) / tot));
+        A.pos = sub(A.pos, mul(c.n, (c.depth * wA) / tot));
+        if (B) B.pos = add(B.pos, mul(c.n, (c.depth * wB) / tot));
       }
     }
   }

@@ -261,6 +261,8 @@ export interface Actor {
   flags: DriverFlags;
   /** груз (только для ТС) */
   cargo?: Cargo;
+  /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
+  derail?: boolean;
 }
 
 export interface Env {

@@ -78,7 +78,10 @@ for pm in re.finditer(r'<page number="(\d+)".*?</page>', xml, re.S):
     merged = []
     for e in sorted(events, key=lambda x: (x[1], x[0])):
         if merged and e[2] == 'cap' and merged[-1][2] == 'cap' and merged[-1][1] == e[1] and abs(merged[-1][0] - e[0]) <= 2:
-            merged[-1] = (merged[-1][0], e[1], 'cap', merged[-1][3] + ', ' + e[3])
+            a_, b_ = merged[-1][3].split(',')[-1].strip().split('.'), e[3].split('.')
+            # «8.4.1 ... 8.4.8» с пропуском чисел — диапазон; «5.7.1 5.7.2» подряд — перечисление
+            is_range = len(a_) == len(b_) and a_[:-1] == b_[:-1] and a_[-1].isdigit() and b_[-1].isdigit() and int(b_[-1]) - int(a_[-1]) >= 2
+            merged[-1] = (merged[-1][0], e[1], 'cap', merged[-1][3] + (' - ' if is_range else ', ') + e[3])
         else:
             merged.append(e)
     events = merged

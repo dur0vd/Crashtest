@@ -167,6 +167,11 @@ for e, soup in load('pdd'):
                 it['img'] = f['files'][0]
                 if len(f['files']) > 1:
                     it['imgs'] = f['files']
+        for it in items:
+            if 'img' not in it:
+                sib = next((o for o in items if o is not it and o['text'] == it['text'] and 'img' in o), None)
+                if sib:
+                    it['img'] = sib['img']
         signs['groups'].append({'id': mm.group(1), 'title': mm.group(2), 'intro': notes[0] if notes else '', 'signs': items, 'notes': notes[1:]})
     elif t.endswith('Горизонтальная разметка') or t.endswith('Вертикальная разметка'):
         kind = 'horizontal' if 'Горизонтальная' in t else 'vertical'
@@ -234,6 +239,10 @@ def parse_articles(doc: str, label: str) -> list[dict]:
 koap = {'code': 'КоАП РФ', 'chapter': 'Глава 12. Административные правонарушения в области дорожного движения', 'articles': parse_articles('koap', 'КоАП')}
 uk = {'code': 'УК РФ', 'chapter': 'Глава 27. Преступления против безопасности движения и эксплуатации транспорта', 'articles': parse_articles('uk', 'УК')}
 
+# лёгкие индексы для редактора: номер -> [название, картинка]; корпус целиком грузится только в справочнике
+sign_index = {s['id']: [s['title'] or s['text'][:60], s.get('img', '')] for g in signs['groups'] for s in g['signs']}
+marking_index = {s['id']: [s['title'] or re.sub(r'^[\d.]+\s*(<\*>)?\s*(\([^)]*\))?\s*-\s*', '', s['text'].split('\n')[0])[:90], s.get('img', '')] for k in ('horizontal', 'vertical') if markings[k] for s in markings[k]['items']}
+
 stamp = date.today().isoformat()
 meta = {
     'fetched': stamp,
@@ -244,7 +253,7 @@ meta = {
     },
 }
 OUT.mkdir(parents=True, exist_ok=True)
-for name, data in (('pdd', {**meta, **pdd}), ('signs', {**meta, **signs}), ('markings', {**meta, **markings}), ('koap', {**meta, **koap}), ('uk', {**meta, **uk})):
+for name, data in (('sign-index', sign_index), ('marking-index', marking_index), ('pdd', {**meta, **pdd}), ('signs', {**meta, **signs}), ('markings', {**meta, **markings}), ('koap', {**meta, **koap}), ('uk', {**meta, **uk})):
     (OUT / f'{name}.json').write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
 
 n_pts = sum(len(s['points']) for s in pdd['sections'])

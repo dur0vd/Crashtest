@@ -1,0 +1,26 @@
+{
+  "name": "crashtest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Симулятор дорожных ситуаций с разбором по ПДД РФ, КоАП РФ и УК РФ",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cap:sync": "npm run build && cap sync",
+    "cap:android": "npm run cap:sync && cap open android",
+    "cap:ios": "npm run cap:sync && cap open ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.3"
+  }
+}

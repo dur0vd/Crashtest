@@ -915,7 +915,7 @@ export class Renderer {
       if (!pose.present) continue;
       const sp = actorSpec(a);
       const s = worldToScreen(v.cam, this.w, this.h, pose.p);
-      const y = s.y - (sp.length / 2) * v.cam.s * 0.6 - 8;
+      const y = s.y - (sp.width / 2) * v.cam.s - 10;
       const text = labels.get(a.id) ?? '';
       const w = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(12,15,20,0.78)';
@@ -958,7 +958,7 @@ export class Renderer {
         const s = worldToScreen(v.cam, this.w, this.h, { x: tr.x[k], y: tr.y[k] });
         const txt = `${Math.round(kmh(tr.v[k]))} км/ч`;
         const tw = ctx.measureText(txt).width + 8;
-        const y = s.y + (actorSpec(a).length / 2) * v.cam.s * 0.6 + 8;
+        const y = s.y + (actorSpec(a).width / 2) * v.cam.s + 10;
         ctx.fillStyle = 'rgba(12,15,20,0.78)';
         ctx.beginPath();
         ctx.roundRect(s.x - tw / 2, y, tw, 16, 4);

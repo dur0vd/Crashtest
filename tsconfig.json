@@ -3,14 +3,26 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": [
+      "vite/client"
+    ],
+    "resolveJsonModule": true
   },
-  "include": ["src", "tests", "vite.config.ts", "capacitor.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "vite.config.ts",
+    "capacitor.config.ts"
+  ]
 }

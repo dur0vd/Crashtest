@@ -1,9 +1,15 @@
 import { type ActorVerdict, type CollisionReport, type Finding, type Report, HARM_LABEL } from './analysis';
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
-import { DISCLAIMER, LAW, LAW_CHECKED } from './law';
+import { imgUrl, loadCorpus, resolveRef } from './corpus';
+import { DISCLAIMER, LAW, LAW_CHECKED, describeRef } from './law';
+import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
+import { SIGN_GROUPS, SIGN_IDS, VALUE_SIGNS, signFile, signGroupOf, signTitle } from './signs';
 import {
   type Actor,
+  NO_CARGO,
+  dimsOf,
+  type Road,
   type Scene,
   type VehicleType,
   PEDESTRIANS,
@@ -113,6 +119,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
     crosswalks: 'Пешеходный переход',
     lights: 'Светофор',
     signs: 'Дорожный знак',
+    markings: 'Дорожная разметка',
     obstacles: 'Препятствие',
     actors: it.kind === 'pedestrian' ? 'Пешеход' : 'Транспортное средство',
   }[sel.col];
@@ -130,17 +137,24 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
             if (v) it.center = 'none';
           }, true);
         }),
-        check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))),
+        field('Радиус скругления поворотов, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100, step: 1 }), '0 — острые углы. Скругление дугой по радиусу.'),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
       );
+      narrowingForm(box, it as unknown as Road, app);
       break;
     case 'sidewalks':
-      box.append(field('Ширина, м', num(it.width, set((v) => (it.width = v)), { min: 1, max: 8, step: 0.5 })), check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))));
+      box.append(
+        field('Ширина, м', num(it.width, set((v) => (it.width = v)), { min: 1, max: 8, step: 0.5 })),
+        field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100 })),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
+      );
       break;
     case 'tracks':
       box.append(
         check('Выделенный путь (отделён бордюром)', it.separated, set((v) => (it.separated = v))),
-        check('Сгладить изгибы', it.smooth, set((v) => (it.smooth = v))),
+        field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 200 })),
+        check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
         h('small', {}, 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
       );
@@ -169,20 +183,43 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         field('Сдвиг цикла, с', num(it.offset, set((v) => (it.offset = v)), { min: 0, max: 240 }), 'Чтобы встречные направления горели по очереди.'),
       );
       break;
-    case 'signs':
+    case 'signs': {
+      const vs = VALUE_SIGNS[it.kind];
       box.append(
-        field(
-          'Знак',
-          select(
-            [['main', '2.1 Главная дорога'], ['giveway', '2.4 Уступите дорогу'], ['stop', '2.5 Движение без остановки запрещено'], ['noentry', '3.1 Въезд запрещён'], ['limit', '3.24 Ограничение скорости'], ['noovertake', '3.20 Обгон запрещён'], ['crosswalk', '5.19.1 Пешеходный переход']],
-            it.kind,
-            (v) => app.edit(() => ((it.kind = v), v === 'limit' && !it.value && (it.value = 40)), true),
-          ),
+        h('div', { class: 'sign-current' },
+          signThumb(it.kind, 56),
+          h('div', {}, h('b', {}, `Знак ${it.kind}`), h('div', { class: 'note' }, signTitle(it.kind))),
         ),
-        ...(it.kind === 'limit' ? [field('Ограничение, км/ч', num(it.value ?? 40, set((v) => (it.value = v)), { min: 5, max: 130, step: 5 }))] : []),
+        h('div', { class: 'row' },
+          button('Выбрать другой знак', () => openSignPicker({ current: it.kind, onPick: (id) => app.edit(() => { it.kind = id; const v = VALUE_SIGNS[id]; if (v) it.value = it.value ?? v.def; else delete it.value; }, true) })),
+          button('Что это за знак?', () => openRefInReference(`sign:${it.kind}`)),
+        ),
+        ...(vs ? [field(`${vs.label}, ${vs.unit}`, num(it.value ?? vs.def, set((v) => (it.value = v)), { min: vs.min, max: vs.max, step: vs.step }))] : []),
         field('Направление движения, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 }), 'Знак действует для ТС, едущих в этом направлении.'),
       );
+      const plates = h('div', { class: 'group' }, h('h4', {}, 'Таблички'));
+      const list: string[] = it.plates ?? [];
+      for (const pl of list) {
+        plates.append(h('div', { class: 'plate-row' }, signThumb(pl, 34), h('span', {}, `${pl} ${signTitle(pl)}`), h('button', { type: 'button', class: 'x', title: 'Убрать', onclick: () => app.edit(() => { it.plates = list.filter((x) => x !== pl); if (!it.plates.length) delete it.plates; }, true) }, '✕')));
+      }
+      plates.append(button('Добавить табличку', () => openSignPicker({ only: '8', onPick: (id) => app.edit(() => { it.plates = [...list, id]; }, true) })));
+      if (list.includes('8.2.1')) plates.append(field('Зона действия, м', num(it.zoneLen ?? VALUE_SIGNS['8.2.1'].def, set((v) => (it.zoneLen = v)), { min: 10, max: 1000, step: 10 })));
+      box.append(plates);
       break;
+    }
+    case 'markings': {
+      const spec = MARKING_BY_ID[it.kind];
+      box.append(
+        h('div', { class: 'sign-current' }, h('div', {}, h('b', {}, `Разметка ${it.kind}`), h('div', { class: 'note' }, spec?.name ?? ''))),
+        field('Вид', select(MARKINGS.map((m) => [m.id, `${m.id} ${m.name}`] as [string, string]), it.kind, (v) => app.edit(() => (it.kind = v), true))),
+        ...(spec?.arrows ? [field('Стрела', select(Object.entries(ARROW_VARIANTS).map(([k, v]) => [k, v.name] as [string, string]), it.variant ?? 'straight', set((v: string) => (it.variant = v))))] : []),
+        ...(spec?.oneSide ? [check('Сплошная линия справа по ходу рисования', it.solidRight !== false, set((v) => (it.solidRight = v)))] : []),
+        ...(spec?.form === 'line' ? [field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100 }))] : []),
+        ...(spec?.form === 'symbol' ? [field('Направление, °', num(deg(it.angle ?? 0), set((v: number) => (it.angle = rad(v))), { step: 5 }))] : []),
+        button('Что это за разметка?', () => openRefInReference(`marking:${it.kind}`)),
+      );
+      break;
+    }
     case 'obstacles':
       box.append(
         field('Тип', select([['building', 'Здание'], ['fence', 'Забор'], ['tree', 'Дерево'], ['barrier', 'Барьер']], it.kind, set((v) => (it.kind = v)))),
@@ -198,6 +235,74 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
 
   box.append(h('div', { class: 'row' }, button('Дублировать', () => ed.duplicateSelection()), button('Удалить', () => ed.deleteSelection(), 'danger')));
   root.append(box);
+}
+
+/** Сужения и расширения: точки профиля левой и правой кромок. */
+function narrowingForm(box: HTMLElement, road: Road, app: AppApi): void {
+  const ed = app.editor;
+  const group = h('div', { class: 'group' }, h('h4', {}, 'Сужения и кромки'));
+  group.append(
+    h('div', { class: 'row' },
+      button('Сузить справа', () => app.edit(() => ed.addNarrowing(road, ['r']), true)),
+      button('Сузить слева', () => app.edit(() => ed.addNarrowing(road, ['l']), true)),
+      button('Сузить с двух сторон', () => app.edit(() => ed.addNarrowing(road, ['l', 'r']), true)),
+    ),
+    h('small', {}, 'Кромки (оранжевая — левая, бирюзовая — правая) можно гнуть: потяните точку на кромке. Двойной клик по кромке добавляет точку, по точке — удаляет. Сужение любой длины получается из нескольких точек.'),
+  );
+  const rows: { side: 'l' | 'r'; pt: { s: number; w: number } }[] = [];
+  for (const e of road.wl ?? []) rows.push({ side: 'l', pt: e });
+  for (const e of road.wr ?? []) rows.push({ side: 'r', pt: e });
+  if (rows.length) {
+    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, 'Кромка'), h('th', {}, 'от начала, м'), h('th', {}, 'от оси, м'), h('th', {})));
+    for (const r of rows) {
+      table.append(
+        h('tr', {},
+          h('td', {}, r.side === 'l' ? 'левая' : 'правая'),
+          h('td', {}, num(r.pt.s, (v) => app.edit(() => ((r.pt.s = v), (r.side === 'l' ? road.wl : road.wr)?.sort((a, b) => a.s - b.s)), true), { min: 0, step: 0.5 })),
+          h('td', {}, num(r.pt.w, (v) => app.edit(() => (r.pt.w = v)), { min: 0.8, max: 40, step: 0.1 })),
+          h('td', {}, h('button', { type: 'button', class: 'x', title: 'Удалить точку', onclick: () => app.edit(() => {
+            const key = r.side === 'l' ? 'wl' : 'wr';
+            road[key] = (road[key] ?? []).filter((e) => e !== r.pt);
+          }, true) }, '✕')),
+        ),
+      );
+    }
+    group.append(table, h('div', { class: 'row' }, button('Вернуть постоянную ширину', () => app.edit(() => { delete road.wl; delete road.wr; }, true))));
+  }
+  box.append(group);
+}
+
+/** Груз: масса, свесы, высота и признаки соблюдения раздела 23 ПДД. */
+function cargoForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  const vs = VEHICLES[a.type as VehicleType];
+  const g = h('div', { class: 'group' }, h('h4', {}, 'Груз'));
+  g.append(
+    check('Перевозит груз', !!a.cargo, (v) =>
+      app.edit(() => {
+        if (v) a.cargo = { ...NO_CARGO, mass: Math.min(500, vs.payload || 500), height: vs.height };
+        else delete a.cargo;
+      }, true),
+    ),
+  );
+  const c = a.cargo;
+  if (c) {
+    const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v), true);
+    const d = dimsOf(a);
+    g.append(
+      field('Масса груза, кг', num(c.mass, set((v) => (c.mass = v)), { min: 0, max: 60000, step: 50 })),
+      field('Выступ спереди, м', num(c.front, set((v) => (c.front = v)), { min: 0, max: 15, step: 0.1 })),
+      field('Выступ сзади, м', num(c.rear, set((v) => (c.rear = v)), { min: 0, max: 15, step: 0.1 })),
+      field('Выступ слева, м', num(c.left, set((v) => (c.left = v)), { min: 0, max: 4, step: 0.1 })),
+      field('Выступ справа, м', num(c.right, set((v) => (c.right = v)), { min: 0, max: 4, step: 0.1 })),
+      field('Высота с грузом, м', num(c.height, set((v) => (c.height = v)), { min: 0.5, max: 6, step: 0.1 })),
+      check('Знаки «Крупногабаритный груз» нанесены', c.marked, set((v) => (c.marked = v))),
+      check('Груз надёжно закреплён', c.secured, set((v) => (c.secured = v))),
+      check('Груз закрывает обзор, огни или номер', c.blocksView, set((v) => (c.blocksView = v))),
+      check('Опасный груз', c.dangerous, set((v) => (c.dangerous = v))),
+      h('small', {}, `С грузом: ${d.length.toFixed(1)} × ${d.width.toFixed(2)} × ${d.height.toFixed(1)} м, масса ${(d.mass / 1000).toFixed(1)} т. Допустимая нагрузка ТС — ${vs.payload} кг (п. 23.1).`),
+    );
+  }
+  box.append(g);
 }
 
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
@@ -226,6 +331,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       ),
     );
   }
+  if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
   pathBox.append(
@@ -275,26 +381,47 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
 // ---------------------------------------------------------------------------
 // Разбор
 
+let openRefInReference: (id: string) => void = () => {};
+export function setRefOpener(fn: (id: string) => void): void {
+  openRefInReference = fn;
+}
+
 function refChip(id: string, host: HTMLElement): HTMLElement {
   const r = LAW[id];
-  const label = r ? `${r.cite}${r.code === 'ПДД' || r.code === 'КоАП' || r.code === 'УК' ? ' ' + r.code : ''}` : id;
-  const cls = r ? `chip ${r.code === 'ПДД' ? 'pdd' : r.code === 'КоАП' ? 'koap' : r.code === 'УК' ? 'uk' : 'gk'}` : 'chip';
+  const d = describeRef(id);
+  const label = `${d.cite}${d.code === 'ПДД' || d.code === 'КоАП' || d.code === 'УК' ? ' ' + d.code : ''}`;
+  const cls = `chip ${d.code === 'ПДД' ? 'pdd' : d.code === 'КоАП' ? 'koap' : d.code === 'УК' ? 'uk' : 'gk'}`;
   const btn = h('button', { type: 'button', class: cls }, label);
   btn.addEventListener('click', () => {
-    let box = host.querySelector<HTMLElement>(`.refbox[data-ref="${id}"]`);
+    let box = host.querySelector<HTMLElement>(`.refbox[data-ref="${CSS.escape(id)}"]`);
     if (box) {
       box.remove();
       btn.classList.remove('open');
       return;
     }
-    if (!r) return;
-    box = h('div', { class: 'refbox', 'data-ref': id },
-      h('b', {}, `${r.cite} ${r.code === 'ГК' || r.code === 'ОСАГО' ? '' : r.code + ' РФ'} — ${r.title}`),
-      h('p', {}, r.text),
-      r.sanction ? h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), r.sanction) : null,
-    );
+    const fallback = () => [
+      h('b', {}, `${label}${r ? ' — ' + r.title : ''}`),
+      r ? h('p', {}, r.text) : h('p', {}, 'Текст нормы недоступен.'),
+      r?.sanction ? h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), r.sanction) : null,
+    ];
+    box = h('div', { class: 'refbox', 'data-ref': id }, ...fallback());
     host.append(box);
     btn.classList.add('open');
+    // дословный текст нормы подгружается из полного корпуса
+    const el = box;
+    loadCorpus()
+      .then((c) => {
+        const full = resolveRef(c, id);
+        if (!full || !el.isConnected) return;
+        el.replaceChildren(
+          h('b', {}, `${full.cite}${full.title ? ' — ' + full.title : ''}`),
+          ...full.images.slice(0, 4).map((src) => h('img', { src: imgUrl(src), alt: '', class: 'sign-big' })),
+          ...full.text.split('\n').map((t) => h('p', {}, t)),
+          ...(full.sanction && !full.text.includes(full.sanction.slice(0, 40)) ? [h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), full.sanction)] : []),
+          h('button', { type: 'button', class: 'btn', onclick: () => openRefInReference(id) }, 'Открыть в справочнике'),
+        );
+      })
+      .catch(() => {});
   });
   return btn;
 }
@@ -416,4 +543,63 @@ function collisionCard(c: CollisionReport, app: AppApi, title: (id: string) => s
   card.append(harm);
   for (const n of c.notes) card.append(h('p', { class: 'note' }, n));
   return card;
+}
+
+// ---------------------------------------------------------------------------
+// Каталог знаков (выбор знака и таблички)
+
+export function signThumb(id: string, size: number): HTMLElement {
+  const f = signFile(id);
+  return f ? h('img', { src: imgUrl(f), alt: id, class: 'sign-thumb', style: `width:${size}px;height:${size}px` }) : h('span', { class: 'sign-thumb ph', style: `width:${size}px;height:${size}px` }, id);
+}
+
+export function closeModal(): void {
+  document.getElementById('modal')?.classList.add('hidden');
+}
+
+export function openModal(body: HTMLElement): void {
+  document.getElementById('modalBody')?.replaceChildren(body);
+  document.getElementById('modal')?.classList.remove('hidden');
+}
+
+export interface SignPickerOpts {
+  current?: string;
+  /** ограничить группой знаков, например '8' — только таблички */
+  only?: string;
+  onPick: (id: string) => void;
+}
+
+/** Контент каталога знаков: поиск, группы и сетка картинок. */
+export function signPicker(o: SignPickerOpts, afterPick: () => void): HTMLElement {
+  let group = o.only ?? 'all';
+  let query = '';
+  const grid = h('div', { class: 'sign-grid' });
+  const search = h('input', { type: 'search', class: 'ref-search', placeholder: 'Номер или название: 3.24, обгон, пешеход', 'aria-label': 'Поиск знака' });
+  const chips = h('div', { class: 'ref-tabs' });
+  const draw = () => {
+    const q = query.trim().toLowerCase().replace(/ё/g, 'е');
+    const ids = SIGN_IDS.filter((id) => (group === 'all' || signGroupOf(id) === group) && (!q || id.startsWith(q) || signTitle(id).toLowerCase().replace(/ё/g, 'е').includes(q)));
+    grid.replaceChildren(
+      ...ids.map((id) =>
+        h('button', { type: 'button', class: `sign-cell${o.current === id ? ' on' : ''}`, title: `${id} ${signTitle(id)}`, onclick: () => { o.onPick(id); afterPick(); } },
+          signThumb(id, 56),
+          h('span', {}, id),
+        ),
+      ),
+    );
+    if (!ids.length) grid.append(h('p', { class: 'note' }, 'Ничего не найдено'));
+    chips.replaceChildren(
+      ...(o.only ? [] : [{ id: 'all', title: 'Все' }, ...SIGN_GROUPS].map((g) => h('button', { type: 'button', class: `pchip${group === g.id ? ' on' : ''}`, onclick: () => { group = g.id; draw(); } }, g.id === 'all' ? 'Все' : `${g.id}. ${g.title}`))),
+    );
+  };
+  search.addEventListener('input', () => {
+    query = search.value;
+    draw();
+  });
+  draw();
+  return h('div', { class: 'picker' }, h('h2', {}, o.only === '8' ? 'Таблички' : 'Дорожные знаки'), search, chips, grid);
+}
+
+export function openSignPicker(o: SignPickerOpts): void {
+  openModal(signPicker(o, closeModal));
 }

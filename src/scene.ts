@@ -1,4 +1,5 @@
 import type { Vec } from './geom';
+import { LEGACY_SIGN_KIND } from './signs';
 
 // ---------------------------------------------------------------------------
 // Каталог участников движения
@@ -41,20 +42,24 @@ export interface VehicleSpec {
   route: boolean;
   /** грузовой автомобиль с разрешённой массой более 3,5 т */
   heavy: boolean;
+  /** высота от поверхности дороги, м */
+  height: number;
+  /** разрешённая максимальная масса без груза, кг (для знаков 3.11 и сравнения с перевозимым грузом) */
+  payload: number;
 }
 
 export const VEHICLES: Record<VehicleType, VehicleSpec> = {
-  bicycle: { name: 'Велосипед', length: 1.8, width: 0.6, mass: 95, accel: 1.0, brakeFactor: 0.6, vmax: 35, color: '#2fb36b', exposed: true, rail: false, route: false, heavy: false },
-  moped: { name: 'Мопед', length: 1.8, width: 0.7, mass: 150, accel: 1.4, brakeFactor: 0.8, vmax: 50, color: '#f5a524', exposed: true, rail: false, route: false, heavy: false },
-  motorcycle: { name: 'Мотоцикл', length: 2.2, width: 0.8, mass: 280, accel: 4.0, brakeFactor: 0.9, vmax: 200, color: '#ff6b3d', exposed: true, rail: false, route: false, heavy: false },
-  car: { name: 'Легковой автомобиль', length: 4.5, width: 1.8, mass: 1400, accel: 2.5, brakeFactor: 1.0, vmax: 200, color: '#3e9bff', exposed: false, rail: false, route: false, heavy: false },
-  suv: { name: 'Внедорожник', length: 4.8, width: 1.95, mass: 2100, accel: 2.2, brakeFactor: 0.95, vmax: 180, color: '#8b6fe8', exposed: false, rail: false, route: false, heavy: false },
-  van: { name: 'Микроавтобус / фургон', length: 5.6, width: 2.0, mass: 2800, accel: 1.6, brakeFactor: 0.9, vmax: 130, color: '#e8e4d8', exposed: false, rail: false, route: false, heavy: false },
-  truck: { name: 'Грузовик', length: 8.5, width: 2.5, mass: 14000, accel: 0.9, brakeFactor: 0.75, vmax: 90, color: '#c9a227', exposed: false, rail: false, route: false, heavy: true },
-  bus: { name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true },
-  trolleybus: { name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true },
-  tram: { name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true },
-  cart: { name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false },
+  bicycle: { name: 'Велосипед', length: 1.8, width: 0.6, mass: 95, accel: 1.0, brakeFactor: 0.6, vmax: 35, color: '#2fb36b', exposed: true, rail: false, route: false, heavy: false, height: 1.8, payload: 0 },
+  moped: { name: 'Мопед', length: 1.8, width: 0.7, mass: 150, accel: 1.4, brakeFactor: 0.8, vmax: 50, color: '#f5a524', exposed: true, rail: false, route: false, heavy: false, height: 1.7, payload: 0 },
+  motorcycle: { name: 'Мотоцикл', length: 2.2, width: 0.8, mass: 280, accel: 4.0, brakeFactor: 0.9, vmax: 200, color: '#ff6b3d', exposed: true, rail: false, route: false, heavy: false, height: 1.5, payload: 0 },
+  car: { name: 'Легковой автомобиль', length: 4.5, width: 1.8, mass: 1400, accel: 2.5, brakeFactor: 1.0, vmax: 200, color: '#3e9bff', exposed: false, rail: false, route: false, heavy: false, height: 1.5, payload: 450 },
+  suv: { name: 'Внедорожник', length: 4.8, width: 1.95, mass: 2100, accel: 2.2, brakeFactor: 0.95, vmax: 180, color: '#8b6fe8', exposed: false, rail: false, route: false, heavy: false, height: 1.8, payload: 600 },
+  van: { name: 'Микроавтобус / фургон', length: 5.6, width: 2.0, mass: 2800, accel: 1.6, brakeFactor: 0.9, vmax: 130, color: '#e8e4d8', exposed: false, rail: false, route: false, heavy: false, height: 2.5, payload: 1200 },
+  truck: { name: 'Грузовик', length: 8.5, width: 2.5, mass: 14000, accel: 0.9, brakeFactor: 0.75, vmax: 90, color: '#c9a227', exposed: false, rail: false, route: false, heavy: true, height: 3.5, payload: 8000 },
+  bus: { name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true, height: 3.0, payload: 0 },
+  trolleybus: { name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true, height: 3.4, payload: 0 },
+  tram: { name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true, height: 3.4, payload: 0 },
+  cart: { name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false, height: 2.2, payload: 600 },
 };
 
 export interface PedestrianSpec {
@@ -88,9 +93,20 @@ export const GAUGE = 1.52;
 export type CenterMarking = 'none' | 'dashed' | 'solid' | 'double';
 export type RoadZone = 'city' | 'outside' | 'residential';
 
+/** Точка профиля кромки: на расстоянии s от начала оси дорога от оси до края имеет ширину w. */
+export interface EdgePt {
+  s: number;
+  w: number;
+}
+
 export interface Road {
   id: string;
   pts: Vec[];
+  /** радиус скругления поворотов оси, м (0 — без скругления) */
+  radius?: number;
+  /** профиль левой и правой кромок; если не задан — ширина постоянна */
+  wl?: EdgePt[];
+  wr?: EdgePt[];
   /** полос в каждом направлении (для односторонней — всего полос) */
   lanes: number;
   center: CenterMarking;
@@ -102,6 +118,7 @@ export interface Road {
 export interface Sidewalk {
   id: string;
   pts: Vec[];
+  radius?: number;
   width: number;
   smooth: boolean;
 }
@@ -109,6 +126,7 @@ export interface Sidewalk {
 export interface TramTrack {
   id: string;
   pts: Vec[];
+  radius?: number;
   /** путь выделен бордюром или разделительной полосой */
   separated: boolean;
   smooth: boolean;
@@ -141,7 +159,8 @@ export interface TrafficLight {
   offset: number;
 }
 
-export type SignKind = 'main' | 'giveway' | 'stop' | 'noentry' | 'limit' | 'noovertake' | 'crosswalk';
+/** Номер знака по приложению 1 к ПДД: «2.1», «3.24», «5.19.1». */
+export type SignKind = string;
 
 export interface Sign {
   id: string;
@@ -150,8 +169,29 @@ export interface Sign {
   /** направление движения, которому адресован знак */
   angle: number;
   kind: SignKind;
-  /** для ограничения скорости, км/ч */
+  /** число на знаке: км/ч, т, м (см. VALUE_SIGNS) */
   value?: number;
+  /** таблички под знаком (номера по приложению 1: «8.2.1», «8.4.1»…) */
+  plates?: string[];
+  /** длина зоны действия по табличке 8.2.1, м */
+  zoneLen?: number;
+}
+
+/** Элемент горизонтальной разметки по приложению 2 к ПДД. */
+export interface Marking {
+  id: string;
+  /** номер разметки: «1.1», «1.5», «1.18»… */
+  kind: string;
+  /** линия или площадка — точки по контуру; значок — одна точка */
+  pts: Vec[];
+  /** направление значка, рад */
+  angle?: number;
+  /** вариант (для стрел 1.18) */
+  variant?: string;
+  /** для 1.11: сплошная линия справа по ходу рисования (иначе слева) */
+  solidRight?: boolean;
+  radius?: number;
+  smooth?: boolean;
 }
 
 export type ObstacleKind = 'building' | 'fence' | 'tree' | 'barrier';
@@ -181,6 +221,30 @@ export interface DriverFlags {
   flees: boolean;
 }
 
+/** Груз по разделу 23 ПДД и ст. 12.21 КоАП. Свесы считаются от габаритов ТС, в метрах. */
+export interface Cargo {
+  /** масса груза, кг */
+  mass: number;
+  /** выступ спереди и сзади за габариты ТС */
+  front: number;
+  rear: number;
+  /** выступ сбоку от габаритного огня (слева и справа) */
+  left: number;
+  right: number;
+  /** высота ТС с грузом от поверхности дороги, м */
+  height: number;
+  /** нанесены опознавательные знаки «Крупногабаритный груз» (п. 23.4) */
+  marked: boolean;
+  /** груз закреплён надлежащим образом (п. 23.2) */
+  secured: boolean;
+  /** груз закрывает обзор водителю, световые приборы или номер (п. 23.3) */
+  blocksView: boolean;
+  /** опасный груз */
+  dangerous: boolean;
+}
+
+export const NO_CARGO: Cargo = { mass: 0, front: 0, rear: 0, left: 0, right: 0, height: 0, marked: false, secured: true, blocksView: false, dangerous: false };
+
 export interface Actor {
   id: string;
   kind: 'vehicle' | 'pedestrian';
@@ -195,6 +259,8 @@ export interface Actor {
   delay: number;
   path: Waypoint[];
   flags: DriverFlags;
+  /** груз (только для ТС) */
+  cargo?: Cargo;
 }
 
 export interface Env {
@@ -212,6 +278,7 @@ export interface Scene {
   crosswalks: Crosswalk[];
   lights: TrafficLight[];
   signs: Sign[];
+  markings: Marking[];
   obstacles: Obstacle[];
   actors: Actor[];
 }
@@ -227,15 +294,16 @@ export function emptyScene(): Scene {
     crosswalks: [],
     lights: [],
     signs: [],
+    markings: [],
     obstacles: [],
     actors: [],
   };
 }
 
-export type AnyItem = Road | Sidewalk | TramTrack | Crosswalk | TrafficLight | Sign | Obstacle | Actor;
-export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'obstacles' | 'actors';
+export type AnyItem = Road | Sidewalk | TramTrack | Crosswalk | TrafficLight | Sign | Marking | Obstacle | Actor;
+export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
 
-export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'crosswalks', 'lights', 'signs', 'obstacles', 'actors'];
+export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'crosswalks', 'lights', 'signs', 'markings', 'obstacles', 'actors'];
 
 const PREFIX: Record<Collection, string> = {
   roads: 'r',
@@ -244,6 +312,7 @@ const PREFIX: Record<Collection, string> = {
   crosswalks: 'c',
   lights: 'l',
   signs: 'g',
+  markings: 'm',
   obstacles: 'o',
   actors: 'a',
 };
@@ -325,6 +394,7 @@ export function normalizeScene(raw: unknown): Scene {
     crosswalks: [],
     lights: [],
     signs: [],
+    markings: [],
     obstacles: [],
     actors: [],
   };
@@ -338,11 +408,38 @@ export function normalizeScene(raw: unknown): Scene {
     road.oneWay = !!road.oneWay;
     road.zone = road.zone ?? 'city';
     road.smooth = !!road.smooth;
+    road.radius = Number.isFinite(road.radius) ? Math.max(0, road.radius as number) : 0;
+    for (const k of ['wl', 'wr'] as const) {
+      const prof = road[k];
+      if (!Array.isArray(prof)) delete road[k];
+      else road[k] = prof.filter((e) => e && Number.isFinite(e.s) && Number.isFinite(e.w)).sort((a, b) => a.s - b.s);
+    }
   }
+  for (const g of scene.signs) {
+    g.kind = LEGACY_SIGN_KIND[g.kind] ?? g.kind;
+    if (!Array.isArray(g.plates)) delete g.plates;
+  }
+  scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
     a.path = a.path ?? [];
     a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
     a.delay = a.delay ?? 0;
   }
   return scene;
+}
+
+/** Габариты участника с учётом свесов груза: длина, ширина, высота, масса и смещение центра кузова вдоль курса. */
+export function dimsOf(a: Actor): { length: number; width: number; height: number; mass: number; shift: number } {
+  const sp = actorSpec(a);
+  if (a.kind !== 'vehicle') return { length: sp.length, width: sp.width, height: 1.7, mass: sp.mass, shift: 0 };
+  const vs = VEHICLES[a.type as VehicleType];
+  const c = a.cargo;
+  if (!c) return { length: sp.length, width: sp.width, height: vs.height, mass: sp.mass, shift: 0 };
+  return {
+    length: sp.length + c.front + c.rear,
+    width: sp.width + c.left + c.right,
+    height: Math.max(vs.height, c.height),
+    mass: sp.mass + c.mass,
+    shift: (c.front - c.rear) / 2,
+  };
 }

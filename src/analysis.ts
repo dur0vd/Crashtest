@@ -26,18 +26,19 @@ import {
   angleOf,
 } from './geom';
 import { type Collision, type Timeline, type Track, DT } from './sim';
+import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from './restrictions';
 import {
   type Actor,
   type CenterMarking,
   type Scene,
   type Sign,
-  type SignKind,
   type TrafficLight,
   type VehicleType,
   VEHICLES,
   actorLabels,
   actorSpec,
   actorTitle,
+  dimsOf,
   lightPhase,
   pedestrianGreen,
   SURFACES,
@@ -124,7 +125,7 @@ export interface Report {
 // ---------------------------------------------------------------------------
 // Контекст
 
-interface Info {
+export interface Info {
   a: Actor;
   title: string;
   label: string;
@@ -132,6 +133,11 @@ interface Info {
   isVeh: boolean;
   hl: number;
   hw: number;
+  /** смещение центра кузова с грузом вдоль курса */
+  shift: number;
+  /** полудлина и полуширина самого ТС без груза */
+  hlBase: number;
+  hwBase: number;
   mass: number;
   k0: number;
   kEnd: number;
@@ -140,15 +146,17 @@ interface Info {
   rail: boolean;
 }
 
-interface GateEvent {
+export interface GateEvent {
   actorId: string;
   frame: number;
   dist: number;
   sign?: Sign;
   light?: TrafficLight;
+  /** кадр, с которого знак перестаёт действовать (заполняется computeGateEnds) */
+  until?: number;
 }
 
-interface Ctx {
+export interface Ctx {
   scene: Scene;
   tl: Timeline;
   geo: Geo;
@@ -170,10 +178,11 @@ const SERVICE_DECEL_Y = 3.0;
 const tOf = (k: number): number => k * DT;
 
 function boxAt(i: Info, k: number): OBB {
-  return { cx: i.tr.x[k], cy: i.tr.y[k], hl: i.hl, hw: i.hw, a: i.tr.h[k] };
+  const h = i.tr.h[k];
+  return { cx: i.tr.x[k] + Math.cos(h) * i.shift, cy: i.tr.y[k] + Math.sin(h) * i.shift, hl: i.hl, hw: i.hw, a: h };
 }
 const posAt = (i: Info, k: number): Vec => ({ x: i.tr.x[k], y: i.tr.y[k] });
-const frontAt = (i: Info, k: number): Vec => add(posAt(i, k), mul(fromAngle(i.tr.h[k]), i.hl));
+const frontAt = (i: Info, k: number): Vec => add(posAt(i, k), mul(fromAngle(i.tr.h[k]), i.hl + i.shift));
 
 function addFinding(ctx: Ctx, f: Omit<Finding, 'causal'> & { causal?: boolean }): Finding {
   const full: Finding = { causal: false, ...f };
@@ -191,7 +200,8 @@ function prepare(scene: Scene, tl: Timeline): Ctx {
   const mu = tl.mu;
   for (const a of scene.actors) {
     const tr = tl.tracks.get(a.id)!;
-    const sp = actorSpec(a);
+    const sp = dimsOf(a);
+    const base = actorSpec(a);
     let k0 = 0;
     while (k0 < tl.n && !tr.present[k0]) k0++;
     let kEnd = tl.n - 1;
@@ -210,6 +220,9 @@ function prepare(scene: Scene, tl: Timeline): Ctx {
       isVeh,
       hl: sp.length / 2,
       hw: sp.width / 2,
+      shift: sp.shift,
+      hlBase: base.length / 2,
+      hwBase: base.width / 2,
       mass: sp.mass,
       k0,
       kEnd,
@@ -264,7 +277,7 @@ function collectGates(ctx: Ctx): void {
 function activeSigns(ctx: Ctx, actorId: string, frame: number, maxDist: number): Sign[] {
   const i = ctx.infos.get(actorId)!;
   return ctx.gates
-    .filter((g) => g.actorId === actorId && g.sign && g.frame <= frame && i.trav[frame] - g.dist <= maxDist)
+    .filter((g) => g.actorId === actorId && g.sign && g.frame <= frame && (g.until === undefined || frame < g.until) && i.trav[frame] - g.dist <= maxDist)
     .map((g) => g.sign!);
 }
 
@@ -292,10 +305,18 @@ function zoneLimit(type: VehicleType, zone: 'city' | 'outside' | 'residential'):
 export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; refs: string[] } | null {
   const hits = roadsAt(ctx.geo, posAt(i, k), 1);
   if (!hits.length) return null;
-  const sign = activeSigns(ctx, i.a.id, k, 100000)
-    .filter((s) => s.kind === 'limit')
-    .pop();
-  if (sign?.value) return { limit: sign.value, refs: ['sign:3.24'] };
+  const active = activeSigns(ctx, i.a.id, k, 100000);
+  const sign = active.filter((s) => s.kind === '3.24').pop();
+  if (sign?.value && signApplies(sign, classOf(i))) return { limit: sign.value, refs: ['sign:3.24'] };
+  // знаки зон: 5.21 (жилая зона), 5.23.1/5.24.1 (начало населённого пункта / выезд), 5.31 (зона с ограничением скорости)
+  const zoneSign = active.filter((s) => ['5.21', '5.23.1', '5.24.1', '5.31'].includes(s.kind)).pop();
+  if (zoneSign) {
+    const type = i.a.type as VehicleType;
+    if (zoneSign.kind === '5.31' && zoneSign.value) return { limit: zoneSign.value, refs: ['sign:5.31'] };
+    if (zoneSign.kind === '5.21') return { limit: 20, refs: ['sign:5.21', 'pdd:17.1'] };
+    const z = zoneLimit(type, zoneSign.kind === '5.23.1' ? 'city' : 'outside');
+    if (z) return { limit: z.limit, refs: [`sign:${zoneSign.kind}`, z.ref] };
+  }
   const z = zoneLimit(i.a.type as VehicleType, hits[0].rg.road.zone);
   return z ? { limit: z.limit, refs: [z.ref] } : null;
 }
@@ -473,7 +494,7 @@ function checkSigns(ctx: Ctx, i: Info): void {
   for (const g of ctx.gates.filter((x) => x.actorId === i.a.id && x.sign)) {
     const s = g.sign!;
     const t = tOf(g.frame);
-    if (s.kind === 'stop') {
+    if (s.kind === '2.5' || s.kind === '3.17.3') {
       let stopped = false;
       for (let k = g.frame; k >= i.k0 && i.trav[g.frame] - i.trav[k] <= 30; k--) {
         if (i.tr.v[k] < 0.5) {
@@ -494,7 +515,7 @@ function checkSigns(ctx: Ctx, i: Info): void {
         list.push(g.frame);
         ctx.stopSkipped.set(i.a.id, list);
       }
-    } else if (s.kind === 'noentry') {
+    } else if (s.kind === '3.1') {
       const onOneWay = roadsAt(ctx.geo, posAt(i, g.frame), 2).some((h) => h.rg.road.oneWay);
       addFinding(ctx, {
         actorId: i.a.id,
@@ -548,7 +569,7 @@ function checkOvertakes(ctx: Ctx): void {
     const A = ctx.infos.get(o.overtaker)!;
     const B = ctx.infos.get(o.overtaken)!;
     ctx.events.push({ t: tOf(o.frame), text: `${A.label} обгоняет ${B.label}` });
-    const signs = activeSigns(ctx, A.a.id, o.frame, 500).filter((s) => s.kind === 'noovertake');
+    const signs = activeSigns(ctx, A.a.id, o.frame, 500).filter((s) => s.kind === '3.20');
     if (signs.length) {
       addFinding(ctx, {
         actorId: A.a.id,
@@ -584,6 +605,14 @@ function checkOvertakes(ctx: Ctx): void {
   }
 }
 
+/** Пешеход находится в зоне действия знака 5.21 «Жилая зона» (до ближайшего 5.22 в радиусе 150 м). */
+function inLivingZone(ctx: Ctx, p: Vec): boolean {
+  const near = (kind: string): number =>
+    ctx.scene.signs.filter((s) => s.kind === kind).reduce((m, s) => Math.min(m, dist(p, { x: s.x, y: s.y })), Infinity);
+  const a = near('5.21');
+  return a <= 150 && a < near('5.22');
+}
+
 function checkPedestrian(ctx: Ctx, i: Info): void {
   const geo = ctx.geo;
   let wasOn = false;
@@ -594,7 +623,7 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
       const cw = geo.crosswalks.find((c) => pointInObb(p, c.box, 0.6));
       const green = cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
       ctx.pedEntry.set(i.a.id, { frame: k, onCrosswalk: !!cw, pedGreen: green, crosswalkId: cw?.item.id });
-      const res = roadsAt(geo, p)[0].rg.road.zone === 'residential';
+      const res = roadsAt(geo, p)[0].rg.road.zone === 'residential' || inLivingZone(ctx, p);
       if (!cw && !res) {
         const nearest = geo.crosswalks.reduce((m, c) => Math.min(m, dist(p, { x: c.item.x, y: c.item.y })), Infinity);
         if (nearest <= 100) {
@@ -722,7 +751,8 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
 type Region = 'front' | 'rear' | 'left' | 'right';
 
 function regionOf(i: Info, k: number, pt: Vec): Region {
-  const l = toLocal(pt, { cx: i.tr.x[k], cy: i.tr.y[k], a: i.tr.h[k] });
+  const b = boxAt(i, k);
+  const l = toLocal(pt, { cx: b.cx, cy: b.cy, a: b.a });
   const nx = l.x / i.hl;
   const ny = l.y / i.hw;
   if (Math.abs(nx) >= Math.abs(ny)) return nx > 0 ? 'front' : 'rear';
@@ -758,17 +788,17 @@ interface Priority {
   explain: string;
 }
 
-function signScore(ctx: Ctx, i: Info, frame: number): { score: number; kinds: SignKind[] } {
+function signScore(ctx: Ctx, i: Info, frame: number): { score: number; kinds: string[] } {
   const signs = activeSigns(ctx, i.a.id, frame, 120);
   let score = 0;
-  const kinds: SignKind[] = [];
+  const kinds: string[] = [];
   for (const s of signs) {
-    if (s.kind === 'main') {
+    if (s.kind === '2.1') {
       score = Math.max(score, 1);
       kinds.push('main');
-    } else if (s.kind === 'giveway' || s.kind === 'stop') {
+    } else if (s.kind === '2.4' || s.kind === '2.5') {
       score = Math.min(score, -1);
-      kinds.push(s.kind);
+      kinds.push(s.kind === '2.4' ? 'giveway' : 'stop');
     }
   }
   return { score, kinds };
@@ -1057,7 +1087,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       const wb = wrong(B);
       const blame = (i: Info, w: NonNullable<ReturnType<typeof wrong>>) => {
         const solid = w.center === 'solid' || w.center === 'double';
-        const refs = solid ? ['pdd:9.1.1'] : ['pdd:9.1', 'pdd:9.4', 'pdd:11.1'];
+        const refs = solid ? ['pdd:9.1(1)'] : ['pdd:9.1', 'pdd:9.4', 'pdd:11.1'];
         if (w.lanes >= 2) refs.push('pdd:9.2');
         if (w.tramTrack) refs.push('pdd:9.6');
         refs.push('koap:12.15.4');
@@ -1166,9 +1196,17 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     // нарушения, допущенные раньше (разметка, знак) и приведшие к ДТП
     for (const i of [A, B]) {
       for (const f of ctx.findings) {
-        if (f.actorId === i.a.id && f.severity === 'violation' && !f.causal && f.t !== undefined && f.t <= t && t - f.t < 6 && f.refs.some((r) => ['koap:12.12.1', 'koap:12.15.4', 'koap:12.16.3', 'koap:12.16.1', 'koap:12.15.2'].includes(r))) {
+        if (f.actorId === i.a.id && f.severity === 'violation' && !f.causal && f.t !== undefined && f.t <= t && t - f.t < 6 && f.refs.some((r) => ['koap:12.12.1', 'koap:12.15.4', 'koap:12.16.3', 'koap:12.16.1', 'koap:12.16.2', 'koap:12.15.2', 'koap:12.29.2'].includes(r))) {
           f.causal = true;
         }
+      }
+    }
+    // груз, выступающий за габариты ТС, участвовал в контакте
+    for (const i of [A, Bi]) {
+      if (!i || !i.a.cargo || !cargoInvolved(i, boxAt, kp, col.point)) continue;
+      notes.push(`${i.label}: удар пришёлся на груз, выступающий за габариты ТС (п. 23.1–23.4 ПДД).`);
+      for (const f of ctx.findings) {
+        if (f.actorId === i.a.id && f.severity === 'violation' && !f.causal && f.refs.some((r) => r.startsWith('pdd:23.'))) f.causal = true;
       }
     }
     reports.push(finishCollision(ctx, col, title, description, tech, notes));
@@ -1206,7 +1244,7 @@ function reasonToBrake(ctx: Ctx, i: Info, k: number): boolean {
   }
   for (const ob of ctx.geo.obstacles) if (ahead({ x: ob.box.cx, y: ob.box.cy }, 30)) return true;
   for (const sg of ctx.geo.signs) {
-    if (sg.sign.kind === 'stop' && dot(f, fromAngle(sg.sign.angle)) > 0.5 && ahead(sg.gate.b, 30, 10)) return true;
+    if ((sg.sign.kind === '2.5' || sg.sign.kind === '3.17.3') && dot(f, fromAngle(sg.sign.angle)) > 0.5 && ahead(sg.gate.b, 30, 10)) return true;
   }
   return false;
 }
@@ -1277,7 +1315,7 @@ function missedWrongSide(ctx: Ctx): void {
     if (already) continue;
     const t = tOf(w.frames[0]);
     if (w.center === 'solid' || w.center === 'double') {
-      const refs = ['pdd:9.1.1'];
+      const refs = ['pdd:9.1(1)'];
       if (w.lanes >= 2) refs.push('pdd:9.2');
       refs.push('koap:12.15.4');
       addFinding(ctx, {
@@ -1436,6 +1474,7 @@ function buildDuties(reports: CollisionReport[]): LegalItem[] {
 export function analyze(scene: Scene, tl: Timeline): Report {
   const ctx = prepare(scene, tl);
   collectGates(ctx);
+  computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
     if (i.isVeh) {
       checkSpeed(ctx, i);
@@ -1447,6 +1486,10 @@ export function analyze(scene: Scene, tl: Timeline): Report {
     }
   }
   checkOvertakes(ctx);
+  const kit: Kit = { add: (f) => addFinding(ctx, f), reasonToBrake, boxAt, posAt };
+  checkSignRules(ctx, kit);
+  checkMarkingRules(ctx, kit);
+  checkCargoRules(ctx, kit);
   const collisions = analyzeCollisions(ctx);
   nearMisses(ctx);
   missedWrongSide(ctx);

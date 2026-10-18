@@ -8,7 +8,6 @@ import {
   type Road,
   type Scene,
   type Sign,
-  type SignKind,
   type TrafficLight,
   type TramTrack,
   type VehicleType,
@@ -77,7 +76,7 @@ class Builder {
     return l.id;
   }
 
-  sign(kind: SignKind, x: number, y: number, angleDeg: number, value?: number): this {
+  sign(kind: string, x: number, y: number, angleDeg: number, value?: number): this {
     const s: Sign = { id: this.id('g'), x, y, angle: rad(angleDeg), kind, value };
     this.scene.signs.push(s);
     return this;
@@ -168,7 +167,7 @@ export const PRESETS: Preset[] = [
     build: () =>
       straight(new Builder().name('Пешеход на нерегулируемом переходе').duration(10), 'dashed')
         .crosswalk(0, 0, 90)
-        .sign('crosswalk', -8, 5.2, 0)
+        .sign('5.19.1', -8, 5.2, 0)
         .vehicle('car', -50, 1.75, 0, 50, [[60, 1.75, 50]])
         .ped('adult', 0.5, -4.2, 90, [[0.5, 6, 5]])
         .done(),
@@ -228,8 +227,8 @@ export const PRESETS: Preset[] = [
     hint: 'Знак «Уступите дорогу» на одной дороге и «Главная дорога» — на другой.',
     build: () =>
       cross(new Builder().name('Главная и второстепенная дорога').duration(10))
-        .sign('giveway', -14, 5.0, 0)
-        .sign('main', -5.5, -14, 90)
+        .sign('2.4', -14, 5.0, 0)
+        .sign('2.1', -4.6, -14, 90)
         .vehicle('car', -57, 1.75, 0, 45, [[110, 1.75, 45]])
         .vehicle('truck', -1.75, -53, 90, 45, [[-1.75, 110, 45]])
         .done(),
@@ -294,6 +293,28 @@ export const PRESETS: Preset[] = [
         .vehicle('car', -40, 1.75, 0, 70, [[80, 1.75, 70]])
         .ped('child', 0.5, -1.8, 90, [[0.5, 6, 5]])
         .done();
+    },
+  },
+  {
+    id: 'overhang',
+    title: 'Необозначенный груз, выступающий сзади',
+    hint: 'Грузовик везёт длинные трубы со свесом 3 м без знаков «Крупногабаритный груз»; идущий сзади автомобиль врезается в свес.',
+    build: () => {
+      const b = straight(new Builder().name('Свес груза без обозначения').duration(9), 'dashed');
+      b.vehicle('truck', 0, 1.75, 0, 30, [[130, 1.75, 30]], { cargo: { mass: 3000, front: 0, rear: 3, left: 0, right: 0, height: 3.2, marked: false, secured: true, blocksView: false, dangerous: false } });
+      b.vehicle('car', -60, 1.75, 0, 60, [[130, 1.75, 60]]);
+      return b.done();
+    },
+  },
+  {
+    id: 'no-right-turn',
+    title: 'Поворот направо под знак 3.18.1',
+    hint: 'Знак запрещает поворот направо, но водитель всё равно сворачивает и сталкивается со встречным автомобилем.',
+    build: () => {
+      const b = cross(new Builder().name('Запрещённый поворот').duration(10));
+      b.sign('3.18.1', -30, 5.5, 0);
+      b.vehicle('car', -60, 1.75, 0, 25, [[-40, 1.75, 25], [-20, 1.75, 25], [-8, 1.75, 15], [-1.75, 8, 15], [-1.75, 80, 25]]);
+      return b.done();
     },
   },
 ];

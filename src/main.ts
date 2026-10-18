@@ -7,7 +7,10 @@ import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
 import { DISCLAIMER, LAW_CHECKED } from './law';
-import { type AppApi, buildEnv, buildInspector, buildReport, h } from './ui';
+import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
+import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
+import { VALUE_SIGNS, signTitle } from './signs';
+import { buildReference, focusRef } from './reference';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -171,6 +174,7 @@ const TOOLS: [Tool, string, string][] = [
   ['crosswalk', '🦓', 'Переход'],
   ['light', '🚦', 'Светофор'],
   ['sign', '⚠️', 'Знак'],
+  ['marking', '═', 'Разметка'],
   ['obstacle', '🏢', 'Препятствие'],
   ['vehicle', '🚗', 'Транспорт'],
   ['ped', '🚶', 'Пешеход'],
@@ -180,11 +184,12 @@ const TOOLS: [Tool, string, string][] = [
 const HINTS: Partial<Record<Tool, string>> = {
   select: 'Нажмите на объект, чтобы изменить. Перетаскивайте пустое место — двигаете карту.',
   pan: 'Перетаскивайте карту. Колесо мыши или два пальца — масштаб.',
-  road: 'Нажимайте, чтобы ставить точки оси дороги. Двойной клик или «Готово» — завершить.',
+  road: 'Нажимайте, чтобы ставить точки оси. Повороты скругляются по выбранному радиусу. Двойной клик или «Готово» — завершить. Кромки и сужения — после выбора дороги.',
   sidewalk: 'Нажимайте, чтобы ставить точки тротуара. Двойной клик или «Готово» — завершить.',
   track: 'Рисуйте путь по направлению движения трамвая. «Готово» — завершить.',
   crosswalk: 'Нажмите на дороге — переход встанет поперёк. Потяните, чтобы задать направление.',
   light: 'Нажмите у края дороги: светофор и стоп-линия встанут по ходу полосы. Потяните, чтобы задать направление.',
+  marking: 'Выберите вид разметки. Линии и площадки рисуются точками («Готово» — завершить), стрелы ставятся нажатием на полосу.',
   sign: 'Нажмите у края дороги — знак встанет лицом к ближайшей полосе. Потяните, чтобы задать направление.',
   obstacle: 'Нажмите, чтобы поставить препятствие. Потяните, чтобы повернуть.',
   vehicle: 'Нажмите на полосе — машина встанет по ходу движения. Потяните, чтобы задать курс вручную.',
@@ -222,7 +227,7 @@ function updateHint(): void {
   hint.textContent = HINTS[editor.tool] ?? '';
   const d = editor.drawing;
   const bar = $('drawbar');
-  const active = !!d && (POLY_TOOLS.includes(editor.tool) || editor.tool === 'path');
+  const active = !!d && (POLY_TOOLS.includes(editor.tool) || editor.tool === 'path' || editor.tool === 'marking');
   bar.classList.toggle('hidden', !active);
   if (active) {
     $('drawText').textContent =
@@ -256,6 +261,13 @@ function renderPalette(): void {
     i.addEventListener('change', () => on(i.checked));
     return h('label', { class: 'popt' }, i, h('span', {}, label));
   };
+  const radiusOpt = () =>
+    opt('Поворот', sel([['0', 'Острый угол'], ['6', 'Радиус 6 м'], ['12', 'Радиус 12 м'], ['25', 'Радиус 25 м'], ['50', 'Радиус 50 м'], ['-1', 'Плавная кривая']], b.smooth ? '-1' : String(b.radius), (v) => {
+      const n = parseInt(v, 10);
+      b.smooth = n < 0;
+      b.radius = n < 0 ? 0 : n;
+      dirty = true;
+    }));
   switch (editor.tool) {
     case 'vehicle':
       el.append(chips((Object.keys(VEHICLES) as (keyof typeof VEHICLES)[]).map((k) => [k, VEHICLES[k].name] as [string, string]), b.vehicle, (v) => ((b.vehicle = v as typeof b.vehicle), again())));
@@ -265,16 +277,26 @@ function renderPalette(): void {
       break;
     case 'sign':
       el.append(
-        chips(
-          [['main', '2.1 Главная'], ['giveway', '2.4 Уступи'], ['stop', '2.5 Без остановки'], ['noentry', '3.1 Въезд запрещён'], ['limit', '3.24 Скорость'], ['noovertake', '3.20 Обгон'], ['crosswalk', '5.19 Переход']],
-          b.sign,
-          (v) => ((b.sign = v), again()),
+        h('button', { type: 'button', class: 'sign-pick', onclick: () => openSignPicker({ current: b.sign, onPick: (id) => { b.sign = id; b.signValue = VALUE_SIGNS[id]?.def ?? b.signValue; again(); } }) },
+          signThumb(b.sign, 44),
+          h('span', {}, h('b', {}, `Знак ${b.sign}`), h('small', {}, signTitle(b.sign))),
+          h('span', { class: 'pick-hint' }, 'сменить'),
         ),
       );
-      if (b.sign === 'limit') {
-        el.append(opt('км/ч', sel([['20', '20'], ['40', '40'], ['50', '50'], ['60', '60'], ['70', '70'], ['80', '80']], String(b.signValue) as '40', (v) => (b.signValue = parseInt(v, 10)))));
+      if (VALUE_SIGNS[b.sign]) {
+        const vs = VALUE_SIGNS[b.sign];
+        const num = h('input', { type: 'number', value: b.signValue, min: vs.min, max: vs.max, step: vs.step });
+        num.addEventListener('change', () => (b.signValue = parseFloat(num.value) || vs.def));
+        el.append(h('label', { class: 'popt' }, h('span', {}, vs.unit), num));
       }
       break;
+    case 'marking': {
+      el.append(opt('Разметка', sel(MARKINGS.map((m) => [m.id, `${m.id} ${m.name}`] as [string, string]), b.markingKind, (v) => ((b.markingKind = v), editor.brushChanged(), again()))));
+      const spec = MARKING_BY_ID[b.markingKind];
+      if (spec?.arrows) el.append(opt('Стрела', sel(Object.entries(ARROW_VARIANTS).map(([k, v]) => [k, v.name] as [string, string]), b.arrowVariant, (v) => (b.arrowVariant = v))));
+      if (spec?.form === 'line') el.append(radiusOpt());
+      break;
+    }
     case 'obstacle':
       el.append(chips([['building', 'Здание'], ['fence', 'Забор'], ['tree', 'Дерево'], ['barrier', 'Барьер']], b.obstacle, (v) => ((b.obstacle = v), again())));
       break;
@@ -284,14 +306,14 @@ function renderPalette(): void {
         opt('Разметка', sel([['dashed', 'Прерывистая'], ['solid', 'Сплошная'], ['double', 'Двойная'], ['none', 'Нет']], b.center, (v) => (b.center = v))),
         opt('Зона', sel([['city', 'Город'], ['outside', 'Вне города'], ['residential', 'Жилая зона']], b.zone, (v) => (b.zone = v))),
         chk('Односторонняя', b.oneWay, (v) => (b.oneWay = v)),
-        chk('Сглаживать', b.smooth, (v) => (b.smooth = v)),
+        radiusOpt(),
       );
       break;
     case 'sidewalk':
-      el.append(opt('Ширина, м', sel([['2', '2'], ['3', '3'], ['4', '4'], ['6', '6']], String(b.sidewalkWidth) as '3', (v) => (b.sidewalkWidth = parseInt(v, 10)))), chk('Сглаживать', b.smooth, (v) => (b.smooth = v)));
+      el.append(opt('Ширина, м', sel([['2', '2'], ['3', '3'], ['4', '4'], ['6', '6']], String(b.sidewalkWidth) as '3', (v) => (b.sidewalkWidth = parseInt(v, 10)))), radiusOpt());
       break;
     case 'track':
-      el.append(chk('Выделенный путь', b.separated, (v) => (b.separated = v)), chk('Сглаживать', b.smooth, (v) => (b.smooth = v)));
+      el.append(chk('Выделенный путь', b.separated, (v) => (b.separated = v)), radiusOpt());
       break;
     default:
       break;
@@ -317,10 +339,11 @@ function updateUndo(): void {
   ($('btnRedo') as HTMLButtonElement).disabled = !editor.canRedo;
 }
 
-type TabName = 'props' | 'env' | 'report';
+type TabName = 'props' | 'env' | 'report' | 'ref';
 function showTab(tab: TabName): void {
   document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  for (const n of ['props', 'env', 'report'] as TabName[]) $(`pane-${n}`).classList.toggle('hidden', n !== tab);
+  for (const n of ['props', 'env', 'report', 'ref'] as TabName[]) $(`pane-${n}`).classList.toggle('hidden', n !== tab);
+  if (tab === 'ref' && !$('pane-ref').childElementCount) buildReference($('pane-ref'));
 }
 
 function openSheet(open: boolean): void {
@@ -416,6 +439,7 @@ function frame(now: number): void {
       pathActor: editor.tool === 'path' ? (editor.sel?.id ?? null) : null,
       ghost: editor.ghost,
       grid: grid && mode === 'edit',
+      brush: editor.brush,
       focus,
     });
   }
@@ -539,6 +563,7 @@ function init(): void {
     save();
   });
 
+  renderer.onImage = () => (dirty = true);
   editor.onView = () => (dirty = true);
   editor.onTool = updateTools;
   editor.onSelect = () => {
@@ -607,6 +632,13 @@ function init(): void {
   });
   $<HTMLSelectElement>('speed').addEventListener('change', (e) => (speed = parseFloat((e.target as HTMLSelectElement).value)));
 
+  setRefOpener((id) => {
+    focusRef(id).then(() => {
+      $('pane-ref').replaceChildren();
+      showTab('ref');
+      openSheet(true);
+    });
+  });
   document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.addEventListener('click', () => (showTab(b.dataset.tab as TabName), openSheet(true))));
   $('btnSheet').addEventListener('click', () => openSheet(!document.body.classList.contains('sheet')));
   $('sheetClose').addEventListener('click', () => openSheet(false));

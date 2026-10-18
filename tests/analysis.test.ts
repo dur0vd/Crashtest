@@ -61,7 +61,7 @@ describe('разбор готовых ситуаций', () => {
 
   it('встречное: выезд через сплошную, УК РФ при опьянении', () => {
     const { rep, ids } = run('head-on');
-    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:9.1.1', 'koap:12.15.4']));
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:9.1(1)', 'koap:12.15.4']));
     expect(legalRefs(rep, ids[0])).toContain('uk:264.2');
     expect(legalRefs(rep, ids[0])).not.toContain('koap:12.8.1');
     expect(verdict(rep, ids[1]).status).toBe('clean');
@@ -93,5 +93,19 @@ describe('разбор готовых ситуаций', () => {
     expect(verdict(rep, ids[0]).status).toBe('guilty');
     expect(refsOf(rep, ids[0])).toContain('pdd:10.2');
     expect(verdict(rep, ids[1]).status).toBe('clean');
+  });
+});
+
+describe('знаки и грузы в готовых ситуациях', () => {
+  it('необозначенный свес груза: нарушение п. 23.4 и удар пришёлся на груз', () => {
+    const { rep, ids } = run('overhang');
+    expect(rep.collisions.length).toBeGreaterThan(0);
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:23.4']));
+    expect(rep.collisions[0].notes.join(' ')).toMatch(/груз/);
+  });
+
+  it('поворот под запрещающий знак 3.18.1', () => {
+    const { rep, ids } = run('no-right-turn');
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['sign:3.18.1']));
   });
 });

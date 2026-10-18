@@ -1,0 +1,2947 @@
+{
+ "sign:1.1": {
+  "kind": "sign",
+  "id": "1.1",
+  "files": [
+   "signs/1.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.2": {
+  "kind": "sign",
+  "id": "1.2",
+  "files": [
+   "signs/1.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.3.1": {
+  "kind": "sign",
+  "id": "1.3.1",
+  "files": [
+   "signs/1.3.1_1.webp",
+   "signs/1.3.1_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.1": {
+  "kind": "sign",
+  "id": "1.4.1",
+  "files": [
+   "signs/1.4.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.2": {
+  "kind": "sign",
+  "id": "1.4.2",
+  "files": [
+   "signs/1.4.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.3": {
+  "kind": "sign",
+  "id": "1.4.3",
+  "files": [
+   "signs/1.4.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.4": {
+  "kind": "sign",
+  "id": "1.4.4",
+  "files": [
+   "signs/1.4.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.5": {
+  "kind": "sign",
+  "id": "1.4.5",
+  "files": [
+   "signs/1.4.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.4.6": {
+  "kind": "sign",
+  "id": "1.4.6",
+  "files": [
+   "signs/1.4.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.5": {
+  "kind": "sign",
+  "id": "1.5",
+  "files": [
+   "signs/1.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.6": {
+  "kind": "sign",
+  "id": "1.6",
+  "files": [
+   "signs/1.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.7": {
+  "kind": "sign",
+  "id": "1.7",
+  "files": [
+   "signs/1.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.8": {
+  "kind": "sign",
+  "id": "1.8",
+  "files": [
+   "signs/1.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.9": {
+  "kind": "sign",
+  "id": "1.9",
+  "files": [
+   "signs/1.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.10": {
+  "kind": "sign",
+  "id": "1.10",
+  "files": [
+   "signs/1.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.11.1": {
+  "kind": "sign",
+  "id": "1.11.1",
+  "files": [
+   "signs/1.11.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.11.2": {
+  "kind": "sign",
+  "id": "1.11.2",
+  "files": [
+   "signs/1.11.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.12.1": {
+  "kind": "sign",
+  "id": "1.12.1",
+  "files": [
+   "signs/1.12.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.12.2": {
+  "kind": "sign",
+  "id": "1.12.2",
+  "files": [
+   "signs/1.12.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.13": {
+  "kind": "sign",
+  "id": "1.13",
+  "files": [
+   "signs/1.13.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.14": {
+  "kind": "sign",
+  "id": "1.14",
+  "files": [
+   "signs/1.14_1.webp",
+   "signs/1.14_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.15": {
+  "kind": "sign",
+  "id": "1.15",
+  "files": [
+   "signs/1.15.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.16": {
+  "kind": "sign",
+  "id": "1.16",
+  "files": [
+   "signs/1.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.17": {
+  "kind": "sign",
+  "id": "1.17",
+  "files": [
+   "signs/1.17.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.18": {
+  "kind": "sign",
+  "id": "1.18",
+  "files": [
+   "signs/1.18.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.19": {
+  "kind": "sign",
+  "id": "1.19",
+  "files": [
+   "signs/1.19.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.20.1": {
+  "kind": "sign",
+  "id": "1.20.1",
+  "files": [
+   "signs/1.20.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.20.2": {
+  "kind": "sign",
+  "id": "1.20.2",
+  "files": [
+   "signs/1.20.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.20.3": {
+  "kind": "sign",
+  "id": "1.20.3",
+  "files": [
+   "signs/1.20.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.21": {
+  "kind": "sign",
+  "id": "1.21",
+  "files": [
+   "signs/1.21.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.22": {
+  "kind": "sign",
+  "id": "1.22",
+  "files": [
+   "signs/1.22.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.23": {
+  "kind": "sign",
+  "id": "1.23",
+  "files": [
+   "signs/1.23.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.24": {
+  "kind": "sign",
+  "id": "1.24",
+  "files": [
+   "signs/1.24.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.25": {
+  "kind": "sign",
+  "id": "1.25",
+  "files": [
+   "signs/1.25.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.26": {
+  "kind": "sign",
+  "id": "1.26",
+  "files": [
+   "signs/1.26.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.27": {
+  "kind": "sign",
+  "id": "1.27",
+  "files": [
+   "signs/1.27.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.28": {
+  "kind": "sign",
+  "id": "1.28",
+  "files": [
+   "signs/1.28.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.29": {
+  "kind": "sign",
+  "id": "1.29",
+  "files": [
+   "signs/1.29.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.30": {
+  "kind": "sign",
+  "id": "1.30",
+  "files": [
+   "signs/1.30.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.31": {
+  "kind": "sign",
+  "id": "1.31",
+  "files": [
+   "signs/1.31.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.32": {
+  "kind": "sign",
+  "id": "1.32",
+  "files": [
+   "signs/1.32.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.33": {
+  "kind": "sign",
+  "id": "1.33",
+  "files": [
+   "signs/1.33.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.34.3": {
+  "kind": "sign",
+  "id": "1.34.3",
+  "files": [
+   "signs/1.34.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:1.35": {
+  "kind": "sign",
+  "id": "1.35",
+  "files": [
+   "signs/1.35.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.1": {
+  "kind": "sign",
+  "id": "2.1",
+  "files": [
+   "signs/2.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.2": {
+  "kind": "sign",
+  "id": "2.2",
+  "files": [
+   "signs/2.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.1": {
+  "kind": "sign",
+  "id": "2.3.1",
+  "files": [
+   "signs/2.3.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.2": {
+  "kind": "sign",
+  "id": "2.3.2",
+  "files": [
+   "signs/2.3.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.3": {
+  "kind": "sign",
+  "id": "2.3.3",
+  "files": [
+   "signs/2.3.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.4": {
+  "kind": "sign",
+  "id": "2.3.4",
+  "files": [
+   "signs/2.3.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.5": {
+  "kind": "sign",
+  "id": "2.3.5",
+  "files": [
+   "signs/2.3.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.6": {
+  "kind": "sign",
+  "id": "2.3.6",
+  "files": [
+   "signs/2.3.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.3.7": {
+  "kind": "sign",
+  "id": "2.3.7",
+  "files": [
+   "signs/2.3.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.4": {
+  "kind": "sign",
+  "id": "2.4",
+  "files": [
+   "signs/2.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.5": {
+  "kind": "sign",
+  "id": "2.5",
+  "files": [
+   "signs/2.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.6": {
+  "kind": "sign",
+  "id": "2.6",
+  "files": [
+   "signs/2.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:2.7": {
+  "kind": "sign",
+  "id": "2.7",
+  "files": [
+   "signs/2.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.1": {
+  "kind": "sign",
+  "id": "3.1",
+  "files": [
+   "signs/3.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.2": {
+  "kind": "sign",
+  "id": "3.2",
+  "files": [
+   "signs/3.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.3": {
+  "kind": "sign",
+  "id": "3.3",
+  "files": [
+   "signs/3.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.4": {
+  "kind": "sign",
+  "id": "3.4",
+  "files": [
+   "signs/3.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.5": {
+  "kind": "sign",
+  "id": "3.5",
+  "files": [
+   "signs/3.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.6": {
+  "kind": "sign",
+  "id": "3.6",
+  "files": [
+   "signs/3.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.7": {
+  "kind": "sign",
+  "id": "3.7",
+  "files": [
+   "signs/3.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.8": {
+  "kind": "sign",
+  "id": "3.8",
+  "files": [
+   "signs/3.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.9": {
+  "kind": "sign",
+  "id": "3.9",
+  "files": [
+   "signs/3.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.10": {
+  "kind": "sign",
+  "id": "3.10",
+  "files": [
+   "signs/3.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.11": {
+  "kind": "sign",
+  "id": "3.11",
+  "files": [
+   "signs/3.11.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.12": {
+  "kind": "sign",
+  "id": "3.12",
+  "files": [
+   "signs/3.12.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.13": {
+  "kind": "sign",
+  "id": "3.13",
+  "files": [
+   "signs/3.13.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.14": {
+  "kind": "sign",
+  "id": "3.14",
+  "files": [
+   "signs/3.14.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.15": {
+  "kind": "sign",
+  "id": "3.15",
+  "files": [
+   "signs/3.15.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.16": {
+  "kind": "sign",
+  "id": "3.16",
+  "files": [
+   "signs/3.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.17.1": {
+  "kind": "sign",
+  "id": "3.17.1",
+  "files": [
+   "signs/3.17.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.17.2": {
+  "kind": "sign",
+  "id": "3.17.2",
+  "files": [
+   "signs/3.17.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.17.3": {
+  "kind": "sign",
+  "id": "3.17.3",
+  "files": [
+   "signs/3.17.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.18.1": {
+  "kind": "sign",
+  "id": "3.18.1",
+  "files": [
+   "signs/3.18.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.18.2": {
+  "kind": "sign",
+  "id": "3.18.2",
+  "files": [
+   "signs/3.18.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.19": {
+  "kind": "sign",
+  "id": "3.19",
+  "files": [
+   "signs/3.19.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.20": {
+  "kind": "sign",
+  "id": "3.20",
+  "files": [
+   "signs/3.20.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.21": {
+  "kind": "sign",
+  "id": "3.21",
+  "files": [
+   "signs/3.21.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.22": {
+  "kind": "sign",
+  "id": "3.22",
+  "files": [
+   "signs/3.22.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.23": {
+  "kind": "sign",
+  "id": "3.23",
+  "files": [
+   "signs/3.23.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.24": {
+  "kind": "sign",
+  "id": "3.24",
+  "files": [
+   "signs/3.24.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.25": {
+  "kind": "sign",
+  "id": "3.25",
+  "files": [
+   "signs/3.25.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.26": {
+  "kind": "sign",
+  "id": "3.26",
+  "files": [
+   "signs/3.26.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.27": {
+  "kind": "sign",
+  "id": "3.27",
+  "files": [
+   "signs/3.27.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.28": {
+  "kind": "sign",
+  "id": "3.28",
+  "files": [
+   "signs/3.28.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.29": {
+  "kind": "sign",
+  "id": "3.29",
+  "files": [
+   "signs/3.29.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.30": {
+  "kind": "sign",
+  "id": "3.30",
+  "files": [
+   "signs/3.30.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.31": {
+  "kind": "sign",
+  "id": "3.31",
+  "files": [
+   "signs/3.31.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.32": {
+  "kind": "sign",
+  "id": "3.32",
+  "files": [
+   "signs/3.32.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.33": {
+  "kind": "sign",
+  "id": "3.33",
+  "files": [
+   "signs/3.33.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.34": {
+  "kind": "sign",
+  "id": "3.34",
+  "files": [
+   "signs/3.34.webp"
+  ],
+  "group": 1
+ },
+ "sign:3.35": {
+  "kind": "sign",
+  "id": "3.35",
+  "files": [
+   "signs/3.35.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.6": {
+  "kind": "sign",
+  "id": "4.1.6",
+  "files": [
+   "signs/4.1.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.2.1": {
+  "kind": "sign",
+  "id": "4.2.1",
+  "files": [
+   "signs/4.2.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.2.2": {
+  "kind": "sign",
+  "id": "4.2.2",
+  "files": [
+   "signs/4.2.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.2.3": {
+  "kind": "sign",
+  "id": "4.2.3",
+  "files": [
+   "signs/4.2.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.3": {
+  "kind": "sign",
+  "id": "4.3",
+  "files": [
+   "signs/4.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.4.1": {
+  "kind": "sign",
+  "id": "4.4.1",
+  "files": [
+   "signs/4.4.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.4.2": {
+  "kind": "sign",
+  "id": "4.4.2",
+  "files": [
+   "signs/4.4.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.1": {
+  "kind": "sign",
+  "id": "4.5.1",
+  "files": [
+   "signs/4.5.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.2": {
+  "kind": "sign",
+  "id": "4.5.2",
+  "files": [
+   "signs/4.5.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.3": {
+  "kind": "sign",
+  "id": "4.5.3",
+  "files": [
+   "signs/4.5.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.4": {
+  "kind": "sign",
+  "id": "4.5.4",
+  "files": [
+   "signs/4.5.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.5": {
+  "kind": "sign",
+  "id": "4.5.5",
+  "files": [
+   "signs/4.5.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.6": {
+  "kind": "sign",
+  "id": "4.5.6",
+  "files": [
+   "signs/4.5.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.5.7": {
+  "kind": "sign",
+  "id": "4.5.7",
+  "files": [
+   "signs/4.5.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.6": {
+  "kind": "sign",
+  "id": "4.6",
+  "files": [
+   "signs/4.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.7": {
+  "kind": "sign",
+  "id": "4.7",
+  "files": [
+   "signs/4.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.8.1": {
+  "kind": "sign",
+  "id": "4.8.1",
+  "files": [
+   "signs/4.8.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.8.2": {
+  "kind": "sign",
+  "id": "4.8.2",
+  "files": [
+   "signs/4.8.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.8.3": {
+  "kind": "sign",
+  "id": "4.8.3",
+  "files": [
+   "signs/4.8.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.1": {
+  "kind": "sign",
+  "id": "5.1",
+  "files": [
+   "signs/5.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.2": {
+  "kind": "sign",
+  "id": "5.2",
+  "files": [
+   "signs/5.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.3": {
+  "kind": "sign",
+  "id": "5.3",
+  "files": [
+   "signs/5.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.4": {
+  "kind": "sign",
+  "id": "5.4",
+  "files": [
+   "signs/5.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.5": {
+  "kind": "sign",
+  "id": "5.5",
+  "files": [
+   "signs/5.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.6": {
+  "kind": "sign",
+  "id": "5.6",
+  "files": [
+   "signs/5.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.7.1": {
+  "kind": "sign",
+  "id": "5.7.1",
+  "files": [
+   "signs/5.7.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.7.2": {
+  "kind": "sign",
+  "id": "5.7.2",
+  "files": [
+   "signs/5.7.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.8": {
+  "kind": "sign",
+  "id": "5.8",
+  "files": [
+   "signs/5.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.9": {
+  "kind": "sign",
+  "id": "5.9",
+  "files": [
+   "signs/5.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.10": {
+  "kind": "sign",
+  "id": "5.10",
+  "files": [
+   "signs/5.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.11.1": {
+  "kind": "sign",
+  "id": "5.11.1",
+  "files": [
+   "signs/5.11.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.11.2": {
+  "kind": "sign",
+  "id": "5.11.2",
+  "files": [
+   "signs/5.11.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.12.1": {
+  "kind": "sign",
+  "id": "5.12.1",
+  "files": [
+   "signs/5.12.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.12.2": {
+  "kind": "sign",
+  "id": "5.12.2",
+  "files": [
+   "signs/5.12.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.13.1": {
+  "kind": "sign",
+  "id": "5.13.1",
+  "files": [
+   "signs/5.13.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.13.2": {
+  "kind": "sign",
+  "id": "5.13.2",
+  "files": [
+   "signs/5.13.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.13.3": {
+  "kind": "sign",
+  "id": "5.13.3",
+  "files": [
+   "signs/5.13.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.13.4": {
+  "kind": "sign",
+  "id": "5.13.4",
+  "files": [
+   "signs/5.13.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.14.1": {
+  "kind": "sign",
+  "id": "5.14.1",
+  "files": [
+   "signs/5.14.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.14.2": {
+  "kind": "sign",
+  "id": "5.14.2",
+  "files": [
+   "signs/5.14.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.14.3": {
+  "kind": "sign",
+  "id": "5.14.3",
+  "files": [
+   "signs/5.14.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.14.4": {
+  "kind": "sign",
+  "id": "5.14.4",
+  "files": [
+   "signs/5.14.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.1": {
+  "kind": "sign",
+  "id": "5.15.1",
+  "files": [
+   "signs/5.15.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.2": {
+  "kind": "sign",
+  "id": "5.15.2",
+  "files": [
+   "signs/5.15.2_1.webp",
+   "signs/5.15.2_2.webp",
+   "signs/5.15.2_3.webp",
+   "signs/5.15.2_4.webp",
+   "signs/5.15.2_5.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.3": {
+  "kind": "sign",
+  "id": "5.15.3",
+  "files": [
+   "signs/5.15.3_1.webp",
+   "signs/5.15.3_2.webp",
+   "signs/5.15.3_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.4": {
+  "kind": "sign",
+  "id": "5.15.4",
+  "files": [
+   "signs/5.15.4_1.webp",
+   "signs/5.15.4_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.5": {
+  "kind": "sign",
+  "id": "5.15.5",
+  "files": [
+   "signs/5.15.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.6": {
+  "kind": "sign",
+  "id": "5.15.6",
+  "files": [
+   "signs/5.15.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.7": {
+  "kind": "sign",
+  "id": "5.15.7",
+  "files": [
+   "signs/5.15.7_1.webp",
+   "signs/5.15.7_2.webp",
+   "signs/5.15.7_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.15.8": {
+  "kind": "sign",
+  "id": "5.15.8",
+  "files": [
+   "signs/5.15.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.16": {
+  "kind": "sign",
+  "id": "5.16",
+  "files": [
+   "signs/5.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.17": {
+  "kind": "sign",
+  "id": "5.17",
+  "files": [
+   "signs/5.17.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.18": {
+  "kind": "sign",
+  "id": "5.18",
+  "files": [
+   "signs/5.18.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.19.1": {
+  "kind": "sign",
+  "id": "5.19.1",
+  "files": [
+   "signs/5.19.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.19.2": {
+  "kind": "sign",
+  "id": "5.19.2",
+  "files": [
+   "signs/5.19.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.20": {
+  "kind": "sign",
+  "id": "5.20",
+  "files": [
+   "signs/5.20.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.21": {
+  "kind": "sign",
+  "id": "5.21",
+  "files": [
+   "signs/5.21.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.22": {
+  "kind": "sign",
+  "id": "5.22",
+  "files": [
+   "signs/5.22.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.23.1": {
+  "kind": "sign",
+  "id": "5.23.1",
+  "files": [
+   "signs/5.23.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.23.2": {
+  "kind": "sign",
+  "id": "5.23.2",
+  "files": [
+   "signs/5.23.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.24.1": {
+  "kind": "sign",
+  "id": "5.24.1",
+  "files": [
+   "signs/5.24.1.webp"
+  ],
+  "group": 2
+ },
+ "sign:5.24.2": {
+  "kind": "sign",
+  "id": "5.24.2",
+  "files": [
+   "signs/5.24.2.webp"
+  ],
+  "group": 2
+ },
+ "sign:5.25": {
+  "kind": "sign",
+  "id": "5.25",
+  "files": [
+   "signs/5.25.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.26": {
+  "kind": "sign",
+  "id": "5.26",
+  "files": [
+   "signs/5.26.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.27": {
+  "kind": "sign",
+  "id": "5.27",
+  "files": [
+   "signs/5.27.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.28": {
+  "kind": "sign",
+  "id": "5.28",
+  "files": [
+   "signs/5.28.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.29": {
+  "kind": "sign",
+  "id": "5.29",
+  "files": [
+   "signs/5.29.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.30": {
+  "kind": "sign",
+  "id": "5.30",
+  "files": [
+   "signs/5.30.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.31": {
+  "kind": "sign",
+  "id": "5.31",
+  "files": [
+   "signs/5.31.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.32": {
+  "kind": "sign",
+  "id": "5.32",
+  "files": [
+   "signs/5.32.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.33": {
+  "kind": "sign",
+  "id": "5.33",
+  "files": [
+   "signs/5.33.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.34": {
+  "kind": "sign",
+  "id": "5.34",
+  "files": [
+   "signs/5.34.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.35": {
+  "kind": "sign",
+  "id": "5.35",
+  "files": [
+   "signs/5.35.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.36": {
+  "kind": "sign",
+  "id": "5.36",
+  "files": [
+   "signs/5.36.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.37": {
+  "kind": "sign",
+  "id": "5.37",
+  "files": [
+   "signs/5.37_1.webp",
+   "signs/5.37_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.38": {
+  "kind": "sign",
+  "id": "5.38",
+  "files": [
+   "signs/5.38_1.webp",
+   "signs/5.38_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.39": {
+  "kind": "sign",
+  "id": "5.39",
+  "files": [
+   "signs/5.39.webp"
+  ],
+  "group": 1
+ },
+ "sign:5.40": {
+  "kind": "sign",
+  "id": "5.40",
+  "files": [
+   "signs/5.40.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.1": {
+  "kind": "sign",
+  "id": "6.1",
+  "files": [
+   "signs/6.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.2": {
+  "kind": "sign",
+  "id": "6.2",
+  "files": [
+   "signs/6.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.3.1": {
+  "kind": "sign",
+  "id": "6.3.1",
+  "files": [
+   "signs/6.3.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.3.2": {
+  "kind": "sign",
+  "id": "6.3.2",
+  "files": [
+   "signs/6.3.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.4": {
+  "kind": "sign",
+  "id": "6.4",
+  "files": [
+   "signs/6.4_1.webp",
+   "signs/6.4_2.webp",
+   "signs/6.4_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.5": {
+  "kind": "sign",
+  "id": "6.5",
+  "files": [
+   "signs/6.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.6": {
+  "kind": "sign",
+  "id": "6.6",
+  "files": [
+   "signs/6.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.7": {
+  "kind": "sign",
+  "id": "6.7",
+  "files": [
+   "signs/6.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.8.1": {
+  "kind": "sign",
+  "id": "6.8.1",
+  "files": [
+   "signs/6.8.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.8.2": {
+  "kind": "sign",
+  "id": "6.8.2",
+  "files": [
+   "signs/6.8.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.8.3": {
+  "kind": "sign",
+  "id": "6.8.3",
+  "files": [
+   "signs/6.8.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.9.2": {
+  "kind": "sign",
+  "id": "6.9.2",
+  "files": [
+   "signs/6.9.2_1.webp",
+   "signs/6.9.2_2.webp",
+   "signs/6.9.2_3.webp",
+   "signs/6.9.2_4.webp",
+   "signs/6.9.2_5.webp",
+   "signs/6.9.2_6.webp",
+   "signs/6.9.2_7.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.9.3": {
+  "kind": "sign",
+  "id": "6.9.3",
+  "files": [
+   "signs/6.9.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.10.1": {
+  "kind": "sign",
+  "id": "6.10.1",
+  "files": [
+   "signs/6.10.1_1.webp",
+   "signs/6.10.1_2.webp",
+   "signs/6.10.1_3.webp",
+   "signs/6.10.1_4.webp",
+   "signs/6.10.1_5.webp"
+  ],
+  "group": 2
+ },
+ "sign:6.10.2": {
+  "kind": "sign",
+  "id": "6.10.2",
+  "files": [
+   "signs/6.10.2_1.webp",
+   "signs/6.10.2_2.webp",
+   "signs/6.10.2_3.webp",
+   "signs/6.10.2_4.webp",
+   "signs/6.10.2_5.webp"
+  ],
+  "group": 2
+ },
+ "sign:6.11": {
+  "kind": "sign",
+  "id": "6.11",
+  "files": [
+   "signs/6.11_1.webp",
+   "signs/6.11_2.webp",
+   "signs/6.11_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.12": {
+  "kind": "sign",
+  "id": "6.12",
+  "files": [
+   "signs/6.12_1.webp",
+   "signs/6.12_2.webp",
+   "signs/6.12_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.13": {
+  "kind": "sign",
+  "id": "6.13",
+  "files": [
+   "signs/6.13_1.webp",
+   "signs/6.13_2.webp",
+   "signs/6.13_3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.14.1": {
+  "kind": "sign",
+  "id": "6.14.1",
+  "files": [
+   "signs/6.14.1_1.webp",
+   "signs/6.14.1_2.webp",
+   "signs/6.14.1_3.webp",
+   "signs/6.14.1_4.webp",
+   "signs/6.14.1_5.webp",
+   "signs/6.14.1_6.webp",
+   "signs/6.14.1_7.webp"
+  ],
+  "group": 2
+ },
+ "sign:6.14.2": {
+  "kind": "sign",
+  "id": "6.14.2",
+  "files": [
+   "signs/6.14.2_1.webp",
+   "signs/6.14.2_2.webp",
+   "signs/6.14.2_3.webp",
+   "signs/6.14.2_4.webp",
+   "signs/6.14.2_5.webp",
+   "signs/6.14.2_6.webp",
+   "signs/6.14.2_7.webp"
+  ],
+  "group": 2
+ },
+ "sign:6.15.1": {
+  "kind": "sign",
+  "id": "6.15.1",
+  "files": [
+   "signs/6.15.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.15.2": {
+  "kind": "sign",
+  "id": "6.15.2",
+  "files": [
+   "signs/6.15.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.15.3": {
+  "kind": "sign",
+  "id": "6.15.3",
+  "files": [
+   "signs/6.15.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.16": {
+  "kind": "sign",
+  "id": "6.16",
+  "files": [
+   "signs/6.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.17": {
+  "kind": "sign",
+  "id": "6.17",
+  "files": [
+   "signs/6.17.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.18.1": {
+  "kind": "sign",
+  "id": "6.18.1",
+  "files": [
+   "signs/6.18.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.18.2": {
+  "kind": "sign",
+  "id": "6.18.2",
+  "files": [
+   "signs/6.18.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.18.3": {
+  "kind": "sign",
+  "id": "6.18.3",
+  "files": [
+   "signs/6.18.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.19.1": {
+  "kind": "sign",
+  "id": "6.19.1",
+  "files": [
+   "signs/6.19.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.19.2": {
+  "kind": "sign",
+  "id": "6.19.2",
+  "files": [
+   "signs/6.19.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.20.1": {
+  "kind": "sign",
+  "id": "6.20.1",
+  "files": [
+   "signs/6.20.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.20.2": {
+  "kind": "sign",
+  "id": "6.20.2",
+  "files": [
+   "signs/6.20.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.21.1": {
+  "kind": "sign",
+  "id": "6.21.1",
+  "files": [
+   "signs/6.21.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.21.2": {
+  "kind": "sign",
+  "id": "6.21.2",
+  "files": [
+   "signs/6.21.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:6.22": {
+  "kind": "sign",
+  "id": "6.22",
+  "files": [
+   "signs/6.22.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.1": {
+  "kind": "sign",
+  "id": "7.1",
+  "files": [
+   "signs/7.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.2": {
+  "kind": "sign",
+  "id": "7.2",
+  "files": [
+   "signs/7.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.3": {
+  "kind": "sign",
+  "id": "7.3",
+  "files": [
+   "signs/7.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.4": {
+  "kind": "sign",
+  "id": "7.4",
+  "files": [
+   "signs/7.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.5": {
+  "kind": "sign",
+  "id": "7.5",
+  "files": [
+   "signs/7.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.6": {
+  "kind": "sign",
+  "id": "7.6",
+  "files": [
+   "signs/7.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.7": {
+  "kind": "sign",
+  "id": "7.7",
+  "files": [
+   "signs/7.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.8": {
+  "kind": "sign",
+  "id": "7.8",
+  "files": [
+   "signs/7.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.9": {
+  "kind": "sign",
+  "id": "7.9",
+  "files": [
+   "signs/7.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.10": {
+  "kind": "sign",
+  "id": "7.10",
+  "files": [
+   "signs/7.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.11": {
+  "kind": "sign",
+  "id": "7.11",
+  "files": [
+   "signs/7.11.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.12": {
+  "kind": "sign",
+  "id": "7.12",
+  "files": [
+   "signs/7.12.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.13": {
+  "kind": "sign",
+  "id": "7.13",
+  "files": [
+   "signs/7.13.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.14.1": {
+  "kind": "sign",
+  "id": "7.14.1",
+  "files": [
+   "signs/7.14.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.14.2": {
+  "kind": "sign",
+  "id": "7.14.2",
+  "files": [
+   "signs/7.14.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.15": {
+  "kind": "sign",
+  "id": "7.15",
+  "files": [
+   "signs/7.15.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.16": {
+  "kind": "sign",
+  "id": "7.16",
+  "files": [
+   "signs/7.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.17": {
+  "kind": "sign",
+  "id": "7.17",
+  "files": [
+   "signs/7.17.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.18": {
+  "kind": "sign",
+  "id": "7.18",
+  "files": [
+   "signs/7.18.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.19": {
+  "kind": "sign",
+  "id": "7.19",
+  "files": [
+   "signs/7.19.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.20": {
+  "kind": "sign",
+  "id": "7.20",
+  "files": [
+   "signs/7.20.webp"
+  ],
+  "group": 1
+ },
+ "sign:7.21": {
+  "kind": "sign",
+  "id": "7.21",
+  "files": [
+   "signs/7.21.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.1.1": {
+  "kind": "sign",
+  "id": "8.1.1",
+  "files": [
+   "signs/8.1.1_1.webp",
+   "signs/8.1.1_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.1.2": {
+  "kind": "sign",
+  "id": "8.1.2",
+  "files": [
+   "signs/8.1.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.1.3": {
+  "kind": "sign",
+  "id": "8.1.3",
+  "files": [
+   "signs/8.1.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.1.4": {
+  "kind": "sign",
+  "id": "8.1.4",
+  "files": [
+   "signs/8.1.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.1": {
+  "kind": "sign",
+  "id": "8.2.1",
+  "files": [
+   "signs/8.2.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.2": {
+  "kind": "sign",
+  "id": "8.2.2",
+  "files": [
+   "signs/8.2.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.3": {
+  "kind": "sign",
+  "id": "8.2.3",
+  "files": [
+   "signs/8.2.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.4": {
+  "kind": "sign",
+  "id": "8.2.4",
+  "files": [
+   "signs/8.2.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.5": {
+  "kind": "sign",
+  "id": "8.2.5",
+  "files": [
+   "signs/8.2.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.2.6": {
+  "kind": "sign",
+  "id": "8.2.6",
+  "files": [
+   "signs/8.2.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.3.1": {
+  "kind": "sign",
+  "id": "8.3.1",
+  "files": [
+   "signs/8.3.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.3.2": {
+  "kind": "sign",
+  "id": "8.3.2",
+  "files": [
+   "signs/8.3.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.3.3": {
+  "kind": "sign",
+  "id": "8.3.3",
+  "files": [
+   "signs/8.3.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.1": {
+  "kind": "sign",
+  "id": "8.4.1",
+  "files": [
+   "signs/8.4.1_1.webp",
+   "signs/8.4.1_2.webp",
+   "signs/8.4.1_3.webp",
+   "signs/8.4.1_4.webp",
+   "signs/8.4.1_5.webp",
+   "signs/8.4.1_6.webp",
+   "signs/8.4.1_7.webp",
+   "signs/8.4.1_8.webp",
+   "signs/8.4.1_9.webp",
+   "signs/8.4.1_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.2": {
+  "kind": "sign",
+  "id": "8.4.2",
+  "files": [
+   "signs/8.4.2_1.webp",
+   "signs/8.4.2_2.webp",
+   "signs/8.4.2_3.webp",
+   "signs/8.4.2_4.webp",
+   "signs/8.4.2_5.webp",
+   "signs/8.4.2_6.webp",
+   "signs/8.4.2_7.webp",
+   "signs/8.4.2_8.webp",
+   "signs/8.4.2_9.webp",
+   "signs/8.4.2_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.3": {
+  "kind": "sign",
+  "id": "8.4.3",
+  "files": [
+   "signs/8.4.3_1.webp",
+   "signs/8.4.3_2.webp",
+   "signs/8.4.3_3.webp",
+   "signs/8.4.3_4.webp",
+   "signs/8.4.3_5.webp",
+   "signs/8.4.3_6.webp",
+   "signs/8.4.3_7.webp",
+   "signs/8.4.3_8.webp",
+   "signs/8.4.3_9.webp",
+   "signs/8.4.3_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.4": {
+  "kind": "sign",
+  "id": "8.4.4",
+  "files": [
+   "signs/8.4.4_1.webp",
+   "signs/8.4.4_2.webp",
+   "signs/8.4.4_3.webp",
+   "signs/8.4.4_4.webp",
+   "signs/8.4.4_5.webp",
+   "signs/8.4.4_6.webp",
+   "signs/8.4.4_7.webp",
+   "signs/8.4.4_8.webp",
+   "signs/8.4.4_9.webp",
+   "signs/8.4.4_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.5": {
+  "kind": "sign",
+  "id": "8.4.5",
+  "files": [
+   "signs/8.4.5_1.webp",
+   "signs/8.4.5_2.webp",
+   "signs/8.4.5_3.webp",
+   "signs/8.4.5_4.webp",
+   "signs/8.4.5_5.webp",
+   "signs/8.4.5_6.webp",
+   "signs/8.4.5_7.webp",
+   "signs/8.4.5_8.webp",
+   "signs/8.4.5_9.webp",
+   "signs/8.4.5_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.6": {
+  "kind": "sign",
+  "id": "8.4.6",
+  "files": [
+   "signs/8.4.6_1.webp",
+   "signs/8.4.6_2.webp",
+   "signs/8.4.6_3.webp",
+   "signs/8.4.6_4.webp",
+   "signs/8.4.6_5.webp",
+   "signs/8.4.6_6.webp",
+   "signs/8.4.6_7.webp",
+   "signs/8.4.6_8.webp",
+   "signs/8.4.6_9.webp",
+   "signs/8.4.6_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.7": {
+  "kind": "sign",
+  "id": "8.4.7",
+  "files": [
+   "signs/8.4.7_1.webp",
+   "signs/8.4.7_2.webp",
+   "signs/8.4.7_3.webp",
+   "signs/8.4.7_4.webp",
+   "signs/8.4.7_5.webp",
+   "signs/8.4.7_6.webp",
+   "signs/8.4.7_7.webp",
+   "signs/8.4.7_8.webp",
+   "signs/8.4.7_9.webp",
+   "signs/8.4.7_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.8": {
+  "kind": "sign",
+  "id": "8.4.8",
+  "files": [
+   "signs/8.4.8_1.webp",
+   "signs/8.4.8_2.webp",
+   "signs/8.4.8_3.webp",
+   "signs/8.4.8_4.webp",
+   "signs/8.4.8_5.webp",
+   "signs/8.4.8_6.webp",
+   "signs/8.4.8_7.webp",
+   "signs/8.4.8_8.webp",
+   "signs/8.4.8_9.webp",
+   "signs/8.4.8_10.webp"
+  ],
+  "group": 8
+ },
+ "sign:8.4.9": {
+  "kind": "sign",
+  "id": "8.4.9",
+  "files": [
+   "signs/8.4.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.10": {
+  "kind": "sign",
+  "id": "8.4.10",
+  "files": [
+   "signs/8.4.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.11": {
+  "kind": "sign",
+  "id": "8.4.11",
+  "files": [
+   "signs/8.4.11.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.12": {
+  "kind": "sign",
+  "id": "8.4.12",
+  "files": [
+   "signs/8.4.12.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.13": {
+  "kind": "sign",
+  "id": "8.4.13",
+  "files": [
+   "signs/8.4.13.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.14": {
+  "kind": "sign",
+  "id": "8.4.14",
+  "files": [
+   "signs/8.4.14.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.15": {
+  "kind": "sign",
+  "id": "8.4.15",
+  "files": [
+   "signs/8.4.15.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.4.16": {
+  "kind": "sign",
+  "id": "8.4.16",
+  "files": [
+   "signs/8.4.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.5.2": {
+  "kind": "sign",
+  "id": "8.5.2",
+  "files": [
+   "signs/8.5.2_1.webp",
+   "signs/8.5.2_2.webp",
+   "signs/8.5.2_3.webp"
+  ],
+  "group": 2
+ },
+ "sign:8.5.3": {
+  "kind": "sign",
+  "id": "8.5.3",
+  "files": [
+   "signs/8.5.3_1.webp",
+   "signs/8.5.3_2.webp",
+   "signs/8.5.3_3.webp"
+  ],
+  "group": 2
+ },
+ "sign:8.5.4": {
+  "kind": "sign",
+  "id": "8.5.4",
+  "files": [
+   "signs/8.5.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.5.5": {
+  "kind": "sign",
+  "id": "8.5.5",
+  "files": [
+   "signs/8.5.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.5.6": {
+  "kind": "sign",
+  "id": "8.5.6",
+  "files": [
+   "signs/8.5.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.5.7": {
+  "kind": "sign",
+  "id": "8.5.7",
+  "files": [
+   "signs/8.5.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.1": {
+  "kind": "sign",
+  "id": "8.6.1",
+  "files": [
+   "signs/8.6.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.2": {
+  "kind": "sign",
+  "id": "8.6.2",
+  "files": [
+   "signs/8.6.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.3": {
+  "kind": "sign",
+  "id": "8.6.3",
+  "files": [
+   "signs/8.6.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.4": {
+  "kind": "sign",
+  "id": "8.6.4",
+  "files": [
+   "signs/8.6.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.5": {
+  "kind": "sign",
+  "id": "8.6.5",
+  "files": [
+   "signs/8.6.5.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.6": {
+  "kind": "sign",
+  "id": "8.6.6",
+  "files": [
+   "signs/8.6.6.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.7": {
+  "kind": "sign",
+  "id": "8.6.7",
+  "files": [
+   "signs/8.6.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.8": {
+  "kind": "sign",
+  "id": "8.6.8",
+  "files": [
+   "signs/8.6.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.6.9": {
+  "kind": "sign",
+  "id": "8.6.9",
+  "files": [
+   "signs/8.6.9.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.7": {
+  "kind": "sign",
+  "id": "8.7",
+  "files": [
+   "signs/8.7.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.8": {
+  "kind": "sign",
+  "id": "8.8",
+  "files": [
+   "signs/8.8.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.9.1": {
+  "kind": "sign",
+  "id": "8.9.1",
+  "files": [
+   "signs/8.9.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.9.2": {
+  "kind": "sign",
+  "id": "8.9.2",
+  "files": [
+   "signs/8.9.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.9.3": {
+  "kind": "sign",
+  "id": "8.9.3",
+  "files": [
+   "signs/8.9.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.10": {
+  "kind": "sign",
+  "id": "8.10",
+  "files": [
+   "signs/8.10.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.11": {
+  "kind": "sign",
+  "id": "8.11",
+  "files": [
+   "signs/8.11.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.12": {
+  "kind": "sign",
+  "id": "8.12",
+  "files": [
+   "signs/8.12.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.13": {
+  "kind": "sign",
+  "id": "8.13",
+  "files": [
+   "signs/8.13.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.14": {
+  "kind": "sign",
+  "id": "8.14",
+  "files": [
+   "signs/8.14.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.15": {
+  "kind": "sign",
+  "id": "8.15",
+  "files": [
+   "signs/8.15.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.16": {
+  "kind": "sign",
+  "id": "8.16",
+  "files": [
+   "signs/8.16.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.17": {
+  "kind": "sign",
+  "id": "8.17",
+  "files": [
+   "signs/8.17.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.18": {
+  "kind": "sign",
+  "id": "8.18",
+  "files": [
+   "signs/8.18.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.19": {
+  "kind": "sign",
+  "id": "8.19",
+  "files": [
+   "signs/8.19.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.20.1": {
+  "kind": "sign",
+  "id": "8.20.1",
+  "files": [
+   "signs/8.20.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.20.2": {
+  "kind": "sign",
+  "id": "8.20.2",
+  "files": [
+   "signs/8.20.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.21.1": {
+  "kind": "sign",
+  "id": "8.21.1",
+  "files": [
+   "signs/8.21.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.21.2": {
+  "kind": "sign",
+  "id": "8.21.2",
+  "files": [
+   "signs/8.21.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.21.3": {
+  "kind": "sign",
+  "id": "8.21.3",
+  "files": [
+   "signs/8.21.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.22.1": {
+  "kind": "sign",
+  "id": "8.22.1",
+  "files": [
+   "signs/8.22.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.22.2": {
+  "kind": "sign",
+  "id": "8.22.2",
+  "files": [
+   "signs/8.22.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.22.3": {
+  "kind": "sign",
+  "id": "8.22.3",
+  "files": [
+   "signs/8.22.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.24": {
+  "kind": "sign",
+  "id": "8.24",
+  "files": [
+   "signs/8.24.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.25": {
+  "kind": "sign",
+  "id": "8.25",
+  "files": [
+   "signs/8.25.webp"
+  ],
+  "group": 1
+ },
+ "sign:8.26": {
+  "kind": "sign",
+  "id": "8.26",
+  "files": [
+   "signs/8.26.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.1": {
+  "kind": "marking-h",
+  "id": "1.1",
+  "files": [
+   "markings/1.1.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.2": {
+  "kind": "marking-h",
+  "id": "1.2",
+  "files": [
+   "markings/1.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.3": {
+  "kind": "marking-h",
+  "id": "1.3",
+  "files": [
+   "markings/1.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.4": {
+  "kind": "marking-h",
+  "id": "1.4",
+  "files": [
+   "markings/1.4.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.5": {
+  "kind": "marking-h",
+  "id": "1.5",
+  "files": [
+   "markings/1.5.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.6": {
+  "kind": "marking-h",
+  "id": "1.6",
+  "files": [
+   "markings/1.6.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.7": {
+  "kind": "marking-h",
+  "id": "1.7",
+  "files": [
+   "markings/1.7_1.webp",
+   "markings/1.7_2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.8": {
+  "kind": "marking-h",
+  "id": "1.8",
+  "files": [
+   "markings/1.8.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.9": {
+  "kind": "marking-h",
+  "id": "1.9",
+  "files": [
+   "markings/1.9.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.10": {
+  "kind": "marking-h",
+  "id": "1.10",
+  "files": [
+   "markings/1.10.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.11": {
+  "kind": "marking-h",
+  "id": "1.11",
+  "files": [
+   "markings/1.11.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.12": {
+  "kind": "marking-h",
+  "id": "1.12",
+  "files": [
+   "markings/1.12.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.13": {
+  "kind": "marking-h",
+  "id": "1.13",
+  "files": [
+   "markings/1.13.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.14.2": {
+  "kind": "marking-h",
+  "id": "1.14.2",
+  "files": [
+   "markings/1.14.2_1.webp",
+   "markings/1.14.2_2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.14.3": {
+  "kind": "marking-h",
+  "id": "1.14.3",
+  "files": [
+   "markings/1.14.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.15": {
+  "kind": "marking-h",
+  "id": "1.15",
+  "files": [
+   "markings/1.15.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.16.1": {
+  "kind": "marking-h",
+  "id": "1.16.1",
+  "files": [
+   "markings/1.16.1.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.16.2": {
+  "kind": "marking-h",
+  "id": "1.16.2",
+  "files": [
+   "markings/1.16.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.16.3": {
+  "kind": "marking-h",
+  "id": "1.16.3",
+  "files": [
+   "markings/1.16.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.17.1": {
+  "kind": "marking-h",
+  "id": "1.17.1",
+  "files": [
+   "markings/1.17.1.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.17.2": {
+  "kind": "marking-h",
+  "id": "1.17.2",
+  "files": [
+   "markings/1.17.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.18": {
+  "kind": "marking-h",
+  "id": "1.18",
+  "files": [
+   "markings/1.18_1.webp",
+   "markings/1.18_2.webp",
+   "markings/1.18_3.webp",
+   "markings/1.18_4.webp",
+   "markings/1.18_5.webp",
+   "markings/1.18_6.webp",
+   "markings/1.18_7.webp",
+   "markings/1.18_8.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.19": {
+  "kind": "marking-h",
+  "id": "1.19",
+  "files": [
+   "markings/1.19_1.webp",
+   "markings/1.19_2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.20": {
+  "kind": "marking-h",
+  "id": "1.20",
+  "files": [
+   "markings/1.20.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.21": {
+  "kind": "marking-h",
+  "id": "1.21",
+  "files": [
+   "markings/1.21.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.22": {
+  "kind": "marking-h",
+  "id": "1.22",
+  "files": [
+   "markings/1.22_1.webp",
+   "markings/1.22_2.webp",
+   "markings/1.22_3.webp",
+   "markings/1.22_4.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.23.1": {
+  "kind": "marking-h",
+  "id": "1.23.1",
+  "files": [
+   "markings/1.23.1.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.23.2": {
+  "kind": "marking-h",
+  "id": "1.23.2",
+  "files": [
+   "markings/1.23.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.23.3": {
+  "kind": "marking-h",
+  "id": "1.23.3",
+  "files": [
+   "markings/1.23.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.1": {
+  "kind": "marking-h",
+  "id": "1.24.1",
+  "files": [
+   "markings/1.24.1.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.2": {
+  "kind": "marking-h",
+  "id": "1.24.2",
+  "files": [
+   "markings/1.24.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.3": {
+  "kind": "marking-h",
+  "id": "1.24.3",
+  "files": [
+   "markings/1.24.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.4": {
+  "kind": "marking-h",
+  "id": "1.24.4",
+  "files": [
+   "markings/1.24.4.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.5": {
+  "kind": "marking-h",
+  "id": "1.24.5",
+  "files": [
+   "markings/1.24.5.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.6": {
+  "kind": "marking-h",
+  "id": "1.24.6",
+  "files": [
+   "markings/1.24.6.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.24.7": {
+  "kind": "marking-h",
+  "id": "1.24.7",
+  "files": [
+   "markings/1.24.7.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.25": {
+  "kind": "marking-h",
+  "id": "1.25",
+  "files": [
+   "markings/1.25.webp"
+  ],
+  "group": 1
+ },
+ "marking-h:1.26": {
+  "kind": "marking-h",
+  "id": "1.26",
+  "files": [
+   "markings/1.26.webp"
+  ],
+  "group": 1
+ },
+ "marking-v:2.1.1": {
+  "kind": "marking-v",
+  "id": "2.1.1",
+  "files": [
+   "markings/v2.1.1_1.webp",
+   "markings/v2.1.1_2.webp",
+   "markings/v2.1.1_3.webp",
+   "markings/v2.1.1_4.webp",
+   "markings/v2.1.1_5.webp",
+   "markings/v2.1.1_6.webp"
+  ],
+  "group": 3
+ },
+ "marking-v:2.1.2": {
+  "kind": "marking-v",
+  "id": "2.1.2",
+  "files": [
+   "markings/v2.1.2_1.webp",
+   "markings/v2.1.2_2.webp",
+   "markings/v2.1.2_3.webp",
+   "markings/v2.1.2_4.webp",
+   "markings/v2.1.2_5.webp",
+   "markings/v2.1.2_6.webp"
+  ],
+  "group": 3
+ },
+ "marking-v:2.1.3": {
+  "kind": "marking-v",
+  "id": "2.1.3",
+  "files": [
+   "markings/v2.1.3_1.webp",
+   "markings/v2.1.3_2.webp",
+   "markings/v2.1.3_3.webp",
+   "markings/v2.1.3_4.webp",
+   "markings/v2.1.3_5.webp",
+   "markings/v2.1.3_6.webp"
+  ],
+  "group": 3
+ },
+ "marking-v:2.2": {
+  "kind": "marking-v",
+  "id": "2.2",
+  "files": [
+   "markings/v2.2.webp"
+  ],
+  "group": 1
+ },
+ "marking-v:2.3": {
+  "kind": "marking-v",
+  "id": "2.3",
+  "files": [
+   "markings/v2.3.webp"
+  ],
+  "group": 1
+ },
+ "marking-v:2.4": {
+  "kind": "marking-v",
+  "id": "2.4",
+  "files": [
+   "markings/v2.4_1.webp",
+   "markings/v2.4_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.1": {
+  "kind": "sign",
+  "id": "4.1.1",
+  "files": [
+   "signs/4.1.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.2": {
+  "kind": "sign",
+  "id": "4.1.2",
+  "files": [
+   "signs/4.1.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.3": {
+  "kind": "sign",
+  "id": "4.1.3",
+  "files": [
+   "signs/4.1.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.4": {
+  "kind": "sign",
+  "id": "4.1.4",
+  "files": [
+   "signs/4.1.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.5": {
+  "kind": "sign",
+  "id": "4.1.5",
+  "files": [
+   "signs/4.1.5.webp"
+  ],
+  "group": 1
+ }
+}

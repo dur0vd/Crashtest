@@ -1,12 +1,14 @@
-import { type Geo, buildGeo } from './geo';
-import { type Vec, add, angleOf, fromAngle, kmh, mul, norm, rightOf, sub } from './geom';
+import { type Geo, buildGeo, densify, roadOutlinePoly, widthsAt } from './geo';
+import { ARROW_VARIANTS, MARKING_BY_ID, type MarkingSpec } from './markings';
+import { VALUE_SIGNS, markingFile, signFile } from './signs';
+import { imgUrl } from './corpus';
+import { type Vec, add, angleOf, frameAtStation, fromAngle, kmh, mul, norm, rightOf, sub } from './geom';
 import type { Report } from './analysis';
 import {
   type Actor,
   type Scene,
   type Sign,
   type TrafficLight,
-  LANE_WIDTH,
   GAUGE,
   PEDESTRIANS,
   VEHICLES,
@@ -27,7 +29,7 @@ export interface Camera {
 }
 
 export interface Selection {
-  col: 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'obstacles' | 'actors';
+  col: 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
   id: string;
 }
 
@@ -44,7 +46,11 @@ export interface GhostState {
   angle: number;
 }
 
+const POLY = ['road', 'sidewalk', 'track'];
+
 export interface ViewState {
+  /** настройки кисти (для предпросмотра сглаживания) */
+  brush?: { smooth: boolean; radius: number };
   scene: Scene;
   cam: Camera;
   mode: 'edit' | 'play';
@@ -109,11 +115,28 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: Vec[], close = false): vo
   if (close) ctx.closePath();
 }
 
-function roadOutline(pts: Vec[], half: number): Vec[] {
-  return [...offsetPolyline(pts, half), ...offsetPolyline(pts, -half).reverse()];
+/** Кэш картинок знаков и разметки; после загрузки просит перерисовать холст. */
+class ImageCache {
+  private map = new Map<string, HTMLImageElement | 'err'>();
+  constructor(private onLoad: () => void) {}
+  get(path: string): HTMLImageElement | null {
+    if (!path) return null;
+    const hit = this.map.get(path);
+    if (hit === 'err') return null;
+    if (hit) return hit.complete && hit.naturalWidth ? hit : null;
+    const img = new Image();
+    img.onload = () => this.onLoad();
+    img.onerror = () => this.map.set(path, 'err');
+    img.src = imgUrl(path);
+    this.map.set(path, img);
+    return null;
+  }
 }
 
 export class Renderer {
+  private images = new ImageCache(() => this.onImage());
+  /** вызывается, когда догрузилась картинка и нужен новый кадр */
+  onImage: () => void = () => {};
   private ctx: CanvasRenderingContext2D;
   w = 0;
   h = 0;
@@ -149,6 +172,7 @@ export class Renderer {
     this.drawSidewalks(geo);
     this.drawRoads(geo);
     this.drawTracks(geo);
+    this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
     this.drawObstacles(geo);
@@ -213,23 +237,25 @@ export class Renderer {
     const { ctx } = this;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
+    ctx.fillStyle = C.asphalt;
     for (const rg of geo.roads) {
       if (rg.pts.length < 2) continue;
-      tracePath(ctx, rg.pts);
+      tracePath(ctx, roadOutlinePoly(rg), true);
+      ctx.fill();
+      // тонкая обводка скрывает щели между соседними многоугольниками
       ctx.strokeStyle = C.asphalt;
-      ctx.lineWidth = rg.width;
+      ctx.lineWidth = 0.05;
       ctx.stroke();
     }
     // разметка: не рисуем внутри других дорог (перекрёстки)
     for (const rg of geo.roads) {
       if (rg.pts.length < 2) continue;
       ctx.save();
-      const big = { x0: -1e5, y0: -1e5, x1: 1e5, y1: 1e5 };
       for (const other of geo.roads) {
         if (other === rg || other.pts.length < 2) continue;
         ctx.beginPath();
-        ctx.rect(big.x0, big.y0, big.x1 - big.x0, big.y1 - big.y0);
-        const o = roadOutline(other.pts, other.half);
+        ctx.rect(-1e5, -1e5, 2e5, 2e5);
+        const o = roadOutlinePoly(other);
         o.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
         ctx.closePath();
         ctx.clip('evenodd');
@@ -242,53 +268,48 @@ export class Renderer {
   private drawRoadMarkings(rg: Geo['roads'][number]): void {
     const { ctx } = this;
     const r = rg.road;
-    const half = rg.half;
+    const S = rg.samples;
     ctx.strokeStyle = C.mark;
     ctx.lineJoin = 'round';
-    const line = (off: number, dash: number[], w = 0.15) => {
-      tracePath(ctx, offsetPolyline(rg.pts, off));
+    /** линия, смещённая от оси на off(sample) метров вправо (отрицательное — влево) */
+    const line = (off: (m: Geo['roads'][number]['samples'][number]) => number, dash: number[], w = 0.15) => {
+      tracePath(ctx, S.map((m) => add(m.p, mul(m.n, off(m)))));
       ctx.lineWidth = w;
       ctx.setLineDash(dash);
       ctx.stroke();
       ctx.setLineDash([]);
     };
-    line(half - 0.3, []);
-    line(-(half - 0.3), []);
+    const inset = (w: number) => Math.max(0.2, w - 0.3);
+    line((m) => inset(m.wr), []);
+    line((m) => -inset(m.wl), []);
     if (r.oneWay) {
-      for (let k = 1; k < r.lanes; k++) line(-half + k * LANE_WIDTH, [2, 4]);
-      // стрелки направления
+      for (let k = 1; k < r.lanes; k++) line((m) => -m.wl + ((m.wl + m.wr) * k) / r.lanes, [2, 4]);
+      // стрелки направления: по одной на каждую полосу каждые 24 м
       ctx.fillStyle = 'rgba(242,244,248,0.55)';
-      let acc = 0;
-      for (let i = 1; i < rg.pts.length; i++) {
-        const a = rg.pts[i - 1];
-        const b = rg.pts[i];
-        const d = Math.hypot(b.x - a.x, b.y - a.y);
-        const dir = norm(sub(b, a));
-        for (let s = 12 - (acc % 24); s < d; s += 24) {
-          const p = add(a, mul(dir, s));
-          for (let k = 0; k < r.lanes; k++) {
-            const lp = add(p, mul(rightOf(angleOf(dir)), -half + LANE_WIDTH * (k + 0.5)));
-            this.arrow(lp, angleOf(dir), 1.6);
-          }
+      for (let s = 12; s < rg.total; s += 24) {
+        const f = frameAtStation(rg.pts, rg.cum, s);
+        const w = widthsAt(rg, s);
+        for (let k = 0; k < r.lanes; k++) {
+          const off = -w.l + ((w.l + w.r) * (k + 0.5)) / r.lanes;
+          this.arrow(add(f.p, mul(rightOf(f.a), off)), f.a, 1.6);
         }
-        acc += d;
       }
       return;
     }
     for (let k = 1; k < r.lanes; k++) {
-      line(k * LANE_WIDTH, [2, 4]);
-      line(-k * LANE_WIDTH, [2, 4]);
+      line((m) => (m.wr * k) / r.lanes, [2, 4]);
+      line((m) => -(m.wl * k) / r.lanes, [2, 4]);
     }
     switch (r.center) {
       case 'dashed':
-        line(0, [3, 6]);
+        line(() => 0, [3, 6]);
         break;
       case 'solid':
-        line(0, []);
+        line(() => 0, []);
         break;
       case 'double':
-        line(0.17, []);
-        line(-0.17, []);
+        line(() => 0.17, []);
+        line(() => -0.17, []);
         break;
       default:
         break;
@@ -452,13 +473,14 @@ export class Renderer {
         ctx.stroke();
         ctx.setLineDash([]);
       }
-      if (s.kind === 'stop' || s.kind === 'giveway') {
+      // линия остановки перед знаками «Уступите дорогу» и «Движение без остановки запрещено»
+      if (s.kind === '2.4' || s.kind === '2.5' || s.kind === '3.17.3') {
         ctx.beginPath();
         ctx.moveTo(sg.gate.a.x, sg.gate.a.y);
         ctx.lineTo(sg.gate.b.x, sg.gate.b.y);
         ctx.strokeStyle = 'rgba(242,244,248,0.9)';
-        ctx.lineWidth = s.kind === 'stop' ? 0.4 : 0.3;
-        if (s.kind === 'giveway') ctx.setLineDash([0.5, 0.5]);
+        ctx.lineWidth = s.kind === '2.4' ? 0.3 : 0.4;
+        if (s.kind === '2.4') ctx.setLineDash([0.5, 0.5]);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -466,74 +488,99 @@ export class Renderer {
     }
   }
 
+  /** Знаки с числом на самом знаке рисуем векторно, чтобы число совпадало с заданным. */
+  private drawNumberSign(s: Sign): boolean {
+    const { ctx } = this;
+    const R = 0.75;
+    const val = String(s.value ?? VALUE_SIGNS[s.kind]?.def ?? '');
+    const circle = (fill: string, ring: string | null, text: string, textColor: string) => {
+      ctx.beginPath();
+      ctx.arc(0, 0, R, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (ring) {
+        ctx.strokeStyle = ring;
+        ctx.lineWidth = 0.17;
+        ctx.stroke();
+      }
+      this.worldText(text, 0, 0, val.length > 2 ? 0.5 : 0.7, textColor);
+    };
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    switch (s.kind) {
+      case '3.24':
+        circle('#fff', '#e5484d', val, '#111');
+        break;
+      case '3.25': {
+        circle('#fff', '#222', val, '#222');
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 0.1;
+        ctx.beginPath();
+        ctx.moveTo(-R * 0.7, R * 0.7);
+        ctx.lineTo(R * 0.7, -R * 0.7);
+        ctx.stroke();
+        break;
+      }
+      case '4.6':
+        circle('#1f6fd0', null, val, '#fff');
+        break;
+      case '5.31':
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-R, -R * 1.2, R * 2, R * 2.4);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 0.06;
+        ctx.strokeRect(-R, -R * 1.2, R * 2, R * 2.4);
+        this.worldText('ЗОНА', 0, -R * 0.8, 0.3, '#111');
+        ctx.beginPath();
+        ctx.arc(0, R * 0.25, R * 0.62, 0, Math.PI * 2);
+        ctx.strokeStyle = '#e5484d';
+        ctx.lineWidth = 0.13;
+        ctx.stroke();
+        this.worldText(val, 0, R * 0.25, 0.5, '#111');
+        break;
+      default:
+        ctx.restore();
+        return false;
+    }
+    ctx.restore();
+    return true;
+  }
+
   drawSignIcon(s: Sign): void {
     const { ctx } = this;
-    const R = 0.7;
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.fillStyle = '#9aa3ad';
     ctx.fillRect(-0.06, -0.06, 0.12, 0.12);
-    ctx.lineWidth = 0.12;
-    const poly = (n: number, rot: number, r: number) => {
-      ctx.beginPath();
-      for (let i = 0; i < n; i++) {
-        const a = rot + (i * 2 * Math.PI) / n;
-        i ? ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-      ctx.closePath();
-    };
-    switch (s.kind) {
-      case 'main':
-        poly(4, Math.PI / 4, R * 1.1);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        poly(4, Math.PI / 4, R * 0.8);
-        ctx.fillStyle = '#ffcf3d';
-        ctx.fill();
-        break;
-      case 'giveway':
-        poly(3, Math.PI / 2, R * 1.2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.strokeStyle = '#e5484d';
-        ctx.lineWidth = 0.18;
-        ctx.stroke();
-        break;
-      case 'stop':
-        poly(8, Math.PI / 8, R);
-        ctx.fillStyle = '#e5484d';
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 0.08;
-        ctx.stroke();
-        break;
-      case 'noentry':
-        ctx.beginPath();
-        ctx.arc(0, 0, R, 0, Math.PI * 2);
-        ctx.fillStyle = '#e5484d';
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(-R * 0.65, -0.13, R * 1.3, 0.26);
-        break;
-      case 'limit':
-      case 'noovertake':
-        ctx.beginPath();
-        ctx.arc(0, 0, R, 0, Math.PI * 2);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-        ctx.strokeStyle = '#e5484d';
-        ctx.lineWidth = 0.16;
-        ctx.stroke();
-        break;
-      case 'crosswalk':
-        ctx.fillStyle = '#2f6fe0';
-        ctx.fillRect(-R, -R, R * 2, R * 2);
-        poly(3, -Math.PI / 2, R * 0.65);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-        break;
-    }
     ctx.restore();
+    if (!this.drawNumberSign(s)) {
+      const img = this.images.get(signFile(s.kind));
+      if (img) {
+        // высота знака ~1.5 м, табличек — ~0.7 м
+        const h = s.kind.startsWith('8.') ? 0.7 : 1.5;
+        const w = (img.naturalWidth / img.naturalHeight) * h;
+        const mw = Math.min(w, 2.4);
+        ctx.drawImage(img, s.x - mw / 2, s.y - h / 2, mw, (mw / w) * h);
+        const vs = VALUE_SIGNS[s.kind];
+        if (vs && s.value !== undefined) this.badge(`${s.value} ${vs.unit}`, s.x, s.y + h / 2 + 0.35);
+      } else {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = '#3d4655';
+        ctx.fill();
+        this.worldText(s.kind, s.x, s.y, s.kind.length > 3 ? 0.34 : 0.45, '#fff');
+      }
+    }
+    // таблички под знаком
+    (s.plates ?? []).forEach((pl, k) => {
+      const pimg = this.images.get(signFile(pl));
+      const py = s.y + 1.2 + k * 0.62;
+      if (pimg) {
+        const ph = 0.55;
+        const pw = Math.min(2, (pimg.naturalWidth / pimg.naturalHeight) * ph);
+        ctx.drawImage(pimg, s.x - pw / 2, py - ph / 2, pw, ph);
+      } else this.badge(pl, s.x, py);
+    });
     // направление, которому адресован знак
     ctx.save();
     ctx.translate(s.x, s.y);
@@ -548,11 +595,217 @@ export class Renderer {
     ctx.lineTo(1.3, -0.25);
     ctx.stroke();
     ctx.restore();
-    if (s.kind === 'limit' || s.kind === 'noovertake') {
-      this.worldText(s.kind === 'limit' ? String(s.value ?? 40) : 'ОБГ', s.x, s.y, 0.62, '#111');
-    } else if (s.kind === 'stop') {
-      this.worldText('STOP', s.x, s.y, 0.32, '#fff');
+  }
+
+  /** Небольшая подпись в мировых координатах. */
+  private badge(text: string, x: number, y: number): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.font = '700 0.4px system-ui, sans-serif';
+    const w = ctx.measureText(text).width + 0.3;
+    ctx.fillStyle = 'rgba(12,15,20,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 0.25, w, 0.5, 0.12);
+    ctx.fill();
+    ctx.fillStyle = '#f2f4f8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  // ---- разметка -------------------------------------------------------------
+
+  private drawMarkings(v: ViewState): void {
+    const { ctx } = this;
+    for (const m of v.scene.markings) {
+      const spec = MARKING_BY_ID[m.kind];
+      if (!spec || !m.pts.length) continue;
+      ctx.save();
+      if (spec.form === 'line' && m.pts.length >= 2) this.markLine(m, spec);
+      else if (spec.form === 'area' && m.pts.length >= 3) this.markArea(m, spec);
+      else if (spec.form === 'symbol') this.markSymbol(m, spec);
+      ctx.restore();
     }
+  }
+
+  private markLine(m: Scene['markings'][number], spec: MarkingSpec): void {
+    const { ctx } = this;
+    const pts = densify(m.pts, !!m.smooth, m.radius ?? 0);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = spec.color;
+    ctx.fillStyle = spec.color;
+    const stroke = (line: Vec[], dash?: [number, number], w = spec.width) => {
+      tracePath(this.ctx, line);
+      ctx.lineWidth = w;
+      ctx.setLineDash(dash ?? []);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    if (spec.zigzag) {
+      const out: Vec[] = [];
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b = pts[i];
+        const d = Math.hypot(b.x - a.x, b.y - a.y);
+        const dir = { x: (b.x - a.x) / (d || 1), y: (b.y - a.y) / (d || 1) };
+        const n = rightOf(angleOf(dir));
+        for (let t = 0; t < d; t += 0.6) {
+          const k = Math.round((acc + t) / 0.6) % 2 ? 0.3 : -0.3;
+          out.push({ x: a.x + dir.x * t + n.x * k, y: a.y + dir.y * t + n.y * k });
+        }
+        acc += d;
+      }
+      stroke(out, undefined, 0.12);
+      return;
+    }
+    if (spec.triangles) {
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b = pts[i];
+        const d = Math.hypot(b.x - a.x, b.y - a.y);
+        const ang = angleOf({ x: b.x - a.x, y: b.y - a.y });
+        for (let t = 0.25 - (acc % 0.9); t < d; t += 0.9) {
+          if (t < 0) continue;
+          const px = a.x + Math.cos(ang) * t;
+          const py = a.y + Math.sin(ang) * t;
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(ang);
+          ctx.beginPath();
+          ctx.moveTo(0, -0.25);
+          ctx.lineTo(0, 0.25);
+          ctx.lineTo(-0.6, 0);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+        acc += d;
+      }
+      return;
+    }
+    const off = (d: number) => offsetPolyline(pts, d);
+    switch (spec.pair) {
+      case 'solid-solid':
+        stroke(off(0.17));
+        stroke(off(-0.17));
+        break;
+      case 'solid-dashed': {
+        const solidSide = m.solidRight === false ? -0.17 : 0.17;
+        stroke(off(solidSide));
+        stroke(off(-solidSide), [1, 3]);
+        break;
+      }
+      case 'dashed-dashed':
+        stroke(off(0.2), spec.dash);
+        stroke(off(-0.2), spec.dash);
+        break;
+      default:
+        stroke(pts, spec.dash);
+    }
+  }
+
+  private markArea(m: Scene['markings'][number], spec: MarkingSpec): void {
+    const { ctx } = this;
+    const pts = m.pts;
+    tracePath(ctx, pts, true);
+    ctx.fillStyle = 'rgba(242,244,248,0.12)';
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = spec.color;
+    ctx.lineWidth = 0.2;
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const x0 = Math.min(...xs);
+    const x1 = Math.max(...xs);
+    const y0 = Math.min(...ys);
+    const y1 = Math.max(...ys);
+    ctx.beginPath();
+    for (let k = x0 - (y1 - y0); k < x1; k += 0.9) {
+      ctx.moveTo(k, y1);
+      ctx.lineTo(k + (y1 - y0), y0);
+    }
+    ctx.stroke();
+    ctx.restore();
+    tracePath(ctx, pts, true);
+    ctx.strokeStyle = spec.color;
+    ctx.lineWidth = spec.width + 0.05;
+    ctx.stroke();
+  }
+
+  private markSymbol(m: Scene['markings'][number], spec: MarkingSpec): void {
+    const { ctx } = this;
+    const p = m.pts[0];
+    ctx.translate(p.x, p.y);
+    ctx.rotate(m.angle ?? 0);
+    ctx.fillStyle = spec.color;
+    ctx.strokeStyle = spec.color;
+    if (spec.arrows) {
+      const allow = ARROW_VARIANTS[m.variant ?? 'straight']?.allow ?? ['straight'];
+      this.arrowShape(allow.includes('straight'), allow.includes('left') && !allow.includes('right') ? 'left' : allow.includes('right') && !allow.includes('left') ? 'right' : allow.includes('left') ? 'both' : null);
+      return;
+    }
+    const img = this.images.get(markingFile(m.kind));
+    if (img) {
+      // картинки в PDF «вдоль дороги» смотрят вверх: поворачиваем на 90° к направлению движения
+      ctx.rotate(Math.PI / 2);
+      const h = 3.2;
+      const w = (img.naturalWidth / img.naturalHeight) * h;
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    } else {
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(-1.5, -0.4, 3, 0.8);
+    }
+  }
+
+  /** Стрела 1.18: прямая и/или поворотная ветви. Направление движения — вдоль оси X. */
+  private arrowShape(straight: boolean, turn: 'left' | 'right' | 'both' | null): void {
+    const { ctx } = this;
+    const L = 5;
+    ctx.lineWidth = 0.35;
+    ctx.lineCap = 'butt';
+    const head = (x: number, y: number, ang: number) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(0.9, 0);
+      ctx.lineTo(-0.3, 0.75);
+      ctx.lineTo(-0.3, -0.75);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+    if (straight) {
+      ctx.beginPath();
+      ctx.moveTo(-L / 2, 0);
+      ctx.lineTo(L / 2 - 0.4, 0);
+      ctx.stroke();
+      head(L / 2, 0, 0);
+    }
+    const branch = (sign: 1 | -1) => {
+      ctx.beginPath();
+      ctx.moveTo(-L / 2, 0);
+      if (straight) {
+        ctx.lineTo(-0.3, 0);
+        ctx.quadraticCurveTo(0.8, 0, 1.4, sign * 1.2);
+        ctx.lineTo(1.9, sign * 2.0);
+        ctx.stroke();
+        head(2.1, sign * 2.35, sign * 1.15);
+      } else {
+        ctx.lineTo(0.4, 0);
+        ctx.quadraticCurveTo(1.6, 0, 1.6, sign * 1.4);
+        ctx.lineTo(1.6, sign * 2.0);
+        ctx.stroke();
+        head(1.6, sign * 2.35, sign * Math.PI / 2);
+      }
+    };
+    // y вниз: налево по ходу движения — это отрицательный Y
+    if (turn === 'left' || turn === 'both') branch(-1);
+    if (turn === 'right' || turn === 'both') branch(1);
   }
 
   /** Текст в мировых координатах (размер задаётся в метрах). */
@@ -673,6 +926,27 @@ export class Renderer {
         ctx.fillRect(L * 0.1, -W / 2 + 0.2, L * 0.2, W - 0.4);
         ctx.fillRect(-L * 0.38, -W / 2 + 0.2, L * 0.1, W - 0.4);
         break;
+    }
+    // груз и его свесы
+    const c = a.cargo;
+    if (c) {
+      const x0 = -L / 2 + 0.2 - c.rear;
+      const x1 = L / 2 - 0.2 + c.front;
+      const y0 = -W / 2 + 0.1 - c.left;
+      const y1 = W / 2 - 0.1 + c.right;
+      ctx.fillStyle = 'rgba(160,118,70,0.85)';
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.strokeStyle = 'rgba(60,40,20,0.9)';
+      ctx.lineWidth = 0.08;
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      if (c.marked) {
+        // опознавательные знаки «Крупногабаритный груз»: красно-белые полосы на свисающих концах
+        ctx.fillStyle = '#e5484d';
+        for (const [xa, xb] of [[x1 - 0.4, x1], [x0, x0 + 0.4]]) ctx.fillRect(xa, y0, xb - xa, y1 - y0);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(x1 - 0.25, y0, 0.12, y1 - y0);
+        ctx.fillRect(x0 + 0.13, y0, 0.12, y1 - y0);
+      }
     }
     // передок
     ctx.fillStyle = '#fff3b0';
@@ -802,6 +1076,7 @@ export class Renderer {
     switch (v.sel.col) {
       case 'roads':
       case 'sidewalks':
+      case 'markings':
       case 'tracks': {
         const it = (s[v.sel.col] as { id: string; pts: Vec[] }[]).find((x) => x.id === v.sel!.id);
         if (!it) return;
@@ -810,6 +1085,36 @@ export class Renderer {
         ctx.stroke();
         ctx.setLineDash([]);
         it.pts.forEach((p) => handle(p));
+        if (v.sel.col === 'markings') {
+          const m = it as unknown as { kind: string; pts: Vec[]; angle?: number };
+          if (MARKING_BY_ID[m.kind]?.form === 'symbol') handle(add(m.pts[0], mul(fromAngle(m.angle ?? 0), 3.2)));
+        }
+        if (v.sel.col === 'roads') {
+          const rg = geo.roads.find((x) => x.road.id === v.sel!.id);
+          if (rg && rg.pts.length >= 2) {
+            // кромки и их точки профиля: левая — оранжевая, правая — бирюзовая
+            for (const side of ['l', 'r'] as const) {
+              const col = side === 'l' ? '#ff9f43' : '#3ddbd9';
+              tracePath(ctx, side === 'l' ? rg.left : rg.right);
+              ctx.strokeStyle = col;
+              ctx.lineWidth = 2 * px;
+              ctx.stroke();
+              for (const e of (side === 'l' ? rg.road.wl : rg.road.wr) ?? []) {
+                const f = frameAtStation(rg.pts, rg.cum, e.s);
+                const n = rightOf(f.a);
+                const p = add(f.p, mul(n, side === 'l' ? -e.w : e.w));
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6 * px, 0, Math.PI * 2);
+                ctx.fillStyle = col;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5 * px;
+                ctx.stroke();
+              }
+            }
+            ctx.strokeStyle = C.sel;
+          }
+        }
         break;
       }
       case 'actors': {
@@ -843,15 +1148,15 @@ export class Renderer {
         break;
       }
     }
-    void geo;
-  }
+      }
 
   private drawDrawing(v: ViewState): void {
     const d = v.drawing;
     if (!d || !d.pts.length) return;
     const { ctx } = this;
     const px = 1 / v.cam.s;
-    const pts = d.cursor ? [...d.pts, d.cursor] : d.pts;
+    const raw = d.cursor ? [...d.pts, d.cursor] : d.pts;
+    const pts = POLY.includes(d.tool) ? densify(raw, !!v.brush?.smooth, v.brush?.radius ?? 0) : raw;
     tracePath(ctx, pts);
     ctx.strokeStyle = d.tool === 'path' ? '#ffd166' : d.tool === 'road' ? 'rgba(255,255,255,0.55)' : 'rgba(255,209,102,0.8)';
     ctx.lineWidth = d.tool === 'road' ? 3.5 : d.tool === 'sidewalk' ? 2 : 0.2;

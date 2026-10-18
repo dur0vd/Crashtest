@@ -1057,7 +1057,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       const wb = wrong(B);
       const blame = (i: Info, w: NonNullable<ReturnType<typeof wrong>>) => {
         const solid = w.center === 'solid' || w.center === 'double';
-        const refs = solid ? ['pdd:9.1.1'] : ['pdd:9.1', 'pdd:9.4', 'pdd:11.1'];
+        const refs = solid ? ['pdd:9.1(1)'] : ['pdd:9.1', 'pdd:9.4', 'pdd:11.1'];
         if (w.lanes >= 2) refs.push('pdd:9.2');
         if (w.tramTrack) refs.push('pdd:9.6');
         refs.push('koap:12.15.4');
@@ -1277,7 +1277,7 @@ function missedWrongSide(ctx: Ctx): void {
     if (already) continue;
     const t = tOf(w.frames[0]);
     if (w.center === 'solid' || w.center === 'double') {
-      const refs = ['pdd:9.1.1'];
+      const refs = ['pdd:9.1(1)'];
       if (w.lanes >= 2) refs.push('pdd:9.2');
       refs.push('koap:12.15.4');
       addFinding(ctx, {

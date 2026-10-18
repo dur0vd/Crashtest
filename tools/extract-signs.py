@@ -112,7 +112,7 @@ pm34 = re.search(r'<page number="34".*?</page>', xml, re.S)
 grid = []
 for m in re.finditer(r'<image top="(\d+)" left="(\d+)" width="(\d+)" height="(\d+)" src="([^"]+)"/>', pm34.group(0) if pm34 else ''):
     top, left, w, h, src = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
-    if left < 205 and 190 <= top <= 300 and 40 <= w <= 70:
+    if left < 205 and 160 <= top <= 300 and 40 <= w <= 70:
         grid.append({'top': top, 'left': left, 'w': w, 'h': h, 'src': src})
 grid.sort(key=lambda i: (round(i['top'] / 20), i['left']))
 if len(grid) == 6:

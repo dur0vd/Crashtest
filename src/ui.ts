@@ -1,7 +1,8 @@
 import { type ActorVerdict, type CollisionReport, type Finding, type Report, HARM_LABEL } from './analysis';
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
-import { DISCLAIMER, LAW, LAW_CHECKED } from './law';
+import { imgUrl, loadCorpus, resolveRef } from './corpus';
+import { DISCLAIMER, LAW, LAW_CHECKED, describeRef } from './law';
 import {
   type Actor,
   type Road,
@@ -318,26 +319,47 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
 // ---------------------------------------------------------------------------
 // Разбор
 
+let openRefInReference: (id: string) => void = () => {};
+export function setRefOpener(fn: (id: string) => void): void {
+  openRefInReference = fn;
+}
+
 function refChip(id: string, host: HTMLElement): HTMLElement {
   const r = LAW[id];
-  const label = r ? `${r.cite}${r.code === 'ПДД' || r.code === 'КоАП' || r.code === 'УК' ? ' ' + r.code : ''}` : id;
-  const cls = r ? `chip ${r.code === 'ПДД' ? 'pdd' : r.code === 'КоАП' ? 'koap' : r.code === 'УК' ? 'uk' : 'gk'}` : 'chip';
+  const d = describeRef(id);
+  const label = `${d.cite}${d.code === 'ПДД' || d.code === 'КоАП' || d.code === 'УК' ? ' ' + d.code : ''}`;
+  const cls = `chip ${d.code === 'ПДД' ? 'pdd' : d.code === 'КоАП' ? 'koap' : d.code === 'УК' ? 'uk' : 'gk'}`;
   const btn = h('button', { type: 'button', class: cls }, label);
   btn.addEventListener('click', () => {
-    let box = host.querySelector<HTMLElement>(`.refbox[data-ref="${id}"]`);
+    let box = host.querySelector<HTMLElement>(`.refbox[data-ref="${CSS.escape(id)}"]`);
     if (box) {
       box.remove();
       btn.classList.remove('open');
       return;
     }
-    if (!r) return;
-    box = h('div', { class: 'refbox', 'data-ref': id },
-      h('b', {}, `${r.cite} ${r.code === 'ГК' || r.code === 'ОСАГО' ? '' : r.code + ' РФ'} — ${r.title}`),
-      h('p', {}, r.text),
-      r.sanction ? h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), r.sanction) : null,
-    );
+    const fallback = () => [
+      h('b', {}, `${label}${r ? ' — ' + r.title : ''}`),
+      r ? h('p', {}, r.text) : h('p', {}, 'Текст нормы недоступен.'),
+      r?.sanction ? h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), r.sanction) : null,
+    ];
+    box = h('div', { class: 'refbox', 'data-ref': id }, ...fallback());
     host.append(box);
     btn.classList.add('open');
+    // дословный текст нормы подгружается из полного корпуса
+    const el = box;
+    loadCorpus()
+      .then((c) => {
+        const full = resolveRef(c, id);
+        if (!full || !el.isConnected) return;
+        el.replaceChildren(
+          h('b', {}, `${full.cite}${full.title ? ' — ' + full.title : ''}`),
+          ...full.images.slice(0, 4).map((src) => h('img', { src: imgUrl(src), alt: '', class: 'sign-big' })),
+          ...full.text.split('\n').map((t) => h('p', {}, t)),
+          ...(full.sanction && !full.text.includes(full.sanction.slice(0, 40)) ? [h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), full.sanction)] : []),
+          h('button', { type: 'button', class: 'btn', onclick: () => openRefInReference(id) }, 'Открыть в справочнике'),
+        );
+      })
+      .catch(() => {});
   });
   return btn;
 }

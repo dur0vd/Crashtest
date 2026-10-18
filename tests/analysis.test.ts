@@ -61,7 +61,7 @@ describe('разбор готовых ситуаций', () => {
 
   it('встречное: выезд через сплошную, УК РФ при опьянении', () => {
     const { rep, ids } = run('head-on');
-    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:9.1.1', 'koap:12.15.4']));
+    expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:9.1(1)', 'koap:12.15.4']));
     expect(legalRefs(rep, ids[0])).toContain('uk:264.2');
     expect(legalRefs(rep, ids[0])).not.toContain('koap:12.8.1');
     expect(verdict(rep, ids[1]).status).toBe('clean');

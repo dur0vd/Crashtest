@@ -7,7 +7,8 @@ import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
 import { DISCLAIMER, LAW_CHECKED } from './law';
-import { type AppApi, buildEnv, buildInspector, buildReport, h } from './ui';
+import { type AppApi, buildEnv, buildInspector, buildReport, h, setRefOpener } from './ui';
+import { buildReference, focusRef } from './reference';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -324,10 +325,11 @@ function updateUndo(): void {
   ($('btnRedo') as HTMLButtonElement).disabled = !editor.canRedo;
 }
 
-type TabName = 'props' | 'env' | 'report';
+type TabName = 'props' | 'env' | 'report' | 'ref';
 function showTab(tab: TabName): void {
   document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  for (const n of ['props', 'env', 'report'] as TabName[]) $(`pane-${n}`).classList.toggle('hidden', n !== tab);
+  for (const n of ['props', 'env', 'report', 'ref'] as TabName[]) $(`pane-${n}`).classList.toggle('hidden', n !== tab);
+  if (tab === 'ref' && !$('pane-ref').childElementCount) buildReference($('pane-ref'));
 }
 
 function openSheet(open: boolean): void {
@@ -615,6 +617,13 @@ function init(): void {
   });
   $<HTMLSelectElement>('speed').addEventListener('change', (e) => (speed = parseFloat((e.target as HTMLSelectElement).value)));
 
+  setRefOpener((id) => {
+    focusRef(id).then(() => {
+      $('pane-ref').replaceChildren();
+      showTab('ref');
+      openSheet(true);
+    });
+  });
   document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.addEventListener('click', () => (showTab(b.dataset.tab as TabName), openSheet(true))));
   $('btnSheet').addEventListener('click', () => openSheet(!document.body.classList.contains('sheet')));
   $('sheetClose').addEventListener('click', () => openSheet(false));

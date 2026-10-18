@@ -765,12 +765,7 @@
   "kind": "sign",
   "id": "4.1.6",
   "files": [
-   "signs/4.1.6_1.webp",
-   "signs/4.1.6_2.webp",
-   "signs/4.1.6_3.webp",
-   "signs/4.1.6_4.webp",
-   "signs/4.1.6_5.webp",
-   "signs/4.1.6_6.webp"
+   "signs/4.1.6.webp"
   ],
   "group": 1
  },
@@ -2707,6 +2702,46 @@
   "files": [
    "markings/v2.4_1.webp",
    "markings/v2.4_2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.1": {
+  "kind": "sign",
+  "id": "4.1.1",
+  "files": [
+   "signs/4.1.1.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.2": {
+  "kind": "sign",
+  "id": "4.1.2",
+  "files": [
+   "signs/4.1.2.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.3": {
+  "kind": "sign",
+  "id": "4.1.3",
+  "files": [
+   "signs/4.1.3.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.4": {
+  "kind": "sign",
+  "id": "4.1.4",
+  "files": [
+   "signs/4.1.4.webp"
+  ],
+  "group": 1
+ },
+ "sign:4.1.5": {
+  "kind": "sign",
+  "id": "4.1.5",
+  "files": [
+   "signs/4.1.5.webp"
   ],
   "group": 1
  }

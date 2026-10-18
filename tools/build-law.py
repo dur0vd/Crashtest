@@ -54,14 +54,14 @@ def tidy(t: str) -> str:
 # ---------------------------------------------------------------- ПДД: главы
 
 pdd = {'sections': [], 'basics': None, 'faults': [], 'notes': []}
-POINT = re.compile(rf'^({NUM})\.\s+(.*)$')
+POINT = re.compile(rf'^({NUM}(?:\(\d+\))?)\.\s+(.*)$')
 
 
 def parse_points(ps: list[str], depth_min: int = 2) -> list[dict]:
     pts: list[dict] = []
     for p in ps:
         m = POINT.match(p)
-        if m and m.group(1).count('.') + 1 >= depth_min - 1 and re.match(r'^\d+\.\d+', m.group(1)):
+        if m and re.match(r'^\d+\.\d+', m.group(1)):
             pts.append({'id': m.group(1), 'lines': [m.group(2)]})
         elif pts:
             pts[-1]['lines'].append(p)
@@ -125,9 +125,25 @@ def items_from(ps: list[str], kind: str) -> tuple[list[dict], list[str]]:
             ids = expand(m.group(1))
             if ids and not re.match(r'^\d{3,}', m.group(1)):
                 rest = m.group(2)
-                titles = re.findall(r'"([^"]+)"', rest) if kind == 'sign' else []
-                for k, i in enumerate(ids):
-                    title = titles[k] if len(titles) == len(ids) else (titles[0] if len(titles) == 1 else ' / '.join(titles))
+                # «1.3.1 "Однопутная...", 1.3.2 "Многопутная..."»: у каждого номера своё название;
+                # названия ищем только в «шапке» абзаца — до первого «". »
+                named: dict[str, str] = {}
+                if kind == 'sign':
+                    cut = p.find('". ')
+                    head = p[: cut + 2] if cut > 0 else p
+                    for pm in re.finditer(rf'({NUM})(?:\s*[-–]\s*({NUM}))?\s*"([^"]+)"', head):
+                        for i in expand(pm.group(1) + (f' - {pm.group(2)}' if pm.group(2) else '')):
+                            named.setdefault(i, pm.group(3))
+                    ids = ids + [i for i in named if i not in ids]
+                first = re.search(r'"([^"]+)"', rest)
+                for i in ids:
+                    title = named.get(i) or (first.group(1) if first and kind == 'sign' else '')
+                    dup = next((o for o in items if o['id'] == i), None)
+                    if dup:
+                        dup['text'] += '\n' + tidy(p)  # то же обозначение описано ещё одним абзацем
+                        if not dup['title'] and title:
+                            dup['title'] = tidy(title)
+                        continue
                     items.append({'id': i, 'title': tidy(title), 'text': tidy(p), 'group': len(ids)})
                 continue
         if items and re.match(r'^[а-яa-z]', p) and len(p) < 400:

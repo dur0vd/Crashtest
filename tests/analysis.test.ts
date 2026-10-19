@@ -109,3 +109,16 @@ describe('знаки и грузы в готовых ситуациях', () => 
     expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['sign:3.18.1']));
   });
 });
+
+describe('съезд на трассу', () => {
+  it('перестраивающийся по п. 8.4 уступает, машина ДПС на островке не нарушает', () => {
+    const { scene, rep, ids } = run('ramp-merge');
+    expect(rep.collisions.length).toBe(1);
+    const [dps, first, second] = ids;
+    expect(refsOf(rep, first)).toEqual(expect.arrayContaining(['pdd:8.4']));
+    expect(verdict(rep, first).status).toBe('guilty');
+    expect(verdict(rep, second).status).toBe('clean');
+    expect(refsOf(rep, dps)).toHaveLength(0);
+    expect(scene.markings.some((m) => m.kind === '1.16.1')).toBe(true);
+  });
+});

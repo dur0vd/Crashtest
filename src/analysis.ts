@@ -770,15 +770,6 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
-/** Отклонение курса от оси дороги под участником, рад (0 — едет вдоль дороги). */
-function headingDeviation(ctx: Ctx, i: Info, k: number): number | null {
-  const hits = roadsAt(ctx.geo, posAt(i, k), 1);
-  if (!hits.length) return null;
-  const t = angleOf(hits[0].near.tangent);
-  const d = Math.abs(angDiff(t, i.tr.h[k]));
-  return Math.min(d, Math.PI - d);
-}
-
 type Reason = 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
 
 interface Priority {
@@ -1164,8 +1155,24 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
         reasonRefs = ['pdd:8.3', 'koap:12.14.3'];
         why = `${Y.label} выезжал с прилегающей территории и обязан был уступить дорогу.`;
       } else {
-        const dA = headingDeviation(ctx, A, Math.max(A.k0, kp - 20));
-        const dB = headingDeviation(ctx, B, Math.max(B.k0, kp - 20));
+        // манёвр: на сколько курс ушёл от оси дороги по сравнению с началом последних 2 с (кривизна дороги не в счёт)
+        const devOver = (i: Info): number | null => {
+          const k0 = Math.max(i.k0, kp - 80);
+          const signed = (k: number): number | null => {
+            const hits = roadsAt(geo, posAt(i, k), 1);
+            return hits.length ? angDiff(angleOf(hits[0].near.tangent), i.tr.h[k]) : null;
+          };
+          const base = signed(k0);
+          if (base === null) return null;
+          let m = 0;
+          for (let k = k0; k <= kp; k += 5) {
+            const d = signed(k);
+            if (d !== null) m = Math.max(m, Math.abs(angDiff(base, d)));
+          }
+          return m;
+        };
+        const dA = devOver(A);
+        const dB = devOver(B);
         const a2 = dA ?? 0;
         const b2 = dB ?? 0;
         if (Math.max(a2, b2) > 0.12 && Math.abs(a2 - b2) > 0.08) {

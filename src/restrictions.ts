@@ -356,7 +356,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
       }
 
       // въезд на островки
-      if (spec.form === 'area' && spec.noEnter && m.pts.length >= 3) {
+      if (spec.form === 'area' && spec.noEnter && m.pts.length >= 3 && Math.max(...i.tr.v) > 0.3) {
         let run = 0;
         for (let k = i.k0; k <= i.kEnd; k++) {
           const c = kit.posAt(i, k);

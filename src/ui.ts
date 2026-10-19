@@ -331,6 +331,15 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       ),
     );
   }
+  if (isVeh && VEHICLES[a.type as VehicleType].rail) {
+    box.append(
+      h('div', { class: 'group' },
+        h('h4', {}, 'Рельсы'),
+        h('p', { class: 'hint' }, 'Трамвай едет строго по ближайшему пути (точки маршрута притягиваются к колее). Удар его не сдвигает, он тормозит на рельсах.'),
+        check('Возможен сход с путей (удар от 20 км/ч)', !!a.derail, set((v) => (a.derail = v))),
+      ),
+    );
+  }
   if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));

@@ -26,6 +26,7 @@ import {
   angleOf,
 } from './geom';
 import { type Collision, type Timeline, type Track, DT } from './sim';
+import { emergencyDecel } from './wheels';
 import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from './restrictions';
 import {
   type Actor,
@@ -227,7 +228,7 @@ function prepare(scene: Scene, tl: Timeline): Ctx {
       k0,
       kEnd,
       trav,
-      brake: vs ? Math.min(vs.brakeCap ?? Infinity, mu * 9.81 * vs.brakeFactor) : 3,
+      brake: isVeh ? emergencyDecel(a, mu) : 3,
       rail: !!vs?.rail,
     });
   }
@@ -1478,6 +1479,54 @@ function buildDuties(reports: CollisionReport[]): LegalItem[] {
 
 // ---------------------------------------------------------------------------
 
+/** Динамика колёс: потеря управляемости на повороте, блокировка колёс без АБС, работа АБС. */
+function checkDynamics(ctx: Ctx): void {
+  const { tl } = ctx;
+  const surface = SURFACES[ctx.scene.env.surface].name.toLowerCase();
+  for (const e of tl.events) {
+    const i = ctx.infos.get(e.actor);
+    if (!i) continue;
+    const speed = Math.round(kmh(e.v));
+    // столкновение после события — оно в причинной связи с потерей управляемости
+    const crashed = tl.collisions.some((c) => (c.a === e.actor || c.b === e.actor) && c.t >= e.t - 1e-6);
+    if (e.kind === 'abs') {
+      addFinding(ctx, {
+        actorId: e.actor,
+        severity: 'info',
+        t: e.t,
+        title: 'торможение на пределе сцепления (сработала АБС)',
+        detail: `Колёса работали на грани блокировки при ${speed} км/ч (${surface}); рулевое управление при этом сохранялось.`,
+        refs: [],
+      });
+    } else if (e.kind === 'lock') {
+      addFinding(ctx, {
+        actorId: e.actor,
+        severity: 'info',
+        t: e.t,
+        title: 'колёса заблокированы (ТС без АБС)',
+        detail: `При ${speed} км/ч торможение превысило сцепление (${surface}): колёса пошли юзом, тормозной путь вырос, управляемость потеряна.`,
+        refs: [],
+      });
+    } else {
+      const what =
+        e.kind === 'rollover'
+          ? 'опрокинулось на повороте'
+          : e.kind === 'oversteer'
+            ? 'потеряло устойчивость на повороте (занос задней оси)'
+            : 'потеряло управляемость на повороте (снос передней оси)';
+      addFinding(ctx, {
+        actorId: e.actor,
+        severity: 'violation',
+        t: e.t,
+        causal: crashed,
+        title: `скорость не соответствовала радиусу поворота и сцеплению: ТС ${what}`,
+        detail: `При ${speed} км/ч боковое ускорение ${(e.ay ?? 0).toFixed(1)} м/с² превысило предел ${(e.limit ?? 0).toFixed(1)} м/с² (${surface}${e.kind === 'rollover' ? ', высокий центр масс' : ''}). Водитель обязан выбирать скорость с учётом дорожных условий (п. 10.1).`,
+        refs: ['pdd:10.1'],
+      });
+    }
+  }
+}
+
 export function analyze(scene: Scene, tl: Timeline): Report {
   const ctx = prepare(scene, tl);
   collectGates(ctx);
@@ -1497,6 +1546,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkSignRules(ctx, kit);
   checkMarkingRules(ctx, kit);
   checkCargoRules(ctx, kit);
+  checkDynamics(ctx);
   const collisions = analyzeCollisions(ctx);
   nearMisses(ctx);
   missedWrongSide(ctx);

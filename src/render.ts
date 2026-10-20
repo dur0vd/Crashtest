@@ -20,6 +20,7 @@ import {
 import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
 import { DT } from './sim';
+import { type Dyn, dynOf, steerAngles } from './wheels';
 
 export interface Camera {
   x: number;
@@ -177,6 +178,7 @@ export class Renderer {
     this.drawLights(v, geo);
     this.drawObstacles(geo);
     this.drawSigns(v, geo);
+    this.drawSkids(v);
     this.drawTrails(v);
     this.drawPaths(v);
     this.drawActors(v);
@@ -823,15 +825,95 @@ export class Renderer {
 
   // ---- участники ---------------------------------------------------------
 
-  private poseOf(v: ViewState, a: Actor): { p: Vec; h: number; present: boolean; free: boolean } {
+  private poseOf(v: ViewState, a: Actor): { p: Vec; h: number; present: boolean; free: boolean; k: number } {
     if (v.mode === 'play' && v.tl) {
       const tr = v.tl.tracks.get(a.id);
       if (tr) {
         const k = Math.min(v.tl.n - 1, Math.max(0, Math.round(v.t / DT)));
-        return { p: { x: tr.x[k], y: tr.y[k] }, h: tr.h[k], present: !!tr.present[k], free: !!tr.free[k] };
+        return { p: { x: tr.x[k], y: tr.y[k] }, h: tr.h[k], present: !!tr.present[k], free: !!tr.free[k], k };
       }
     }
-    return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) : a.heading, present: true, free: false };
+    return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) : a.heading, present: true, free: false, k: -1 };
+  }
+
+  private dynCache = new Map<string, Dyn | null>();
+
+  /** Схема колёс ТС; кэшируется по типу и грузу, так как зависит только от них. */
+  private dynFor(a: Actor): Dyn | null {
+    const key = `${a.type}|${a.cargo ? `${a.cargo.mass}|${a.cargo.height}|${a.cargo.front}|${a.cargo.rear}` : ''}`;
+    let d = this.dynCache.get(key);
+    if (d === undefined) {
+      d = dynOf(a);
+      this.dynCache.set(key, d);
+    }
+    return d;
+  }
+
+  /** Колёса поверх кузова: поворот, вращение протектора, подсветка АБС (жёлтый) и блокировки (красный). */
+  private drawWheels(v: ViewState, a: Actor, k: number): void {
+    const d = this.dynFor(a);
+    if (!d) return;
+    const { ctx } = this;
+    const tr = k >= 0 ? v.tl?.tracks.get(a.id) : undefined;
+    const nw = d.wheels.length;
+    const kap = tr && tr.nw === nw ? tr.kap[k] : 0;
+    const delta = steerAngles(d, kap);
+    const r = d.layout.radius;
+    const wid = Math.max(0.14, d.layout.tyreW);
+    for (let i = 0; i < nw; i++) {
+      const w = d.wheels[i];
+      const mode = tr && tr.nw === nw ? tr.wst[k * nw + i] : 0;
+      const spin = tr && tr.nw === nw ? tr.wspin[k * nw + i] : 0;
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(delta[i]);
+      ctx.globalAlpha *= mode === 3 ? 0.35 : 1;
+      ctx.fillStyle = mode === 2 ? '#7a1f1f' : mode === 1 ? '#8a6a14' : '#15181d';
+      ctx.fillRect(-r, -wid / 2, 2 * r, wid);
+      // протектор: поперечные полосы бегут по колесу, пока оно вращается (у блокированного стоят)
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      const pitch = r * 0.8;
+      const off = ((spin * r) % pitch + pitch) % pitch;
+      for (let x = -r + off; x < r; x += pitch) ctx.fillRect(x - 0.02, -wid / 2, 0.04, wid);
+      ctx.restore();
+    }
+  }
+
+  /** Следы юза: чёрные полосы за заблокированными и скользящими колёсами. */
+  private drawSkids(v: ViewState): void {
+    if (v.mode !== 'play' || !v.tl) return;
+    const { ctx } = this;
+    const kNow = Math.min(v.tl.n - 1, Math.round(v.t / DT));
+    for (const a of v.scene.actors) {
+      const tr = v.tl.tracks.get(a.id);
+      const d = tr && tr.nw ? this.dynFor(a) : null;
+      if (!tr || !d) continue;
+      const nw = tr.nw;
+      const path = new Path2D();
+      let any = false;
+      const at = (k: number, w: number): Vec => {
+        const c = Math.cos(tr.h[k]);
+        const s = Math.sin(tr.h[k]);
+        const wh = d.wheels[w];
+        return { x: tr.x[k] + c * wh.x - s * wh.y, y: tr.y[k] + s * wh.x + c * wh.y };
+      };
+      for (let k = 1; k <= kNow; k++) {
+        if (!tr.present[k] || !tr.present[k - 1]) continue;
+        for (let w = 0; w < nw; w++) {
+          if (tr.wst[k * nw + w] !== 2 || tr.wst[(k - 1) * nw + w] !== 2) continue;
+          const p0 = at(k - 1, w);
+          const p1 = at(k, w);
+          path.moveTo(p0.x, p0.y);
+          path.lineTo(p1.x, p1.y);
+          any = true;
+        }
+      }
+      if (!any) continue;
+      ctx.strokeStyle = 'rgba(12,12,14,0.6)';
+      ctx.lineWidth = Math.max(0.12, d.layout.tyreW);
+      ctx.lineCap = 'butt';
+      ctx.stroke(path);
+    }
   }
 
   private drawActors(v: ViewState): void {
@@ -858,6 +940,7 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
+        this.drawWheels(v, a, pose.k);
       }
       ctx.restore();
     }

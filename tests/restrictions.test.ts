@@ -103,7 +103,9 @@ describe('повороты', () => {
 
   it('стрела 1.18 «прямо» и поворот налево — ч. 2 ст. 12.16', () => {
     const s = crossing();
-    const car = veh(s, 'car', -60, 1.75, 25, leftTurn);
+    // угол 90° по короткой ломаной — радиус 4–6 м, поэтому скорость поворота небольшая (на 25 км/ч ТС сорвалось бы)
+    s.env.duration = 25;
+    const car = veh(s, 'car', -60, 1.75, 15, leftTurn);
     s.markings.push({ id: 'm1', kind: '1.18', pts: [{ x: -14, y: 1.75 }], angle: 0, variant: 'straight' });
     expect(refsOf(run(s), car.id)).toEqual(expect.arrayContaining(['marking:1.18', 'koap:12.16.2']));
   });

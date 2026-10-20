@@ -1,8 +1,13 @@
 # 10. Параметры экспертных расчётов, видимость, обзорность, ночь
 
+Ветка: `codex/10-expert-parameters` ← от `codex/03-qualification`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/10-expert-parameters. Создай её от codex/03-qualification (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/10-expert-parameters.
+
 Прочитай AGENTS.md. В Crashtest остановочный путь считается как S = v·(t1 + t2) + v²/(2a) с фиксированными
 t1 = 1,0 с и t2 = 0,2 с (techFor в src/analysis.ts; docs/LEGAL.md). В отечественной автотехнической
 экспертизе используется формула с временем нарастания замедления:

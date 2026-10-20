@@ -1,8 +1,13 @@
 # 01. Исправить подтверждённые ошибки разбора
 
+Ветка: `codex/01-fix-known-bugs` ← от `main`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/01-fix-known-bugs. Создай её от main.
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/01-fix-known-bugs.
+
 Прочитай AGENTS.md. Исправь в Crashtest ошибки разбора, найденные при ревью. Для каждой сначала напиши
 падающий тест в tests/analysis.test.ts, потом исправление.
 

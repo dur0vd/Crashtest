@@ -1,8 +1,13 @@
 # 17. Верификация и валидация
 
+Ветка: `codex/17-validation` ← от `codex/12-inverse-reconstruction`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/17-validation. Создай её от codex/12-inverse-reconstruction (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/17-validation.
+
 Прочитай AGENTS.md. Без опубликованной валидации расчёты Crashtest нельзя использовать как экспертный инструмент.
 Сделай набор проверок и отчёт.
 

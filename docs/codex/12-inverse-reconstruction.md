@@ -1,8 +1,14 @@
 # 12. Обратная задача и неопределённость (Монте-Карло)
 
+Ветка: `codex/12-inverse-reconstruction` ← от `codex/09-vulnerable-users` + влить `codex/10-expert-parameters`, `codex/11-scene-evidence`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/12-inverse-reconstruction. Создай её от codex/09-vulnerable-users (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Перед началом влей в неё (git merge, без rebase): codex/10-expert-parameters, codex/11-scene-evidence; конфликты разреши, сохранив поведение обеих веток.
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/12-inverse-reconstruction.
+
 Прочитай AGENTS.md. Сейчас Crashtest решает прямую задачу: пользователь задаёт скорости — программа
 показывает исход. Эксперту нужна обратная: по следам и конечным положениям (задача 11) найти скорости
 и траектории, и честно показать разброс.

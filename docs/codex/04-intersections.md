@@ -1,8 +1,13 @@
 # 04. Проезд перекрёстков полностью (раздел 13 ПДД)
 
+Ветка: `codex/04-intersections` ← от `codex/03-qualification`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/04-intersections. Создай её от codex/03-qualification (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/04-intersections.
+
 Прочитай AGENTS.md. В Crashtest приоритет на перекрёстке (resolvePriority в src/analysis.ts, после задачи 03 —
 src/analysis/traffic-rules.ts) учитывает только светофор, знаки 2.1/2.4/2.5, трамвай, левый поворот и помеху
 справа. Доведи до полного раздела 13 ПДД. Тексты пунктов бери из src/data/pdd.json, не по памяти.

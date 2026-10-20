@@ -1,8 +1,14 @@
 # 16. Режим аварийного комиссара (работа на месте ДТП)
 
+Ветка: `codex/16-commissioner-mode` ← от `codex/11-scene-evidence` + влить `codex/02-law-versions`, `codex/14-expert-report`, `codex/15-audit-trail`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/16-commissioner-mode. Создай её от codex/11-scene-evidence (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Перед началом влей в неё (git merge, без rebase): codex/02-law-versions, codex/14-expert-report, codex/15-audit-trail; конфликты разреши, сохранив поведение обеих веток.
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/16-commissioner-mode.
+
 Прочитай AGENTS.md. Аварийный комиссар работает с телефона на месте ДТП, часто без связи, за 20–40 минут.
 Сделай в Crashtest отдельный режим (переключатель в меню), оптимизированный под это. Мобильная сборка —
 Capacitor (android/, ios/).

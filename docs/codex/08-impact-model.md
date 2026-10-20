@@ -1,8 +1,13 @@
 # 08. Модель удара: импульс, вращение, энергия деформации
 
+Ветка: `codex/08-impact-model` ← от `codex/07-vehicle-dynamics`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/08-impact-model. Создай её от codex/07-vehicle-dynamics (если в origin её нет — остановись и сообщи, что сначала нужна та задача).
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/08-impact-model.
+
 Прочитай AGENTS.md. Сейчас удар в Crashtest — поступательный обмен импульсом по нормали (src/sim.ts, Collision
 с dvA/dvB), кузова не вращаются. Нужна модель, применяемая в реконструкции ДТП. Работай поверх
 src/physics/ из задачи 07.

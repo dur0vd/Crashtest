@@ -20,29 +20,40 @@
 6. **Разделение ролей** — технические выводы отдельно от правовой оценки; вину устанавливает суд.
 7. **Нормы на дату ДТП** — ПДД, КоАП и УК в редакции, действовавшей в день происшествия.
 
-## План
+## План и ветки
 
-| Этап | Файл | Задача |
-| --- | --- | --- |
-| A. Исправления | [01-fix-known-bugs.md](01-fix-known-bugs.md) | Подтверждённые ошибки разбора |
-| B. Право | [02-law-versions.md](02-law-versions.md) | Редакции норм на дату ДТП, сверка санкций |
-| | [03-qualification.md](03-qualification.md) | Квалификация: субъект, поглощение составов, разделение тех/права |
-| | [04-intersections.md](04-intersections.md) | Перекрёстки целиком (13.1–13.13, кольцо, доп. секции) — параллельно с 05, 06 |
-| | [05-maneuvers.md](05-maneuvers.md) | Манёвры: указатели поворота, 8.x, обгон 11.x, задний ход |
-| | [06-special-cases.md](06-special-cases.md) | Переезды, спецтранспорт, маршрутные ТС, остановка/стоянка, велосипедисты, световые приборы |
-| C. Физика | [07-vehicle-dynamics.md](07-vehicle-dynamics.md) | Динамическая модель ТС вместо кинематики |
-| | [08-impact-model.md](08-impact-model.md) | Удар с вращением, энергия деформации |
-| | [09-vulnerable-users.md](09-vulnerable-users.md) | Пешеходы, велосипеды, мотоциклы — параллельно с 10 |
-| | [10-expert-parameters.md](10-expert-parameters.md) | Параметры экспертных расчётов, видимость, ночь, обзорность |
-| D. Реконструкция | [11-scene-evidence.md](11-scene-evidence.md) | Ввод данных с места: следы, осыпь, положения, схема, подложка |
-| | [12-inverse-reconstruction.md](12-inverse-reconstruction.md) | Обратная задача и Монте-Карло |
-| | [13-video-analysis.md](13-video-analysis.md) | Скорость по видео регистратора/камеры |
-| E. Процесс | [14-expert-report.md](14-expert-report.md) | Отчёт в структуре заключения |
-| | [15-audit-trail.md](15-audit-trail.md) | Воспроизводимость, журнал, хэши |
-| | [16-commissioner-mode.md](16-commissioner-mode.md) | Режим аварийного комиссара на месте ДТП |
-| F. Доверие | [17-validation.md](17-validation.md) | Верификация и валидация, отчёт валидации |
-| | [18-security-privacy.md](18-security-privacy.md) | Персональные данные, хранение, целостность |
-| G. Обучение (по желанию) | [19-training-mode.md](19-training-mode.md) | Режим автошколы: «угадай», билеты |
+Каждая задача делается в **своей ветке** `codex/NN-…`. В main ничего не коммитится, пока не готово всё:
+в конце задача 20 сливает все ветки в `codex/integration`, а её уже вливают в main одним PR.
+
+Если задача опирается на другую, её ветка создаётся от ветки той задачи (и при необходимости в неё
+вливаются ещё ветки) — это прописано в начале каждого промпта. Поэтому задачи идут волнами:
+внутри одной волны всё можно запускать в Codex одновременно.
+
+| Волна | Задача | Ветка | От какой ветки |
+| --- | --- | --- | --- |
+| 1 | [01 Исправление ошибок разбора](01-fix-known-bugs.md) | `codex/01-fix-known-bugs` | `main` |
+| 1 | [02 Нормы на дату ДТП, сверка санкций](02-law-versions.md) | `codex/02-law-versions` | `main` |
+| 1 | [07 Динамика ТС](07-vehicle-dynamics.md) | `codex/07-vehicle-dynamics` | `main` |
+| 1 | [11 Данные с места ДТП](11-scene-evidence.md) | `codex/11-scene-evidence` | `main` |
+| 1 | [15 Воспроизводимость, журнал](15-audit-trail.md) | `codex/15-audit-trail` | `main` |
+| 2 | [03 Слой квалификации](03-qualification.md) | `codex/03-qualification` | `01` |
+| 2 | [08 Модель удара](08-impact-model.md) | `codex/08-impact-model` | `07` |
+| 2 | [13 Видеоанализ](13-video-analysis.md) | `codex/13-video-analysis` | `11` |
+| 3 | [04 Перекрёстки](04-intersections.md) | `codex/04-intersections` | `03` |
+| 3 | [05 Манёвры, поворотники, обгон](05-maneuvers.md) | `codex/05-maneuvers` | `03` |
+| 3 | [06 Особые случаи](06-special-cases.md) | `codex/06-special-cases` | `03` |
+| 3 | [10 Экспертные параметры, видимость](10-expert-parameters.md) | `codex/10-expert-parameters` | `03` |
+| 3 | [14 Отчёт-заключение](14-expert-report.md) | `codex/14-expert-report` | `03` |
+| 3 | [19 Учебный режим (по желанию)](19-training-mode.md) | `codex/19-training-mode` | `03` |
+| 3 | [09 Пешеходы, двухколёсные](09-vulnerable-users.md) | `codex/09-vulnerable-users` | `08` |
+| 4 | [12 Обратная задача, Монте-Карло](12-inverse-reconstruction.md) | `codex/12-inverse-reconstruction` | `09` + влить `10`, `11` |
+| 5 | [16 Режим аварийного комиссара](16-commissioner-mode.md) | `codex/16-commissioner-mode` | `11` + влить `02`, `14`, `15` |
+| 5 | [17 Валидация](17-validation.md) | `codex/17-validation` | `12` |
+| 6 | [18 Персональные данные](18-security-privacy.md) | `codex/18-security-privacy` | `16` + влить `13` |
+| финал | [20 Объединение всех веток](20-merge-all.md) | `codex/integration` | `main` + все `01…19` |
+
+Следующую волну запускайте, когда ветки предыдущей запушены. Промпт сам проверяет, что базовая ветка
+есть в origin, и останавливается, если её нет.
 
 ## Как давать задачу Codex
 

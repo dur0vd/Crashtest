@@ -1,8 +1,13 @@
 # 02. Нормы в редакции на дату ДТП, сверка санкций
 
+Ветка: `codex/02-law-versions` ← от `main`
+
 ## Промпт
 
 ```
+Работай в отдельной ветке codex/02-law-versions. Создай её от main.
+Не коммить в main и в чужие ветки. В конце: npm test и npm run build зелёные, коммит, git push -u origin codex/02-law-versions.
+
 Прочитай AGENTS.md. В Crashtest разбор сейчас опирается на одну редакцию норм (src/law.ts,
 src/data/pdd.json, koap.json, uk.json; константа LAW_CHECKED). Для экспертной и судебной работы нужно
 применять ПДД, КоАП и УК в редакции на дату ДТП.

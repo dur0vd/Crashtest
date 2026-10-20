@@ -320,6 +320,7 @@ export const PRESETS: Preset[] = [
       const b = cross(new Builder().name('Запрещённый поворот').duration(10));
       b.sign('3.18.1', -30, 5.5, 0);
       b.vehicle('car', -60, 1.75, 0, 25, [[-40, 1.75, 25], [-20, 1.75, 25], [-8, 1.75, 15], [-1.75, 8, 15], [-1.75, 80, 25]]);
+      b.vehicle('car', -1.75, 75, -90, 30, [[-1.75, -80, 30]]);
       return b.done();
     },
   },

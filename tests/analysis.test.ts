@@ -122,3 +122,171 @@ describe('съезд на трассу', () => {
     expect(scene.markings.some((m) => m.kind === '1.16.1')).toBe(true);
   });
 });
+
+// Квалификацию проверяем на заданной оценке удара, независимо от порогов физической модели.
+function withHarm(scene: Scene, otherKmh: number, selfKmh = 0): Report {
+  const tl = simulate(scene);
+  expect(tl.collisions.length).toBeGreaterThan(0);
+  for (const c of tl.collisions) {
+    c.dvA = selfKmh / 3.6;
+    c.dvB = otherKmh / 3.6;
+    c.rel = otherKmh / 3.6;
+  }
+  return analyze(scene, tl);
+}
+const preset = (id: string) => PRESETS.find((p) => p.id === id)!.build();
+
+describe('регрессии правовой оценки', () => {
+  it.each(['bicycle', 'cart'] as const)('%s: специальные составы и отсутствие требования прав', (type) => {
+    const scene = preset('red-light');
+    scene.actors[0].type = type;
+    scene.actors[0].flags.noLicense = true;
+    const rep = analyze(scene, simulate(scene));
+    const refs = legalRefs(rep, scene.actors[0].id);
+    expect(refs).toContain('koap:12.29.2');
+    expect(refs.some((r) => /^koap:12\.(7|8|12)\./.test(r))).toBe(false);
+    expect(refs.some((r) => r.startsWith('uk:264.'))).toBe(false);
+    scene.actors[0].flags.drunk = true;
+    const drunk = legalRefs(analyze(scene, simulate(scene)), scene.actors[0].id);
+    expect(drunk).toContain('koap:12.29.3');
+    expect(drunk).not.toContain('koap:12.29.2');
+  });
+
+  it.each([[45, 'uk:118.1'], [60, 'uk:109.1']] as const)('велосипед: вред %s км/ч — ориентир %s', (speed, ref) => {
+    const scene = preset('red-light');
+    scene.actors[0].type = 'bicycle';
+    const rep = withHarm(scene, speed);
+    expect(legalRefs(rep, scene.actors[0].id)).toContain(ref);
+    expect(legalRefs(rep, scene.actors[0].id).some((r) => r.startsWith('uk:264.'))).toBe(false);
+    expect(verdict(rep, scene.actors[0].id).legal.map((l) => l.text).join(' ')).toContain('TODO(legal-check)');
+  });
+
+  it.each([[15, 'koap:12.24.1'], [30, 'koap:12.24.2'], [45, 'uk:264.1'], [60, 'uk:264.3']] as const)('причинное нарушение включено в %s / %s', (speed, ref) => {
+    const scene = preset('crosswalk');
+    const rep = withHarm(scene, speed);
+    const legal = verdict(rep, scene.actors[0].id).legal;
+    expect(legalRefs(rep, scene.actors[0].id)).not.toContain('koap:12.18');
+    expect(legal.some((l) => l.refs.includes(ref) && /образующее объективную сторону/.test(l.text))).toBe(true);
+    expect(refsOf(rep, scene.actors[0].id)).toContain('koap:12.18');
+  });
+
+  it('непричинное нарушение остаётся самостоятельным', () => {
+    const scene = preset('crosswalk');
+    scene.actors[0].flags.noLicense = true;
+    expect(legalRefs(withHarm(scene, 45), scene.actors[0].id)).toContain('koap:12.7.1');
+  });
+
+  it('запрещённый поворот приводит к столкновению со встречным ТС', () => {
+    const { rep, ids } = run('no-right-turn');
+    expect(rep.collisions.length).toBeGreaterThan(0);
+    expect(rep.findings.some((f) => f.actorId === ids[0] && f.refs.includes('sign:3.18.1') && f.causal)).toBe(true);
+  });
+
+  it('точный пересказ 13.9 и 13.11 сохраняет ограничения преимущества трамвая', async () => {
+    const { lawRef } = await import('../src/law');
+    expect(lawRef('pdd:13.9').text).toContain('в попутном или встречном направлении по равнозначной дороге');
+    expect(lawRef('pdd:13.11').text).toContain('13.11(1)');
+    expect(lawRef('pdd:13.11').text).toContain('между собой водители трамваев');
+  });
+
+  it('на зелёный знаки приоритета и помеха справа не определяют виновника', () => {
+    const scene = preset('giveway');
+    scene.lights = [
+      { id: 'l1', x: -6, y: 3.5, angle: 0, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+      { id: 'l2', x: -3.5, y: -6, angle: Math.PI / 2, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+    ];
+    const rep = analyze(scene, simulate(scene));
+    expect(rep.collisions.length).toBeGreaterThan(0);
+    expect(rep.findings.filter((f) => f.causal).flatMap((f) => f.refs)).not.toEqual(expect.arrayContaining(['pdd:13.9']));
+    expect(rep.findings.some((f) => f.causal && f.refs.includes('pdd:13.11'))).toBe(false);
+  });
+
+  it('вред только самому виновнику указан отдельно', () => {
+    const scene = preset('red-light');
+    const rep = withHarm(scene, 0, 45);
+    const text = verdict(rep, scene.actors[0].id).legal.map((l) => l.text).join(' ');
+    expect(text).toContain('вред здоровью другим участникам маловероятен');
+    expect(text).toContain('самому водителю — возможен тяжкий вред здоровью');
+    expect(text).toContain('на квалификацию по ст. 12.24 / 264 не влияет');
+  });
+
+  it.each(['drunk', 'noLicense', 'flees'] as const)('лесенка учитывает отягчающее обстоятельство %s', (flag) => {
+    const scene = preset('red-light');
+    scene.actors[0].flags[flag] = true;
+    const rep = withHarm(scene, 45);
+    const ladder = verdict(rep, scene.actors[0].id).legal.find((l) => l.text.startsWith('Окончательная квалификация'))!;
+    expect(ladder.refs).toEqual(expect.arrayContaining(['uk:264.2', 'uk:264.4', 'uk:264.6']));
+    expect(ladder.refs).not.toContain('uk:264.1');
+    expect(ladder.text).toContain('ч. 6 ст. 264');
+  });
+});
+
+it('ориентиры 118 и 109 раскрываются полным текстом из корпуса', async () => {
+  const { loadCorpus, resolveRef } = await import('../src/corpus');
+  const corpus = await loadCorpus();
+  for (const ref of ['uk:118.1', 'uk:109.1', 'uk:109.3']) expect(resolveRef(corpus, ref), ref).toBeTruthy();
+});
+
+it('поворот налево на зелёный уступает встречному даже при знаке главной дороги', () => {
+  const scene = preset('giveway');
+  const [a, b] = scene.actors;
+  a.speed = 25;
+  a.path = [{ x: -8, y: 1.75, v: 25 }, { x: 1.75, y: -8, v: 25 }, { x: 1.75, y: -80, v: 25 }];
+  Object.assign(b, { type: 'car', x: 70, y: -1.75, heading: Math.PI, speed: 30, path: [{ x: -110, y: -1.75, v: 30 }] });
+  scene.signs[0].kind = '2.1';
+  Object.assign(scene.signs[1], { kind: '2.4', x: 14, y: -5, angle: Math.PI });
+  scene.lights = [
+    { id: 'l1', x: -10, y: 3.5, angle: 0, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+    { id: 'l2', x: 10, y: -3.5, angle: Math.PI, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+  ];
+  const rep = analyze(scene, simulate(scene));
+  expect(rep.collisions.length).toBeGreaterThan(0);
+  expect(rep.findings.some((f) => f.actorId === a.id && f.causal && f.refs.includes('pdd:13.4'))).toBe(true);
+  expect(rep.findings.some((f) => f.causal && f.refs.includes('pdd:13.9'))).toBe(false);
+  expect(verdict(rep, b.id).status).toBe('clean');
+});
+
+it('на новый зелёный уступает завершающему проезд по п. 13.8, несмотря на знаки', () => {
+  const scene = preset('giveway');
+  scene.signs[0].kind = '2.1';
+  scene.signs[1].kind = '2.4';
+  scene.lights = [
+    { id: 'l1', x: -6, y: 3.5, angle: 0, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 78.2 },
+    { id: 'l2', x: -3.5, y: -6, angle: Math.PI / 2, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+  ];
+  const rep = analyze(scene, simulate(scene));
+  expect(rep.collisions.length).toBeGreaterThan(0);
+  expect(rep.findings.some((f) => f.actorId === scene.actors[0].id && f.causal && f.refs.includes('pdd:13.8'))).toBe(true);
+  expect(verdict(rep, scene.actors[1].id).status).toBe('clean');
+});
+
+it('мопед требует права управления и подпадает под ст. 264 УК', () => {
+  const scene = preset('red-light');
+  scene.actors[0].type = 'moped';
+  scene.actors[0].flags.noLicense = true;
+  const refs = legalRefs(withHarm(scene, 45), scene.actors[0].id);
+  expect(refs).toEqual(expect.arrayContaining(['uk:264.2', 'koap:12.7.1']));
+  expect(refs).not.toContain('koap:12.29.2');
+});
+
+it('знак 2.5 не требует остановки при проезде регулируемого перекрёстка на зелёный', () => {
+  const scene = preset('giveway');
+  scene.signs[0].kind = '2.5';
+  scene.lights = [
+    { id: 'l1', x: -6, y: 3.5, angle: 0, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+    { id: 'l2', x: -3.5, y: -6, angle: Math.PI / 2, lineLength: 3.5, green: 60, yellow: 2, red: 20, offset: 0 },
+  ];
+  const rep = analyze(scene, simulate(scene));
+  expect(refsOf(rep, scene.actors[0].id)).not.toContain('sign:2.5');
+});
+
+it('непричинное превышение скорости остаётся самостоятельным при составе за вред', () => {
+  const scene = preset('crosswalk');
+  scene.signs.push({ id: 'speed', kind: '3.24', x: -40, y: 5, angle: 0, value: 20 });
+  const rep = withHarm(scene, 45);
+  const speeding = rep.findings.find((f) => f.actorId === scene.actors[0].id && f.refs.includes('koap:12.9.2'))!;
+  expect(speeding).toBeDefined();
+  expect(speeding.causal).toBe(false);
+  expect(legalRefs(rep, scene.actors[0].id)).toContain('koap:12.9.2');
+  expect(legalRefs(rep, scene.actors[0].id)).not.toContain('koap:12.18');
+});

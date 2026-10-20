@@ -494,6 +494,9 @@ function checkSigns(ctx: Ctx, i: Info): void {
   for (const g of ctx.gates.filter((x) => x.actorId === i.a.id && x.sign)) {
     const s = g.sign!;
     const t = tOf(g.frame);
+    // В сцене нет отключённых светофоров: близкий светофор того же
+    // подхода отменяет знак приоритета (п. 13.3), в том числе требование остановки.
+    if (s.kind === '2.5' && ctx.scene.lights.some((l) => dist(s, l) <= 30 && Math.abs(angDiff(s.angle, l.angle)) < 0.3)) continue;
     if (s.kind === '2.5' || s.kind === '3.17.3') {
       let stopped = false;
       for (let k = g.frame; k >= i.k0 && i.trav[g.frame] - i.trav[k] <= 30; k--) {
@@ -770,7 +773,7 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
-type Reason = 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
+type Reason = 'green-left' | 'finishing' | 'green-tram' | 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
 
 interface Priority {
   yielder: Info | null;
@@ -805,10 +808,28 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   if (lb.length && !la.length) return { yielder: B, other: A, reason: 'light', explain: `${B.label} въехал на перекрёсток на запрещающий сигнал светофора.` };
   if (la.length && lb.length) return { yielder: null, other: null, reason: null, explain: 'Оба участника проехали перекрёсток на запрещающий сигнал.' };
 
+  // Разрешающий сигнал установлен по факту пересечения своей стоп-линии,
+  // а не по отсутствию зарегистрированного нарушения (п. 13.3).
+  const entry = (i: Info) => ctx.gates.filter((g) => g.actorId === i.a.id && g.light && g.frame <= frame && frame - g.frame < 40 * 15).at(-1);
+  const ea = entry(A);
+  const eb = entry(B);
+  const regulated = !!ea?.light && !!eb?.light
+    && lightPhase(ea.light, tOf(ea.frame)) === 'green'
+    && lightPhase(eb.light, tOf(eb.frame)) === 'green';
+  if (regulated) {
+    // П. 13.8: другой участник уже въехал, пока у начинающего движение
+    // ещё не было разрешающего сигнала, и теперь завершает проезд.
+    for (const [Y, P, ey, ep] of [[A, B, ea, eb], [B, A, eb, ea]] as const) {
+      if (ep.frame < ey.frame && lightPhase(ey.light!, tOf(ep.frame)) !== 'green') {
+        return { yielder: Y, other: P, reason: 'finishing', explain: `${Y.label} должен был уступить ${P.label}, завершающему проезд перекрёстка (п. 13.8).` };
+      }
+    }
+  }
+
   // 2. знаки приоритета
   const sa = signScore(ctx, A, frame);
   const sb = signScore(ctx, B, frame);
-  if (sa.score !== sb.score) {
+  if (!regulated && sa.score !== sb.score) {
     const Y = sa.score < sb.score ? A : B;
     const P = Y === A ? B : A;
     const ys = Y === A ? sa : sb;
@@ -825,7 +846,7 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   if (A.rail !== B.rail) {
     const P = A.rail ? A : B;
     const Y = A.rail ? B : A;
-    return { yielder: Y, other: P, reason: 'tram', explain: `На равнозначном перекрёстке трамвай имеет преимущество перед безрельсовым ТС.` };
+    return { yielder: Y, other: P, reason: regulated ? 'green-tram' : 'tram', explain: `При равном праве на движение трамвай имеет преимущество перед безрельсовым ТС.` };
   }
 
   // 4. поворот налево
@@ -839,8 +860,10 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   if (leftA !== leftB && opposite) {
     const Y = leftA ? A : B;
     const P = leftA ? B : A;
-    return { yielder: Y, other: P, reason: 'left', explain: `${Y.label} поворачивал налево и должен был уступить встречному ${P.label}, ехавшему прямо или направо.` };
+    return { yielder: Y, other: P, reason: regulated ? 'green-left' : 'left', explain: `${Y.label} поворачивал налево и должен был уступить встречному ${P.label}, ехавшему прямо или направо.` };
   }
+
+  if (regulated) return { yielder: null, other: null, reason: null, explain: 'Оба участника въехали на зелёный; знаки приоритета и правило помехи справа не действуют. Данных для определения нарушения п. 13.4 или 13.8 недостаточно.' };
 
   // 5. помеха справа
   const kPre = Math.max(Math.max(A.k0, B.k0), frame - 80);
@@ -853,6 +876,9 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
 }
 
 const REASON_REFS: Record<Reason, string[]> = {
+  'green-left': ['pdd:13.4', 'koap:12.13.2'],
+  finishing: ['pdd:13.8', 'koap:12.13.2'],
+  'green-tram': ['pdd:13.6', 'koap:12.13.2'],
   light: ['pdd:6.2', 'pdd:6.13', 'koap:12.12.1'],
   'sign-giveway': ['sign:2.4', 'pdd:13.9', 'koap:12.13.2'],
   'sign-stop': ['sign:2.5', 'pdd:13.9', 'koap:12.13.2'],
@@ -1374,16 +1400,9 @@ function buildVerdicts(ctx: Ctx, reports: CollisionReport[]): ActorVerdict[] {
     const causal = viol.filter((f) => f.causal);
     const legal: LegalItem[] = [];
 
-    // административные составы
-    const seen = new Set<string>();
-    for (const f of viol) {
-      for (const r of f.refs) {
-        if (r.startsWith('koap:') && !seen.has(r)) {
-          seen.add(r);
-          legal.push({ refs: [r], text: f.title });
-        }
-      }
-    }
+    const spec = i.isVeh ? VEHICLES[a.type as VehicleType] : null;
+    const mechanical = !!spec?.motorized && !!spec?.licenseRequired;
+    const noLicense = !!spec?.licenseRequired && a.flags.noLicense;
 
     // последствия для других участников (учитываются, если участник виновен)
     const consequences: LegalItem[] = [];
@@ -1396,40 +1415,63 @@ function buildVerdicts(ctx: Ctx, reports: CollisionReport[]): ActorVerdict[] {
         if (harmRank(lv) > harmRank(worst)) worst = lv;
         if (lv === 'fatal') fatalCount++;
       }
-      const agg = a.flags.drunk || a.flags.noLicense || a.flags.flees;
-      const aggText = [a.flags.drunk && 'опьянение', a.flags.noLicense && 'отсутствие права управления', a.flags.flees && 'оставление места ДТП'].filter(Boolean).join(', ');
+      const agg = a.flags.drunk || noLicense || a.flags.flees;
+      const aggText = [a.flags.drunk && 'опьянение', noLicense && 'отсутствие права управления', a.flags.flees && 'оставление места ДТП'].filter(Boolean).join(', ');
       const est = 'по расчётной оценке тяжести вреда';
-      if (worst === 'light') consequences.push({ refs: ['koap:12.24.1'], text: `${est}: нарушение ПДД, повлёкшее лёгкий вред здоровью` });
-      else if (worst === 'medium') consequences.push({ refs: ['koap:12.24.2'], text: `${est}: нарушение ПДД, повлёкшее вред здоровью средней тяжести` });
-      else if (worst === 'severe') {
+      if (mechanical && worst === 'light') consequences.push({ refs: ['koap:12.24.1'], text: `${est}: нарушение ПДД, повлёкшее лёгкий вред здоровью` });
+      else if (mechanical && worst === 'medium') consequences.push({ refs: ['koap:12.24.2'], text: `${est}: нарушение ПДД, повлёкшее вред здоровью средней тяжести` });
+      else if (!mechanical && (worst === 'severe' || worst === 'fatal')) {
+        // TODO(legal-check): проверить разграничение со ст. 268 УК для иных участников движения.
+        consequences.push({ refs: [worst === 'severe' ? 'uk:118.1' : fatalCount >= 2 ? 'uk:109.3' : 'uk:109.1'], text: `${est}: ориентир — причинение тяжкого вреда / смерти по неосторожности; TODO(legal-check): требуется юридическая проверка, включая ст. 268 УК` });
+      } else if (worst === 'severe') {
         criminal = true;
         consequences.push({ refs: [agg ? 'uk:264.2' : 'uk:264.1'], text: `${est}: нарушение ПДД, повлёкшее тяжкий вред здоровью${agg ? ` (отягчающие: ${aggText})` : ''}` });
       } else if (worst === 'fatal') {
         criminal = true;
         const id = fatalCount >= 2 ? (agg ? 'uk:264.6' : 'uk:264.5') : agg ? 'uk:264.4' : 'uk:264.3';
         consequences.push({ refs: [id], text: `${est}: нарушение ПДД, повлёкшее смерть${fatalCount >= 2 ? ' двух и более лиц' : ' человека'}${agg ? ` (отягчающие: ${aggText})` : ''}` });
-      } else if (hasCollision) {
-        consequences.push({ refs: ['gk:1064', 'gk:1079'], text: 'вред здоровью маловероятен: имущественный ущерб возмещается в гражданско-правовом порядке (ОСАГО)' });
+      } else if (worst === 'none' && hasCollision) {
+        consequences.push({ refs: ['gk:1064', 'gk:1079'], text: `вред здоровью другим участникам маловероятен${harm.get(a.id) && harm.get(a.id) !== 'none' ? `; самому водителю — ${HARM_LABEL[harm.get(a.id)!]} (на квалификацию по ст. 12.24 / 264 не влияет)` : ''}: имущественный ущерб возмещается в гражданско-правовом порядке (ОСАГО)` });
       }
-      if (worst !== 'none') {
+      if (mechanical && worst !== 'none') {
+        const parts = agg ? [2, 4, 6] : [1, 3, 5];
         consequences.push({
-          refs: ['koap:12.24.1', 'koap:12.24.2', 'uk:264.1', 'uk:264.3'],
-          text: 'Окончательная квалификация зависит от тяжести вреда по заключению судебно-медицинской экспертизы: лёгкий — ст. 12.24 ч. 1 КоАП; средней тяжести — ч. 2 той же статьи; тяжкий вред — ч. 1 ст. 264 УК; смерть — ч. 3 ст. 264 УК',
+          refs: ['koap:12.24.1', 'koap:12.24.2', ...parts.map((p) => `uk:264.${p}`)],
+          text: `Окончательная квалификация зависит от тяжести вреда по заключению судебно-медицинской экспертизы: лёгкий — ст. 12.24 ч. 1 КоАП; средней тяжести — ч. 2 той же статьи; тяжкий вред — ч. ${parts[0]} ст. 264 УК; смерть — ч. ${parts[1]} ст. 264 УК; смерть двух и более лиц — ч. ${parts[2]} ст. 264 УК${agg ? ` (отягчающие: ${aggText})` : ''}`,
         });
+      }
+    }
+
+    // КС РФ, позиция 2023 г.: недопустима двойная ответственность по ст. 12.24
+    // и иной статье гл. 12 КоАП за одно причинное нарушение.
+    // https://www.ksrf.ru/ru/Decision/Pages/default.aspx
+    // TODO(legal-check): реквизиты постановления; проверить применение к ст. 264 УК.
+    const absorbedBy = consequences.find((l) => l.refs.some((r) => r.startsWith('koap:12.24.') || r.startsWith('uk:264.')));
+    const seen = new Set<string>();
+    for (const f of viol) {
+      if (f.causal && absorbedBy) {
+        legal.push({ refs: [...f.refs.filter((r) => !r.startsWith('koap:')), ...absorbedBy.refs], text: `${f.title} — нарушение ПДД, образующее объективную сторону ст. ${absorbedBy.refs[0].startsWith('uk:') ? '264 УК' : '12.24 КоАП'}` });
+        continue;
+      }
+      for (const r of f.refs) {
+        if (r.startsWith('koap:') && !seen.has(r)) {
+          seen.add(r);
+          legal.push({ refs: [r], text: f.title });
+        }
       }
     }
 
     // водитель-нарушитель: опьянение, права, оставление места
     if (i.isVeh) {
-      if (a.flags.drunk) {
+      if (a.flags.drunk && mechanical) {
         legal.push(
           criminal
             ? { refs: ['pdd:2.7'], text: 'управление в состоянии опьянения — отягчающее обстоятельство по ст. 264 УК РФ' }
             : { refs: ['pdd:2.7', 'koap:12.8.1'], text: 'управление в состоянии опьянения' },
         );
       }
-      if (a.flags.noLicense) legal.push({ refs: ['koap:12.7.1'], text: 'управление без права управления' });
-      if (a.flags.flees && hasCollision) {
+      if (noLicense) legal.push({ refs: ['koap:12.7.1'], text: 'управление без права управления' });
+      if (mechanical && a.flags.flees && hasCollision) {
         legal.push(
           criminal
             ? { refs: ['pdd:2.5'], text: 'оставление места ДТП — отягчающее обстоятельство по ст. 264 УК РФ' }
@@ -1511,6 +1553,15 @@ export function analyze(scene: Scene, tl: Timeline): Report {
         r.notes.push(`${ctx.infos.get(t.actorId)!.label}: при допустимой скорости (${t.limitKmh} км/ч) остановиться до места столкновения удавалось бы — превышение скорости находится в причинной связи с ДТП.`);
       }
     }
+  }
+
+  // Специальный субъект по ст. 12.29: велосипед и повозка не являются
+  // механическими ТС. Квалифицируем после установления причинной связи.
+  for (const f of ctx.findings) {
+    const a = ctx.infos.get(f.actorId)!.a;
+    if (a.kind !== 'vehicle' || VEHICLES[a.type as VehicleType].motorized) continue;
+    f.refs = [...new Set(f.refs.map((r) => r.startsWith('koap:')
+      ? a.flags.drunk ? 'koap:12.29.3' : 'koap:12.29.2' : r))];
   }
 
   const verdicts = buildVerdicts(ctx, collisions);

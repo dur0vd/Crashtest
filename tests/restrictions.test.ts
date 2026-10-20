@@ -44,7 +44,7 @@ describe('запрещающие знаки', () => {
     const bike = veh(a, 'bicycle', -20, 1.75, 20, [[60, 1.75]]);
     sign(a, '3.9', 0, 5.5);
     const rep = run(a);
-    expect(refsOf(rep, bike.id)).toEqual(expect.arrayContaining(['sign:3.9', 'koap:12.16.1']));
+    expect(refsOf(rep, bike.id)).toEqual(expect.arrayContaining(['sign:3.9', 'koap:12.29.2']));
 
     const b = base();
     const bike2 = veh(b, 'bicycle', -20, 1.75, 20, [[60, 1.75]]);

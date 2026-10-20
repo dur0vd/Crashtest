@@ -326,7 +326,8 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       h('div', { class: 'group' },
         h('h4', {}, 'Водитель'),
         check('Нетрезв (опьянение)', a.flags.drunk, set((v) => (a.flags.drunk = v))),
-        check('Нет права управления', a.flags.noLicense, set((v) => (a.flags.noLicense = v))),
+        ...(VEHICLES[a.type as VehicleType].licenseRequired
+          ? [check('Нет права управления', a.flags.noLicense, set((v) => (a.flags.noLicense = v)))] : []),
         check('Скрывается с места ДТП', a.flags.flees, set((v) => (a.flags.flees = v))),
       ),
     );

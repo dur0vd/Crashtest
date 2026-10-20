@@ -20,6 +20,10 @@ export type VehicleType =
 export type PedestrianType = 'adult' | 'child';
 
 export interface VehicleSpec {
+  /** механическое ТС */
+  motorized: boolean;
+  /** для управления требуется специальное право */
+  licenseRequired: boolean;
   name: string;
   length: number;
   width: number;
@@ -49,17 +53,17 @@ export interface VehicleSpec {
 }
 
 export const VEHICLES: Record<VehicleType, VehicleSpec> = {
-  bicycle: { name: 'Велосипед', length: 1.8, width: 0.6, mass: 95, accel: 1.0, brakeFactor: 0.6, vmax: 35, color: '#2fb36b', exposed: true, rail: false, route: false, heavy: false, height: 1.8, payload: 0 },
-  moped: { name: 'Мопед', length: 1.8, width: 0.7, mass: 150, accel: 1.4, brakeFactor: 0.8, vmax: 50, color: '#f5a524', exposed: true, rail: false, route: false, heavy: false, height: 1.7, payload: 0 },
-  motorcycle: { name: 'Мотоцикл', length: 2.2, width: 0.8, mass: 280, accel: 4.0, brakeFactor: 0.9, vmax: 200, color: '#ff6b3d', exposed: true, rail: false, route: false, heavy: false, height: 1.5, payload: 0 },
-  car: { name: 'Легковой автомобиль', length: 4.5, width: 1.8, mass: 1400, accel: 2.5, brakeFactor: 1.0, vmax: 200, color: '#3e9bff', exposed: false, rail: false, route: false, heavy: false, height: 1.5, payload: 450 },
-  suv: { name: 'Внедорожник', length: 4.8, width: 1.95, mass: 2100, accel: 2.2, brakeFactor: 0.95, vmax: 180, color: '#8b6fe8', exposed: false, rail: false, route: false, heavy: false, height: 1.8, payload: 600 },
-  van: { name: 'Микроавтобус / фургон', length: 5.6, width: 2.0, mass: 2800, accel: 1.6, brakeFactor: 0.9, vmax: 130, color: '#e8e4d8', exposed: false, rail: false, route: false, heavy: false, height: 2.5, payload: 1200 },
-  truck: { name: 'Грузовик', length: 8.5, width: 2.5, mass: 14000, accel: 0.9, brakeFactor: 0.75, vmax: 90, color: '#c9a227', exposed: false, rail: false, route: false, heavy: true, height: 3.5, payload: 8000 },
-  bus: { name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true, height: 3.0, payload: 0 },
-  trolleybus: { name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true, height: 3.4, payload: 0 },
-  tram: { name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true, height: 3.4, payload: 0 },
-  cart: { name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false, height: 2.2, payload: 600 },
+  bicycle: { motorized: false, licenseRequired: false, name: 'Велосипед', length: 1.8, width: 0.6, mass: 95, accel: 1.0, brakeFactor: 0.6, vmax: 35, color: '#2fb36b', exposed: true, rail: false, route: false, heavy: false, height: 1.8, payload: 0 },
+  moped: { motorized: true, licenseRequired: true, name: 'Мопед', length: 1.8, width: 0.7, mass: 150, accel: 1.4, brakeFactor: 0.8, vmax: 50, color: '#f5a524', exposed: true, rail: false, route: false, heavy: false, height: 1.7, payload: 0 },
+  motorcycle: { motorized: true, licenseRequired: true, name: 'Мотоцикл', length: 2.2, width: 0.8, mass: 280, accel: 4.0, brakeFactor: 0.9, vmax: 200, color: '#ff6b3d', exposed: true, rail: false, route: false, heavy: false, height: 1.5, payload: 0 },
+  car: { motorized: true, licenseRequired: true, name: 'Легковой автомобиль', length: 4.5, width: 1.8, mass: 1400, accel: 2.5, brakeFactor: 1.0, vmax: 200, color: '#3e9bff', exposed: false, rail: false, route: false, heavy: false, height: 1.5, payload: 450 },
+  suv: { motorized: true, licenseRequired: true, name: 'Внедорожник', length: 4.8, width: 1.95, mass: 2100, accel: 2.2, brakeFactor: 0.95, vmax: 180, color: '#8b6fe8', exposed: false, rail: false, route: false, heavy: false, height: 1.8, payload: 600 },
+  van: { motorized: true, licenseRequired: true, name: 'Микроавтобус / фургон', length: 5.6, width: 2.0, mass: 2800, accel: 1.6, brakeFactor: 0.9, vmax: 130, color: '#e8e4d8', exposed: false, rail: false, route: false, heavy: false, height: 2.5, payload: 1200 },
+  truck: { motorized: true, licenseRequired: true, name: 'Грузовик', length: 8.5, width: 2.5, mass: 14000, accel: 0.9, brakeFactor: 0.75, vmax: 90, color: '#c9a227', exposed: false, rail: false, route: false, heavy: true, height: 3.5, payload: 8000 },
+  bus: { motorized: true, licenseRequired: true, name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true, height: 3.0, payload: 0 },
+  trolleybus: { motorized: true, licenseRequired: true, name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true, height: 3.4, payload: 0 },
+  tram: { motorized: true, licenseRequired: true, name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true, height: 3.4, payload: 0 },
+  cart: { motorized: false, licenseRequired: false, name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false, height: 2.2, payload: 600 },
 };
 
 export interface PedestrianSpec {

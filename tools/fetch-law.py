@@ -19,7 +19,7 @@ UA = 'Mozilla/5.0 (X11; Linux x86_64) Crashtest-law-fetch'
 DOCS = {
     'pdd': {'id': '2709', 'pick': lambda t, i, n: True},
     'koap': {'id': '34661', 'pick': lambda t, i, n: bool(re.match(r'^Статья 12\.\d', t))},
-    'uk': {'id': '10699', 'pick': lambda t, i, n: bool(re.match(r'^Статья 26[3-9]|^Статья 27[01]', t))},
+    'uk': {'id': '10699', 'pick': lambda t, i, n: bool(re.match(r'^Статья (?:109|118|26[3-9]|27[01])\.', t))},
 }
 
 

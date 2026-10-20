@@ -163,7 +163,223 @@ export interface Preset {
   title: string;
   hint: string;
   build: () => Scene;
+  /** Наблюдаемое требование в паре учебных примеров раздела 13. */
+  intersectionCase?: { rule: string; expected: 'compliant' | 'violation' | 'agreement'; actorIndex: number; evaluatedRequirement: string };
 }
+
+/** A stopped waypoint records the actual wait before entry, rather than hiding the participant. */
+function waitBeforeEntry(a: Actor, seconds = 8): void {
+  const dx = Math.cos(a.heading);
+  const dy = Math.sin(a.heading);
+  const distance = Math.max(0, Math.hypot(a.x, a.y) - 11);
+  a.path.unshift({ x: a.x + dx * distance, y: a.y + dy * distance, v: 0, hold: seconds });
+}
+
+function intersectionBase(title: string): Builder {
+  const b = cross(new Builder().name(title).duration(22), 85);
+  // Fix the legal edition for durable examples; geometry and timing do not depend on today's clock.
+  b.scene.env.accidentDate = '2026-10-20T12:00';
+  return b;
+}
+
+function crossingPair(title: string, yieldIndex: number, compliant: boolean): Builder {
+  const b = intersectionBase(title)
+    .vehicle('car', -45, 1.75, 0, 30, [[70, 1.75, 30]])
+    .vehicle('car', -1.75, -43, 90, 30, [[-1.75, 70, 30]]);
+  if (compliant) waitBeforeEntry(b.scene.actors[yieldIndex]);
+  return b;
+}
+
+function twoGreen(b: Builder): void {
+  b.light(-8, 3.5, 0, [60, 0, 0]);
+  b.light(-3.5, -8, 90, [60, 0, 0]);
+}
+
+function leftAcrossOpposing(title: string, compliant: boolean, regulated: boolean): Scene {
+  const b = intersectionBase(title)
+    .vehicle('car', -38, 1.75, 0, 25, [[-6, 1.75, 25], [1.75, -6, 25], [1.75, -70, 25]])
+    .vehicle('car', 35, -1.75, 180, 25, [[-70, -1.75, 25]]);
+  if (regulated) {
+    b.light(-8, 3.5, 0, [60, 0, 0]);
+    b.light(8, -3.5, 180, [60, 0, 0]);
+  }
+  if (compliant) waitBeforeEntry(b.scene.actors[0]);
+  return b.done();
+}
+
+function circleEntry(title: string, compliant: boolean): Scene {
+  const b = new Builder().name(title).duration(24);
+  b.scene.env.accidentDate = '2026-10-20T12:00';
+  // At the west arm the circle travels south: the island remains on the driver's left.
+  const ring: [number, number][] = Array.from({ length: 33 }, (_, k) => {
+    const a = -Math.PI / 2 - k * Math.PI / 16;
+    return [20 * Math.cos(a), 20 * Math.sin(a)];
+  });
+  b.road(ring, { oneWay: true, center: 'none', role: 'roundabout' })
+    .road([[-85, 0], [-20, 0]], { role: 'road' })
+    .sign('4.3', -28, 5, 0)
+    .vehicle('car', -45, 0, 0, 18, [[-27, 0, 18], [-21, -3, 18], [-20, 0, 18], [-18.48, 7.65, 18], [-14.14, 14.14, 18], [0, 20, 18]])
+    .vehicle('car', -7.65, -18.48, 135, 18, [[-14.14, -14.14, 18], [-18.48, -7.65, 18], [-20, 0, 18], [-18.48, 7.65, 18], [-14.14, 14.14, 18], [0, 20, 18], [14.14, 14.14, 18]]);
+  if (compliant) b.scene.actors[0].path.unshift({ x: -29, y: 0, v: 0, hold: 9 });
+  return b.done();
+}
+
+/** Every item is paired with the same road/participants and a recorded wait or a changed control condition. */
+const INTERSECTION_CASES: { rule: string; title: string; yieldIndex: number; requirement?: string; build: (compliant: boolean, title: string) => Scene }[] = [
+  { rule: '13.1', title: 'Поворот и пешеход на выездной дороге', yieldIndex: 0, build: (ok, title) => {
+    const b = intersectionBase(title)
+      .vehicle('car', -24, 1.75, 0, 18, [[-3, 1.75, 18], [-1.75, 3, 18], [-1.75, 65, 18]])
+      .ped('adult', -6, 9, 0, [[6, 9, 5]], { delay: 1.5 });
+    if (ok) waitBeforeEntry(b.scene.actors[0]);
+    return b.done();
+  } },
+  { rule: '13.2', title: 'Затор за перекрёстком и сетка 1.26', yieldIndex: 0, build: (ok, title) => {
+    const b = intersectionBase(title)
+      .marking('1.26', [[-4, -4], [4, -4], [4, 4], [-4, 4]])
+      .vehicle('car', -40, 1.75, 0, 30, [[ok ? -10 : 1.75, 1.75, 0]])
+      .vehicle('car', 8, 1.75, 0, 0, [])
+      .vehicle('car', 15, 1.75, 0, 0, [])
+      .vehicle('car', -1.75, -60, 90, 18, [[-1.75, 65, 18]]);
+    twoGreen(b);
+    return b.done();
+  } },
+  { rule: '13.3', title: 'Мигающий жёлтый: действуют знаки приоритета', yieldIndex: 0, requirement: '13.9', build: (ok, title) => {
+    const b = crossingPair(title, 0, ok).sign('2.4', -16, 4.5, 0).sign('2.1', -4.5, -16, 90);
+    twoGreen(b);
+    for (const l of b.scene.lights) l.mode = 'flashing-yellow';
+    return b.done();
+  } },
+  { rule: '13.4', title: 'Поворот налево на зелёный и встречное ТС', yieldIndex: 0, build: (ok, title) => leftAcrossOpposing(title, ok, true) },
+  { rule: '13.5', title: 'Дополнительная стрелка с красным сигналом', yieldIndex: 0, build: (ok, title) => {
+    const b = crossingPair(title, 0, ok);
+    b.light(-8, 3.5, 0, [0, 0, 60]);
+    b.scene.lights[0].extraSection = { directions: ['straight'], on: true };
+    b.light(-3.5, -8, 90, [60, 0, 0]);
+    return b.done();
+  } },
+  { rule: '13.6', title: 'Трамвай и автомобиль одновременно на зелёный', yieldIndex: 1, build: (ok, title) => {
+    const b = crossingPair(title, 1, ok);
+    Object.assign(b.scene.actors[0], { type: 'tram', color: VEHICLES.tram.color });
+    b.track([[-85, 1.75], [85, 1.75]]);
+    twoGreen(b);
+    return b.done();
+  } },
+  { rule: '13.7', title: 'Завершение проезда и отдельная внутренняя стоп-линия', yieldIndex: 0, requirement: '6.2', build: (ok, title) => {
+    const b = intersectionBase(title).vehicle('car', -30, 1.75, 0, 18, [[70, 1.75, 18]]);
+    b.light(-7, 3.5, 0, [60, 0, 0]);
+    b.light(7, 3.5, 0, [0, 0, 60]);
+    // 13.7 permits completion past an exit signal without a separate stop line.
+    b.scene.lights[1].stopLine = !ok;
+    return b.done();
+  } },
+  { rule: '13.8', title: 'Новый зелёный: пропустить завершающего проезд', yieldIndex: 1, build: (ok, title) => {
+    const b = intersectionBase(title)
+      .vehicle('car', -20, 1.75, 0, 7.2, [[65, 1.75, 7.2]])
+      .vehicle('car', -1.75, -46, 90, 18, [[-1.75, 65, 18]]);
+    b.light(-3.5, 3.5, 0, [8, 0, 60]);
+    b.light(-3.5, -3.5, 90, [60, 0, 8], 60);
+    if (ok) waitBeforeEntry(b.scene.actors[1], 10);
+    return b.done();
+  } },
+  { rule: '13.9', title: 'Главная и второстепенная: уступить главной', yieldIndex: 0, build: (ok, title) => crossingPair(title, 0, ok)
+    .sign('2.4', -16, 4.5, 0).sign('2.1', -4.5, -16, 90).done() },
+  { rule: '13.10', title: 'Главная меняет направление: два ТС на главной', yieldIndex: 0, build: (ok, title) => {
+    const b = intersectionBase(title)
+      .sign('2.1', -16, 4.5, 0).sign('2.1', 4.5, 16, -90)
+      .vehicle('car', -45, 1.75, 0, 30, [[70, 1.75, 30]])
+      .vehicle('car', 1.75, 43, -90, 30, [[1.75, -70, 30]]);
+    for (const sign of b.scene.signs) {
+      sign.plates = ['8.13'];
+      sign.mainDirections = [0, -Math.PI / 2];
+    }
+    if (ok) waitBeforeEntry(b.scene.actors[0]);
+    return b.done();
+  } },
+  { rule: '13.11', title: 'Равнозначные дороги: помеха справа', yieldIndex: 1, build: (ok, title) => crossingPair(title, 1, ok).done() },
+  { rule: '13.11(1)', title: 'Въезд на круг с неглавной дороги', yieldIndex: 0, build: (ok, title) => circleEntry(title, ok) },
+  { rule: '13.12', title: 'Поворот налево на равнозначном перекрёстке', yieldIndex: 0, build: (ok, title) => leftAcrossOpposing(title, ok, false) },
+  { rule: '13.13', title: 'Покрытие не определить: считать дорогу второстепенной', yieldIndex: 0, build: (ok, title) => {
+    const b = crossingPair(title, 0, ok);
+    for (const road of b.scene.roads) road.surfacePriority = 'hard';
+    b.scene.actors[0].coveringUnknown = true;
+    return b.done();
+  } },
+];
+
+export const INTERSECTION_PRESETS: Preset[] = INTERSECTION_CASES.flatMap(c => [true, false].map(compliant => {
+  const title = `ПДД ${c.rule}: ${c.title} — ${compliant ? 'правильно' : 'нарушение'}`;
+  return {
+    id: `intersection-${c.rule.replace(/[().]/g, '-')}-${compliant ? 'correct' : 'violation'}`,
+    title,
+    hint: c.rule === '13.3' ? 'Мигающий жёлтый переводит перекрёсток в нерегулируемый режим; очередность определяют знаки.'
+      : c.rule === '13.7' ? 'На выходе без отдельной стоп-линии можно завершить начатый проезд; перед внутренней стоп-линией сигнал обязателен.'
+      : `Сравните фактическое движение с требованием п. ${c.rule} из корпуса ПДД. В парном примере сохранены остальные условия.`,
+    intersectionCase: { rule: `pdd:${c.rule}`, expected: compliant ? 'compliant' as const : 'violation' as const,
+      actorIndex: c.yieldIndex, evaluatedRequirement: `pdd:${c.requirement ?? c.rule}` },
+    build: () => c.build(compliant, title),
+  };
+}));
+
+/** Additional control examples keep the signal distinct from priority. */
+export const INTERSECTION_CONTROL_PRESETS: Preset[] = [
+  ...[true, false].map(ok => ({
+    id: `intersection-main-arrow-${ok ? 'correct' : 'violation'}`,
+    title: `Основная зелёная стрелка направо — ${ok ? 'правильно' : 'нарушение'}`,
+    hint: 'Основной зелёный сигнал со стрелкой разрешает только указанное направление (п. 6.3).',
+    intersectionCase: { rule: 'pdd:6.3', expected: ok ? 'compliant' as const : 'violation' as const,
+      actorIndex: 0, evaluatedRequirement: 'pdd:6.3' },
+    build: () => {
+      const b = intersectionBase('Основная стрелка направо')
+        .vehicle('car', -30, 1.75, 0, 18, ok
+          ? [[-3, 1.75, 18], [-1.75, 3, 18], [-1.75, 65, 18]] : [[65, 1.75, 18]]);
+      b.light(-8, 3.5, 0, [60, 0, 0]);
+      b.scene.lights[0].mainDirections = ['right'];
+      return b.done();
+    },
+  })),
+  ...[true, false].map(ok => ({
+    id: `intersection-tram-extra-${ok ? 'correct' : 'violation'}`,
+    title: `Трамвай по дополнительной стрелке с красным — ${ok ? 'правильно' : 'нарушение'}`,
+    hint: 'Исключение из преимущества трамвая: движение по дополнительной стрелке с красным или жёлтым требует уступить другим направлениям (п. 13.6).',
+    intersectionCase: { rule: 'pdd:13.6', expected: ok ? 'compliant' as const : 'violation' as const,
+      actorIndex: 0, evaluatedRequirement: 'pdd:13.6' },
+    build: () => {
+      const b = crossingPair('Трамвай по дополнительной стрелке с красным', 0, ok);
+      Object.assign(b.scene.actors[0], { type: 'tram', color: VEHICLES.tram.color });
+      b.track([[-85, 1.75], [85, 1.75]]);
+      b.light(-8, 3.5, 0, [0, 0, 60]);
+      b.scene.lights[0].extraSection = { directions: ['straight'], on: true };
+      b.light(-3.5, -8, 90, [60, 0, 0]);
+      return b.done();
+    },
+  })),
+  ...[true, false].map(ok => ({
+    id: `intersection-controller-${ok ? 'correct' : 'violation'}`,
+    title: `Регулировщик важнее зелёного сигнала — ${ok ? 'правильно' : 'нарушение'}`,
+    hint: 'При руках в стороны движение со стороны груди и спины запрещено; сигнал регулировщика имеет преимущество перед светофором (п. 6.10, 6.15).',
+    intersectionCase: { rule: 'pdd:6.10', expected: ok ? 'compliant' as const : 'violation' as const,
+      actorIndex: 0, evaluatedRequirement: 'pdd:6.10' },
+    build: () => {
+      const b = intersectionBase('Регулировщик важнее зелёного сигнала')
+        .vehicle('car', -35, 1.75, 0, 18, ok ? [[-12, 1.75, 0]] : [[65, 1.75, 18]]);
+      b.light(-8, 3.5, 0, [60, 0, 0]);
+      b.light(0, 0, 0, [60, 0, 0], 0, 8);
+      Object.assign(b.scene.lights[1], { kind: 'controller', controllerGesture: 'arms-out' });
+      return b.done();
+    },
+  })),
+  {
+    id: 'intersection-four-way-cycle',
+    title: 'Четыре ТС на равнозначном: договориться об очередности',
+    hint: 'У каждого участника помеха справа. Цикл графа уступания не назначает нарушителя; водителям нужно договориться (п. 13.11, 1.5).',
+    intersectionCase: { rule: 'pdd:13.11', expected: 'agreement', actorIndex: 0, evaluatedRequirement: 'pdd:13.11' },
+    build: () => intersectionBase('Четыре ТС: цикл уступания')
+      .vehicle('car', -35, 1.75, 0, 18, [[65, 1.75, 18]])
+      .vehicle('car', -1.75, -35, 90, 18, [[-1.75, 65, 18]])
+      .vehicle('car', 35, -1.75, 180, 18, [[-65, -1.75, 18]])
+      .vehicle('car', 1.75, 35, -90, 18, [[1.75, -65, 18]]).done(),
+  },
+];
 
 export const PRESETS: Preset[] = [
   {
@@ -352,6 +568,8 @@ export const PRESETS: Preset[] = [
       return b.done();
     },
   },
+  ...INTERSECTION_PRESETS,
+  ...INTERSECTION_CONTROL_PRESETS,
 ];
 
 export function blankScene(): Scene {

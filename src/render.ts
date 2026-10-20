@@ -171,6 +171,7 @@ export class Renderer {
     const geo = buildGeo(v.scene);
     this.drawSidewalks(geo);
     this.drawRoads(geo);
+    if (v.mode === 'edit') this.drawIntersectionBoundaries(v, geo);
     this.drawTracks(geo);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
@@ -387,12 +388,14 @@ export class Renderer {
     const t = v.mode === 'play' ? v.t : 0;
     for (const lg of geo.lights) {
       const l = lg.light;
-      ctx.beginPath();
-      ctx.moveTo(lg.line.a.x, lg.line.a.y);
-      ctx.lineTo(lg.line.b.x, lg.line.b.y);
-      ctx.strokeStyle = C.mark;
-      ctx.lineWidth = 0.4;
-      ctx.stroke();
+      if (l.stopLine !== false) {
+        ctx.beginPath();
+        ctx.moveTo(lg.line.a.x, lg.line.a.y);
+        ctx.lineTo(lg.line.b.x, lg.line.b.y);
+        ctx.strokeStyle = C.mark;
+        ctx.lineWidth = 0.4;
+        ctx.stroke();
+      }
       this.drawLightHead(l, t);
     }
   }
@@ -405,16 +408,112 @@ export class Renderer {
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(l.angle);
+    const off = l.mode === 'off';
+    if (l.kind === 'controller') {
+      ctx.strokeStyle = off ? '#69737c' : '#f4f7fa';
+      ctx.fillStyle = off ? '#69737c' : '#f4f7fa';
+      ctx.lineWidth = 0.17;
+      ctx.beginPath();
+      ctx.arc(0.5, 0, 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-0.5, -0.23);
+      ctx.lineTo(0.16, -0.23);
+      ctx.lineTo(0.16, 0.23);
+      ctx.lineTo(-0.5, 0.23);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      if (l.controllerGesture === 'right-arm-forward') {
+        ctx.moveTo(0, -0.24); ctx.lineTo(0, -0.8);
+        ctx.moveTo(0, 0.24); ctx.lineTo(0.8, 0.24);
+      } else if (l.controllerGesture === 'arm-up' || l.controllerGesture === 'stop') {
+        if (l.controllerGesture === 'stop') ctx.strokeStyle = '#ff6b6b';
+        ctx.arc(0, 0, 0.83, 0, Math.PI * 2);
+      } else {
+        ctx.moveTo(0, -0.95); ctx.lineTo(0, 0.95);
+      }
+      ctx.stroke();
+      ctx.restore();
+      this.badge(l.controllerGesture === 'stop' ? 'Регулировщик: остановиться' : l.controllerGesture === 'arm-up' ? 'Регулировщик: рука вверх' : l.controllerGesture === 'right-arm-forward' ? 'Регулировщик: правая вперёд' : 'Регулировщик: руки в стороны / опущены', p.x, p.y + 1.6);
+      return;
+    }
     ctx.fillStyle = '#14171c';
-    ctx.fillRect(-0.45, -0.55, 0.9, 1.1);
-    const col = phase === 'green' ? '#3ddc84' : phase === 'yellow' ? '#ffcf3d' : '#ff4d4f';
+    ctx.fillRect(-0.65, -0.65, 1.3, 1.3);
+    if (l.kind === 'reversible') {
+      const signal = l.reversibleState ?? 'green';
+      ctx.strokeStyle = off ? '#55606a' : signal === 'red' ? '#ff4d4f' : signal === 'yellow' ? '#ffcf3d' : '#3ddc84';
+      ctx.lineWidth = 0.16;
+      ctx.beginPath();
+      if (signal === 'red') {
+        ctx.moveTo(-0.38, -0.38); ctx.lineTo(0.38, 0.38);
+        ctx.moveTo(-0.38, 0.38); ctx.lineTo(0.38, -0.38);
+      } else {
+        if (signal === 'yellow') ctx.rotate(Math.PI / 4);
+        ctx.moveTo(-0.4, 0); ctx.lineTo(0.4, 0);
+        ctx.lineTo(0.05, -0.3); ctx.moveTo(0.4, 0); ctx.lineTo(0.05, 0.3);
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (l.kind === 'tram') {
+      const allowed = off ? [] : l.tramDirections ?? [];
+      const points = [{ x: -0.35, y: -0.35, on: allowed.includes('left') }, { x: 0, y: -0.35, on: allowed.includes('straight') }, { x: 0.35, y: -0.35, on: allowed.includes('right') }, { x: 0, y: 0.3, on: allowed.length > 0 }];
+      for (const point of points) {
+        ctx.beginPath(); ctx.arc(point.x, point.y, 0.13, 0, Math.PI * 2);
+        ctx.fillStyle = point.on ? '#fff8dd' : '#4c4d43'; ctx.fill();
+      }
+      ctx.restore();
+      return;
+    }
+    const flashing = l.mode === 'flashing-yellow';
+    const col = off || (flashing && Math.floor(t * 2) % 2) ? '#55606a' : flashing || phase === 'yellow' ? '#ffcf3d' : phase === 'green' ? '#3ddc84' : '#ff4d4f';
     ctx.beginPath();
-    ctx.arc(0, 0, 0.36, 0, Math.PI * 2);
+    ctx.arc(0, 0, 0.46, 0, Math.PI * 2);
     ctx.fillStyle = col;
     ctx.shadowColor = col;
     ctx.shadowBlur = 8;
     ctx.fill();
+    if (l.mainDirections?.length) this.drawSignalArrows(l.mainDirections, '#111820');
+    if (l.extraSection) {
+      ctx.translate(0, 1.05);
+      ctx.fillStyle = '#14171c'; ctx.fillRect(-0.65, -0.45, 1.3, 0.9);
+      this.drawSignalArrows(l.extraSection.directions, l.extraSection.on && !off && !flashing ? '#3ddc84' : '#55606a');
+    }
     ctx.restore();
+  }
+
+  private drawSignalArrows(directions: string[], color: string): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.12;
+    for (const direction of directions) {
+      ctx.save();
+      ctx.rotate(direction === 'right' ? Math.PI / 2 : direction === 'left' ? -Math.PI / 2 : direction === 'uturn' ? Math.PI : 0);
+      ctx.beginPath(); ctx.moveTo(-0.27, 0); ctx.lineTo(0.32, 0);
+      ctx.lineTo(0.08, -0.2); ctx.moveTo(0.32, 0); ctx.lineTo(0.08, 0.2); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private drawIntersectionBoundaries(v: ViewState, geo: Geo): void {
+    const { ctx } = this;
+    const selected = v.sel?.col === 'roads' ? v.sel.id : null;
+    for (const intersection of geo.intersections) {
+      if (selected && !intersection.roadIds.includes(selected)) continue;
+      ctx.save();
+      tracePath(ctx, intersection.boundary);
+      ctx.closePath();
+      ctx.setLineDash([0.6, 0.5]);
+      ctx.strokeStyle = intersection.boundarySource === 'survey' ? 'rgba(84,221,200,0.7)' : 'rgba(255,209,102,0.4)';
+      ctx.lineWidth = 1.5 / v.cam.s;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   private drawObstacles(geo: Geo): void {
@@ -553,7 +652,8 @@ export class Renderer {
     ctx.fillStyle = '#9aa3ad';
     ctx.fillRect(-0.06, -0.06, 0.12, 0.12);
     ctx.restore();
-    if (!this.drawNumberSign(s)) {
+    if (s.kind === '8.13' && s.mainDirections?.length) this.drawMainRoadPlate(s.x, s.y, s.mainDirections);
+    else if (!this.drawNumberSign(s)) {
       const img = this.images.get(signFile(s.kind));
       if (img) {
         // высота знака ~1.5 м, табличек — ~0.7 м
@@ -575,7 +675,8 @@ export class Renderer {
     (s.plates ?? []).forEach((pl, k) => {
       const pimg = this.images.get(signFile(pl));
       const py = s.y + 1.2 + k * 0.62;
-      if (pimg) {
+      if (pl === '8.13' && s.mainDirections?.length) this.drawMainRoadPlate(s.x, py, s.mainDirections);
+      else if (pimg) {
         const ph = 0.55;
         const pw = Math.min(2, (pimg.naturalWidth / pimg.naturalHeight) * ph);
         ctx.drawImage(pimg, s.x - pw / 2, py - ph / 2, pw, ph);
@@ -594,6 +695,24 @@ export class Renderer {
     ctx.moveTo(1.6, 0);
     ctx.lineTo(1.3, -0.25);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /** 8.13 uses absolute inbound headings, so its drawn branches match the scene. */
+  private drawMainRoadPlate(x: number, y: number, directions: number[]): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#fff'; ctx.fillRect(-0.5, -0.5, 1, 1);
+    ctx.strokeStyle = '#171a20'; ctx.lineWidth = 0.04; ctx.strokeRect(-0.5, -0.5, 1, 1);
+    ctx.lineWidth = 0.045;
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0.4 * Math.cos(heading), 0.4 * Math.sin(heading)); ctx.stroke();
+    }
+    ctx.lineWidth = 0.15;
+    for (const heading of directions) {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-0.4 * Math.cos(heading), -0.4 * Math.sin(heading)); ctx.stroke();
+    }
     ctx.restore();
   }
 

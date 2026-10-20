@@ -1,6 +1,7 @@
 import { type CollisionReport, type Finding, type Report, HARM_LABEL, STATUS_LABEL } from './analysis';
 import type { Editor } from './editor';
-import { deg, rad } from './geom';
+import { deg, rad, segIntersect } from './geom';
+import { buildGeo } from './geo';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
 import { DISCLAIMER, lawRef, describeRef } from './law';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
@@ -86,6 +87,17 @@ function button(label: string, onClick: () => void, cls = ''): HTMLButtonElement
   return h('button', { type: 'button', class: `btn ${cls}`, onclick: onClick }, label);
 }
 
+function movementFields(box: HTMLElement, label: string, values: string[], update: (next: string[]) => void, allowUturn = true): void {
+  const choices = [['straight', 'Прямо'], ['right', 'Направо'], ['left', 'Налево'], ...(allowUturn ? [['uturn', 'Разворот']] : [])];
+  const group = h('div', { class: 'group' }, h('h4', {}, label));
+  let current = [...values];
+  for (const [key, name] of choices) group.append(check(name, current.includes(key), (enabled) => {
+    current = enabled ? [...new Set([...current, key])] : current.filter(v => v !== key);
+    update([...current]);
+  }));
+  box.append(group);
+}
+
 // ---------------------------------------------------------------------------
 // Свойства выбранного объекта
 
@@ -128,6 +140,8 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
   switch (sel.col) {
     case 'roads':
       box.append(
+        field('Тип дороги', select([['road', 'Обычная дорога'], ['adjacent', 'Выезд с прилегающей территории'], ['roundabout', 'Кольцевая проезжая часть']], it.role ?? 'road', set((v) => (it.role = v)))),
+        field('Покрытие для определения главной', select([['hard', 'Твёрдое'], ['unpaved', 'Грунтовое'], ['unknown', 'Не установлено']], it.surfacePriority ?? 'hard', set((v) => (it.surfacePriority = v))), 'Для п. 13.9; сцепление задаётся отдельно в условиях.'),
         field('Полос в каждую сторону', num(it.lanes, set((v) => (it.lanes = v)), { min: 1, max: 4 })),
         field('Разметка по оси', select([['none', 'Без разметки'], ['dashed', 'Прерывистая (1.5)'], ['solid', 'Сплошная (1.1)'], ['double', 'Двойная сплошная (1.3)']], it.center, set((v) => (it.center = v)))),
         field('Зона', select([['city', 'Населённый пункт (60)'], ['outside', 'Вне населённого пункта'], ['residential', 'Жилая зона (20)']], it.zone, set((v) => (it.zone = v)))),
@@ -175,13 +189,36 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
     }
     case 'lights':
       box.append(
-        field('Направление движения ТС, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 }), '0° — вправо, 90° — вниз'),
+        field('Управление движением', select([['vehicle', 'Транспортный светофор'], ['tram', 'Трамвайный светофор'], ['reversible', 'Реверсивный светофор'], ['controller', 'Регулировщик']], it.kind ?? 'vehicle', (v) => app.edit(() => (it.kind = v), true))),
+        field(it.kind === 'controller' ? 'Направление взгляда регулировщика, °' : 'Направление движения ТС, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 }), '0° — вправо, 90° — вниз'),
+        field('Режим', select([['cycle', 'Работает'], ...(!it.kind || it.kind === 'vehicle' ? [['flashing-yellow', 'Мигающий жёлтый']] : []), ['off', 'Выключен']] as [string, string][], it.mode ?? 'cycle', set((v) => (it.mode = v)))),
+        check('Есть стоп-линия / знак 6.16', it.stopLine !== false, set((v) => (it.stopLine = v))),
         field('Длина стоп-линии, м', num(it.lineLength, set((v) => (it.lineLength = v)), { min: 2, max: 30, step: 0.5 })),
-        field('Зелёный, с', num(it.green, set((v) => (it.green = v)), { min: 1, max: 120 })),
-        field('Жёлтый, с', num(it.yellow, set((v) => (it.yellow = v)), { min: 1, max: 10 })),
-        field('Красный, с', num(it.red, set((v) => (it.red = v)), { min: 1, max: 120 })),
-        field('Сдвиг цикла, с', num(it.offset, set((v) => (it.offset = v)), { min: 0, max: 240 }), 'Чтобы встречные направления горели по очереди.'),
+        ...(!it.kind || it.kind === 'vehicle' ? [
+          field('Зелёный, с', num(it.green, set((v) => (it.green = v)), { min: 1, max: 120 })),
+          field('Жёлтый, с', num(it.yellow, set((v) => (it.yellow = v)), { min: 1, max: 10 })),
+          field('Красный, с', num(it.red, set((v) => (it.red = v)), { min: 1, max: 120 })),
+          field('Сдвиг цикла, с', num(it.offset, set((v) => (it.offset = v)), { min: 0, max: 240 }), 'Чтобы встречные направления горели по очереди.'),
+        ] : []),
       );
+      if (it.kind === 'controller') {
+        box.append(field('Жест', select([['arms-out', 'Руки в стороны или опущены'], ['right-arm-forward', 'Правая рука вытянута вперёд'], ['arm-up', 'Рука поднята вверх'], ['stop', 'Адресное требование остановки (6.11)']], it.controllerGesture ?? 'arms-out', (v) => app.edit(() => (it.controllerGesture = v), true))),
+          h('small', {}, 'Жест и положение регулировщика определяют разрешённые направления по п. 6.10.'));
+        if (it.controllerGesture === 'stop') box.append(field('Направление подъезда, которому адресована остановка, °', num(deg(it.controllerTargetHeading ?? it.angle + Math.PI), set((v: number) => (it.controllerTargetHeading = rad(v))), { step: 5 }), 'Курс приближающегося ТС. Направление взгляда регулировщика задаётся отдельно.'));
+      } else if (it.kind === 'reversible') {
+        box.append(field('Реверсивный сигнал', select([['green', 'Зелёная стрелка вниз'], ['yellow', 'Жёлтая диагональная стрелка'], ['red', 'Красный крест']], it.reversibleState ?? 'green', set((v) => (it.reversibleState = v)))));
+      } else if (it.kind === 'tram') {
+        movementFields(box, 'Разрешённые трамвайные направления', it.tramDirections ?? [], (v) => app.edit(() => (it.tramDirections = v)), false);
+      } else {
+        box.append(check('Стрелки на основном сигнале', !!it.mainDirections, (v) => app.edit(() => { it.mainDirections = v ? ['straight'] : undefined; }, true)));
+        if (it.mainDirections) movementFields(box, 'Основной сигнал', it.mainDirections, (v) => app.edit(() => (it.mainDirections = v)));
+        box.append(check('Дополнительная секция', !!it.extraSection, (v) => app.edit(() => { it.extraSection = v ? { directions: ['right'], on: false } : undefined; }, true)));
+        if (it.extraSection) {
+          movementFields(box, 'Стрелки дополнительной секции', it.extraSection.directions, (v) => app.edit(() => (it.extraSection.directions = v)));
+          box.append(check('Дополнительная секция включена', it.extraSection.on, set((v) => (it.extraSection.on = v))),
+            h('small', {}, 'При стрелке вместе с красным или жёлтым необходимо уступить движущимся с других направлений (п. 13.5).'));
+        }
+      }
       break;
     case 'signs': {
       const vs = VALUE_SIGNS[it.kind];
@@ -204,6 +241,20 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       }
       plates.append(button('Добавить табличку', () => openSignPicker({ only: '8', onPick: (id) => app.edit(() => { it.plates = [...list, id]; }, true) })));
       if (list.includes('8.2.1')) plates.append(field('Зона действия, м', num(it.zoneLen ?? VALUE_SIGNS['8.2.1'].def, set((v) => (it.zoneLen = v)), { min: 10, max: 1000, step: 10 })));
+      if (list.includes('8.13') || it.kind === '8.13') {
+        const directions = h('input', { type: 'text', value: (it.mainDirections ?? []).map((a: number) => +deg(a).toFixed(1)).join('; '), placeholder: '0; 270' });
+        directions.addEventListener('change', () => {
+          const values = directions.value.split(';').map((v) => Number(v.trim().replace(',', '.')));
+          if (directions.value.trim() && values.length >= 2 && values.every(Number.isFinite)) {
+            directions.setCustomValidity('');
+            app.edit(() => (it.mainDirections = values.map(rad)));
+          } else {
+            directions.setCustomValidity('Укажите не менее двух направлений въезда в градусах, разделяя точкой с запятой.');
+            directions.reportValidity();
+          }
+        });
+        plates.append(field('Въезды главной дороги, °', directions, 'Курсы движения к перекрёстку: 0° — вправо, 90° — вниз. Например: 0; 270.'));
+      }
       box.append(plates);
       break;
     }
@@ -334,6 +385,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
         ...(VEHICLES[a.type as VehicleType].licenseRequired
           ? [check('Нет права управления', a.flags.noLicense, set((v) => (a.flags.noLicense = v)))] : []),
         check('Скрывается с места ДТП', a.flags.flees, set((v) => (a.flags.flees = v))),
+        check('Водитель не может определить покрытие (п. 13.13)', !!a.coveringUnknown, set((v) => (a.coveringUnknown = v))),
       ),
     );
   }
@@ -394,11 +446,57 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
+      button('Добавить кольцевой перекрёсток', () => app.editor.addRoundabout()),
+      h('small', {}, 'Кольцо и четыре въезда появятся в центре видимой карты. Знаки 4.3 можно также выбрать в каталоге знаков.'),
       check('Показывать сетку', extra.grid, extra.setGrid),
       check('Привязка к сетке и к концам дорог', app.editor.snap, (v) => (app.editor.snap = v)),
       h('p', { class: 'note' }, 'Чтобы перемещать карту, перетаскивайте пустое место, колесо мыши — масштаб. На телефоне: два пальца — масштаб и перемещение.'),
     ),
   );
+  intersectionBoundariesForm(root, app, () => buildEnv(root, app, extra));
+}
+
+function intersectionBoundariesForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {
+  const intersections = buildGeo(app.scene()).intersections;
+  if (!intersections.length) return;
+  const group = h('details', { class: 'form' }, h('summary', {}, 'Границы перекрёстков'));
+  group.append(h('p', { class: 'note' }, 'Автоматический контур — оценка по геометрии дорог. Для границ по п. 1.2 укажите точки начала закруглений с измеренной схемы. Координаты в метрах.'));
+  for (const intersection of intersections) {
+    const points = h('textarea', { rows: 5, 'aria-label': `Контур ${intersection.id}`, value: intersection.boundary.map(p => `${+p.x.toFixed(3)}; ${+p.y.toFixed(3)}`).join('\n') });
+    const note = h('p', { class: 'note' });
+    const panel = h('div', { class: 'group' }, h('h4', {}, `Дороги: ${intersection.roadIds.join(', ')}`), points, note);
+    panel.append(button('Сохранить измеренный контур', () => {
+      const boundary = points.value.trim().split('\n').map(line => {
+        const pair = line.split(';').map(v => Number(v.trim().replace(',', '.')));
+        return { x: pair[0], y: pair[1], valid: pair.length === 2 && pair.every(Number.isFinite) };
+      });
+      let invalid = boundary.length < 3 || boundary.some(p => !p.valid);
+      let twiceArea = 0;
+      for (let i = 0; i < boundary.length; i++) {
+        const next = (i + 1) % boundary.length;
+        twiceArea += boundary[i].x * boundary[next].y - boundary[next].x * boundary[i].y;
+        for (let j = i + 2; j < boundary.length; j++) {
+          if (i === 0 && j === boundary.length - 1) continue;
+          if (segIntersect(boundary[i], boundary[next], boundary[j], boundary[(j + 1) % boundary.length])) invalid = true;
+        }
+      }
+      if (invalid || Math.abs(twiceArea) < 0.01) {
+        note.textContent = 'Нужен непересекающийся контур из трёх и более точек. Каждая строка: X; Y.';
+        return;
+      }
+      app.edit(() => {
+        const bounds = app.scene().intersectionBounds ?? [];
+        app.scene().intersectionBounds = [...bounds.filter(b => b.id !== intersection.id), { id: intersection.id, roadIds: [...intersection.roadIds], boundary: boundary.map(({ x, y }) => ({ x, y })) }];
+      });
+      note.textContent = 'Измеренный контур сохранён.';
+    }));
+    panel.append(button('Вернуть автоматический контур', () => {
+      app.edit(() => { app.scene().intersectionBounds = (app.scene().intersectionBounds ?? []).filter(b => b.id !== intersection.id); });
+      rebuild();
+    }));
+    group.append(panel);
+  }
+  root.append(group);
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +632,14 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
   root.append(technical);
 
   const rules = h('section', { class: 'report-rules' }, h('h3', {}, 'Соответствие ПДД'));
+  for (const graph of rep.rules.priorityGraphs) {
+    const panel = h('details', { class: 'group', ...(graph.agreementRequired ? { open: true } : {}) },
+      h('summary', {}, `Очерёдность проезда: ${graph.participants.map(p => labels.get(p.actorId) ?? p.actorId).join(', ')}`));
+    if (graph.agreementRequired) panel.append(h('p', { class: 'note' }, 'В очерёдности проезда возник цикл. Водители договариваются, см. п. 13.11 и 1.5. Нарушитель по одному этому признаку не назначается.'), refs(['pdd:13.11', 'pdd:1.5'], rep.accidentDate));
+    for (const edge of graph.edges) panel.append(h('p', {}, `${labels.get(edge.from) ?? edge.from} уступает ${labels.get(edge.to) ?? edge.to}: ${edge.explain}`), refs(edge.refs.filter(r => !r.startsWith('rule:')), rep.accidentDate));
+    if (!graph.edges.length) panel.append(h('p', {}, 'Обязанность уступить между этими участниками по заданным данным не установлена.'));
+    rules.append(panel);
+  }
   for (const v of rep.rules.actors) {
     const card = h('div', { class: `person ${v.status}`, onmouseenter: () => app.focus(v.actorId), onmouseleave: () => app.focus(null) },
       h('div', { class: 'ph' }, dot(v.actorId), h('b', {}, title(v.actorId)), h('span', { class: 'tag' }, STATUS_LABEL[v.status])), h('p', {}, v.text));

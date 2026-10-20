@@ -78,6 +78,25 @@ export const PLACE_TOOLS: Tool[] = ['crosswalk', 'light', 'sign', 'obstacle', 'v
 /** Разметка рисуется ломаной (линия, площадка) или ставится значком (стрелы и т. п.). */
 export const markingNeedsPoints = (kind: string): boolean => MARKING_BY_ID[kind]?.form !== 'symbol';
 
+/** Adds a counterclockwise ring and four two-way approaches at the current map location. */
+export function addRoundaboutTemplate(scene: Scene, center: Vec, radius = 24): string {
+  const ringId = newId(scene, 'roads');
+  const pts = Array.from({ length: 65 }, (_, k) => ({
+    x: center.x + radius * Math.cos(-k * Math.PI / 32),
+    y: center.y + radius * Math.sin(-k * Math.PI / 32),
+  }));
+  scene.roads.push({ id: ringId, pts, lanes: 1, center: 'none', oneWay: true, zone: 'city', smooth: false, radius: 0, role: 'roundabout', surfacePriority: 'hard' });
+  for (let k = 0; k < 4; k++) {
+    const a = k * Math.PI / 2;
+    const d = { x: Math.cos(a), y: Math.sin(a) };
+    scene.roads.push({ id: newId(scene, 'roads'), pts: [add(center, mul(d, radius)), add(center, mul(d, radius + 50))], lanes: 1, center: 'dashed', oneWay: false, zone: 'city', smooth: false, radius: 0, role: 'road', surfacePriority: 'hard' });
+    const angle = wrapAngle(a + Math.PI);
+    const p = add(add(center, mul(d, radius + 10)), mul(rightOf(angle), 4.2));
+    scene.signs.push({ id: newId(scene, 'signs'), x: p.x, y: p.y, angle, kind: '4.3' });
+  }
+  return ringId;
+}
+
 type Drag =
   | { kind: 'pan'; start: Vec; cam: Camera; moved: boolean }
   | { kind: 'body'; sel: Selection; last: Vec }
@@ -196,6 +215,17 @@ export class Editor {
   selectedActor(): Actor | null {
     if (this.sel?.col !== 'actors') return null;
     return this.scene.actors.find((a) => a.id === this.sel!.id) ?? null;
+  }
+
+  addRoundabout(): void {
+    this.finishDrawing();
+    this.checkpoint();
+    const id = addRoundaboutTemplate(this.scene, { x: this.cam.x, y: this.cam.y });
+    this.tool = 'select';
+    this.drawing = null;
+    this.select({ col: 'roads', id });
+    this.onTool();
+    this.changed(true);
   }
 
   select(sel: Selection | null, wp: number | null = null): void {

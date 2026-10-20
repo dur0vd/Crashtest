@@ -105,6 +105,10 @@ export interface EdgePt {
 
 export interface Road {
   id: string;
+  /** Выезд с прилегающей территории не образует перекрёсток (п. 1.2). */
+  role?: 'road' | 'adjacent' | 'roundabout';
+  /** Для определения главной по покрытию; неизвестное покрытие не предполагается твёрдым. */
+  surfacePriority?: 'hard' | 'unpaved' | 'unknown';
   pts: Vec[];
   /** радиус скругления поворотов оси, м (0 — без скругления) */
   radius?: number;
@@ -148,6 +152,8 @@ export interface Crosswalk {
   lightId?: string;
 }
 
+export type Movement = 'straight' | 'right' | 'left' | 'uturn';
+
 export interface TrafficLight {
   id: string;
   x: number;
@@ -161,6 +167,17 @@ export interface TrafficLight {
   red: number;
   /** сдвиг цикла, с */
   offset: number;
+  mode?: 'cycle' | 'flashing-yellow' | 'off';
+  kind?: 'vehicle' | 'tram' | 'reversible' | 'controller';
+  mainDirections?: Movement[];
+  extraSection?: { directions: Movement[]; on: boolean };
+  reversibleState?: 'red' | 'yellow' | 'green';
+  tramDirections?: Movement[];
+  controllerGesture?: 'arms-out' | 'right-arm-forward' | 'arm-up' | 'stop';
+  /** Для адресного требования 6.11; angle сохраняет физическое направление груди. */
+  controllerTargetHeading?: number;
+  /** Внутренний/выходной сигнал без стоп-линии: исключение п. 13.7. */
+  stopLine?: boolean;
 }
 
 /** Номер знака по приложению 1 к ПДД: «2.1», «3.24», «5.19.1». */
@@ -179,6 +196,8 @@ export interface Sign {
   plates?: string[];
   /** длина зоны действия по табличке 8.2.1, м */
   zoneLen?: number;
+  /** Табличка 8.13: абсолютные азимуты подходов главной дороги к перекрёстку. */
+  mainDirections?: number[];
 }
 
 /** Элемент горизонтальной разметки по приложению 2 к ПДД. */
@@ -250,6 +269,8 @@ export interface Cargo {
 export const NO_CARGO: Cargo = { mass: 0, front: 0, rear: 0, left: 0, right: 0, height: 0, marked: false, secured: true, blocksView: false, dangerous: false };
 
 export interface Actor {
+  /** Водитель не может определить наличие покрытия: п. 13.13. */
+  coveringUnknown?: boolean;
   /** Возраст в полных годах; для ребёнка без возраста правовой субъект не установлен. */
   age?: number;
   id: string;
@@ -284,6 +305,8 @@ export interface Env {
 }
 
 export interface Scene {
+  /** Обмеренные границы по началам закруглений (п. 1.2), заменяют автоматическую оценку. */
+  intersectionBounds?: { id: string; roadIds: string[]; boundary: Vec[] }[];
   /** Дата правовой оценки (ISO YYYY-MM-DD). */
   analysisDate?: string;
   version: 1;
@@ -421,6 +444,8 @@ export function normalizeScene(raw: unknown): Scene {
     if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
   }
   for (const road of scene.roads) {
+    road.role = ['road', 'adjacent', 'roundabout'].includes(road.role ?? '') ? road.role : 'road';
+    road.surfacePriority = ['hard', 'unpaved', 'unknown'].includes(road.surfacePriority ?? '') ? road.surfacePriority : 'hard';
     road.lanes = road.lanes ?? 1;
     road.center = road.center ?? 'dashed';
     road.oneWay = !!road.oneWay;
@@ -436,9 +461,38 @@ export function normalizeScene(raw: unknown): Scene {
   for (const g of scene.signs) {
     g.kind = LEGACY_SIGN_KIND[g.kind] ?? g.kind;
     if (!Array.isArray(g.plates)) delete g.plates;
+    if (Array.isArray(g.mainDirections)) g.mainDirections = g.mainDirections.filter(Number.isFinite);
+    else delete g.mainDirections;
+  }
+  const movements = (value: unknown): Movement[] | undefined => Array.isArray(value)
+    ? [...new Set(value.filter((x): x is Movement => ['straight', 'right', 'left', 'uturn'].includes(x)))] : undefined;
+  for (const light of scene.lights) {
+    light.mode = ['cycle', 'flashing-yellow', 'off'].includes(light.mode ?? '') ? light.mode : 'cycle';
+    light.kind = ['vehicle', 'tram', 'reversible', 'controller'].includes(light.kind ?? '') ? light.kind : 'vehicle';
+    light.stopLine = light.stopLine !== false;
+    light.mainDirections = movements(light.mainDirections);
+    light.tramDirections = movements(light.tramDirections);
+    if (light.extraSection && typeof light.extraSection === 'object') {
+      light.extraSection = { directions: movements(light.extraSection.directions) ?? [], on: light.extraSection.on === true };
+    } else delete light.extraSection;
+    if (light.kind === 'reversible' && !['red', 'yellow', 'green'].includes(light.reversibleState ?? '')) light.reversibleState = 'red';
+    if (light.kind === 'controller' && !['arms-out', 'right-arm-forward', 'arm-up', 'stop'].includes(light.controllerGesture ?? '')) light.controllerGesture = 'arm-up';
+    if (!Number.isFinite(light.controllerTargetHeading)) delete light.controllerTargetHeading;
+  }
+  const finitePoint = (p: Vec) => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+  if (Array.isArray(r.intersectionBounds)) {
+    scene.intersectionBounds = r.intersectionBounds.filter(b => b && typeof b.id === 'string'
+      && Array.isArray(b.roadIds) && b.roadIds.length >= 2 && b.roadIds.every(id => scene.roads.some(road => road.id === id))
+      && Array.isArray(b.boundary) && b.boundary.length >= 3 && b.boundary.every(finitePoint))
+      .map(b => ({ id: b.id, roadIds: [...new Set(b.roadIds)], boundary: b.boundary.map(p => ({ x: p.x, y: p.y })) }))
+      .filter(b => b.roadIds.length >= 2 && Math.abs(b.boundary.reduce((area, p, i, ps) => {
+        const next = ps[(i + 1) % ps.length];
+        return area + p.x * next.y - next.x * p.y;
+      }, 0)) > 1e-6);
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    a.coveringUnknown = a.coveringUnknown === true;
     a.path = a.path ?? [];
     a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
     a.delay = a.delay ?? 0;

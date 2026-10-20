@@ -263,7 +263,15 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
   }
   for (const g of ctx.gates) {
     const i = ctx.infos.get(g.actorId)!;
-    const phase = g.light ? lightPhase(g.light, tOf(g.frame)) : null;
+    // Record the observed control state rather than the unused ordinary cycle
+    // for a flashing, switched-off or specialised signal. No priority judgment.
+    const light = g.light;
+    const phase = !light ? null : light.mode === 'off' ? 'off'
+      : light.kind === 'controller' ? `controller:${light.controllerGesture ?? 'unknown'}`
+      : light.mode === 'flashing-yellow' ? 'flashing-yellow'
+      : light.kind === 'reversible' ? `reversible:${light.reversibleState ?? 'unknown'}`
+      : light.kind === 'tram' ? `tram:${(light.tramDirections ?? []).join(',') || 'closed'}`
+      : lightPhase(light, tOf(g.frame));
     let yellow: Trace | null = null;
     if (g.light && phase === 'yellow') {
       let ky = g.frame;

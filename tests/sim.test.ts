@@ -54,3 +54,20 @@ describe('simulate', () => {
     expect(tl.tracks.get('a1')!.v[tl.n - 1]).toBeLessThan(1);
   });
 });
+
+
+it.each(['dry', 'ice'] as const)('промежуточная остановка на %s сохраняет hold, даже при перелёте точки', surface => {
+  const scene = emptyScene();
+  scene.env.surface = surface;
+  scene.env.duration = 20;
+  scene.actors = [car('a1', 0, 0, 0, 36, [{ x: 10, y: 0, v: 0, hold: 2 }, { x: 150, y: 0, v: 36 }])];
+  const timeline = simulate(scene);
+  const track = timeline.tracks.get('a1')!;
+  const stopped = [...track.v].findIndex((v, k) => k > 0 && v === 0);
+  expect(stopped).toBeGreaterThan(0);
+  const held = Array.from({ length: Math.floor(2 / timeline.dt) }, (_, n) => stopped + n);
+  expect(held.every(k => track.v[k] === 0 && track.x[k] === track.x[stopped])).toBe(true);
+  expect(track.x[stopped]).toBeGreaterThanOrEqual(10);
+  expect([...track.x].every((x, k) => k === 0 || x >= track.x[k - 1])).toBe(true);
+  expect(track.x[timeline.n - 1]).toBeGreaterThan(track.x[stopped] + 10);
+});

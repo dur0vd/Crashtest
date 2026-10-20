@@ -227,14 +227,19 @@ function stepPath(r: Rt, dt: number): void {
     const nd = nodes[r.next];
     const left = nd.s - r.s;
     if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && r.v < 1.0) {
-      r.s = nd.s;
+      // On a slippery surface an unreachable stop may have been passed. Keep
+      // braking to rest there; never skip the requested hold or move backwards.
+      r.s = Math.max(r.s, nd.s);
       r.v = 0;
       r.hold = nd.hold;
+      const stopped = pathAt(r.path, r.s);
+      r.pos = stopped.p;
+      r.h = stopped.a;
       r.next++;
       if (nd.hold > 0) return;
       continue;
     }
-    if (left <= 0) r.next++;
+    if (left <= 0 && nd.V >= 0.3) r.next++;
     else break;
   }
   const last = nodes[nodes.length - 1];

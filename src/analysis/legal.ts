@@ -146,6 +146,7 @@ export function subjectOf(a: Actor) {
 const RULE_OFFENCES: Record<string, string> = {
   'rule:signal': 'koap:12.12.1',
   'rule:intersection-priority': 'koap:12.13.2',
+  'rule:intersection-blockage': 'koap:12.13.1',
   'rule:maneuver-priority': 'koap:12.14.3',
   'rule:spacing': 'koap:12.15.1',
   'rule:sidewalk': 'koap:12.15.2',

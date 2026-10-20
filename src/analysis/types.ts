@@ -1,4 +1,5 @@
 import type { Collision } from '../sim';
+import type { PriorityGraph } from './intersections';
 import type { LawRef } from '../law';
 
 export type Severity = 'violation' | 'contributing' | 'info';
@@ -128,6 +129,7 @@ export interface TechnicalSection {
   assumptions: string[];
 }
 export interface RulesSection {
+  priorityGraphs: PriorityGraph[];
   actors: Omit<ActorVerdict, 'legal'>[];
   findings: Finding[];
   collisions: CollisionReport[];

@@ -2,6 +2,7 @@ import type { Actor, CenterMarking, Sign, TrafficLight } from '../scene';
 import type { Track } from '../sim';
 import type { DraftFinding } from './types';
 import type { TechnicalContext } from './technical';
+import type { PriorityGraph } from './intersections';
 
 export interface Info {
   a: Actor;
@@ -36,6 +37,7 @@ export interface GateEvent {
 
 export interface Ctx extends TechnicalContext {
   findings: DraftFinding[];
+  priorityGraphs: PriorityGraph[];
   events: { t: number; text: string }[];
   /** кадры, на которых участник частично находился на встречной стороне */
   onc: Map<string, { frames: number[]; center: CenterMarking; lanes: number; tramTrack: boolean }>;

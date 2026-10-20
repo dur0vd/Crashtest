@@ -1,3 +1,4 @@
+import { defaultAccidentDate } from './scene';
 import { type Article, type Corpus, type RefTab, type SignItem, imgUrl, loadCorpus, resolveRef } from './corpus';
 import { h } from './ui';
 
@@ -198,7 +199,7 @@ function render(root: HTMLElement, c: Corpus): void {
 /** Открыть конкретную норму: переключает вкладку, подставляет запрос и раскрывает пункт. */
 export async function focusRef(id: string): Promise<void> {
   const c = await loadCorpus();
-  const r = resolveRef(c, id);
+  const r = resolveRef(c, id, defaultAccidentDate());
   if (!r) return;
   refState.tab = r.where.tab;
   refState.query = '';

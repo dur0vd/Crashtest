@@ -2,7 +2,7 @@ import { type ActorVerdict, type CollisionReport, type Finding, type Report, HAR
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
-import { DISCLAIMER, LAW, LAW_CHECKED, describeRef } from './law';
+import { DISCLAIMER, lawRef, describeRef } from './law';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { SIGN_GROUPS, SIGN_IDS, VALUE_SIGNS, signFile, signGroupOf, signTitle } from './signs';
 import {
@@ -377,6 +377,14 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
   root.append(
     h('div', { class: 'form' },
       h('h3', {}, 'Условия'),
+      field('Дата и время ДТП', h('input', {
+        type: 'datetime-local', value: s.env.accidentDate, required: true,
+        onchange: (e: Event) => {
+          const input = e.target as HTMLInputElement;
+          if (input.value && input.validity.valid) app.edit(() => { s.env.accidentDate = input.value; });
+          else input.value = s.env.accidentDate;
+        },
+      }), 'Местное время места ДТП. По этой дате выбираются редакции норм.'),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
@@ -395,8 +403,8 @@ export function setRefOpener(fn: (id: string) => void): void {
   openRefInReference = fn;
 }
 
-function refChip(id: string, host: HTMLElement): HTMLElement {
-  const r = LAW[id];
+function refChip(id: string, host: HTMLElement, date: string): HTMLElement {
+  const r = lawRef(id, date);
   const d = describeRef(id);
   const label = `${d.cite}${d.code === 'ПДД' || d.code === 'КоАП' || d.code === 'УК' ? ' ' + d.code : ''}`;
   const cls = `chip ${d.code === 'ПДД' ? 'pdd' : d.code === 'КоАП' ? 'koap' : d.code === 'УК' ? 'uk' : 'gk'}`;
@@ -410,7 +418,7 @@ function refChip(id: string, host: HTMLElement): HTMLElement {
     }
     const fallback = () => [
       h('b', {}, `${label}${r ? ' — ' + r.title : ''}`),
-      r ? h('p', {}, r.text) : h('p', {}, 'Текст нормы недоступен.'),
+      h('p', {}, r.text || r.warning || 'Текст нормы недоступен.'),
       r?.sanction ? h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), r.sanction) : null,
     ];
     box = h('div', { class: 'refbox', 'data-ref': id }, ...fallback());
@@ -420,26 +428,31 @@ function refChip(id: string, host: HTMLElement): HTMLElement {
     const el = box;
     loadCorpus()
       .then((c) => {
-        const full = resolveRef(c, id);
+        const full = resolveRef(c, id, date);
         if (!full || !el.isConnected) return;
         el.replaceChildren(
           h('b', {}, `${full.cite}${full.title ? ' — ' + full.title : ''}`),
           ...full.images.slice(0, 4).map((src) => h('img', { src: imgUrl(src), alt: '', class: 'sign-big' })),
           ...full.text.split('\n').map((t) => h('p', {}, t)),
           ...(full.sanction && !full.text.includes(full.sanction.slice(0, 40)) ? [h('p', { class: 'sanction' }, h('b', {}, 'Санкция: '), full.sanction)] : []),
+          h('small', {}, 'Справочник показывает последнюю загруженную редакцию. Дата ДТП применяется в этом разборе.'),
           h('button', { type: 'button', class: 'btn', onclick: () => openRefInReference(id) }, 'Открыть в справочнике'),
         );
       })
       .catch(() => {});
   });
-  return btn;
+  return h('span', {}, btn,
+    r.source ? h('small', {}, ` в редакции от ${r.source.revisionDate}, источник `,
+      h('a', { href: r.source.url, target: '_blank', rel: 'noopener noreferrer', title: r.source.docTitle }, 'КонсультантПлюс')) : null,
+    r.warning ? h('small', { class: 'note' }, ` ${r.warning}`) : null,
+  );
 }
 
-function refs(ids: string[]): HTMLElement {
+function refs(ids: string[], date: string): HTMLElement {
   const wrap = h('div', { class: 'refs' });
   const row = h('div', { class: 'chips' });
   const uniq = [...new Set(ids)];
-  for (const id of uniq) row.append(refChip(id, wrap));
+  for (const id of uniq) row.append(refChip(id, wrap, date));
   wrap.prepend(row);
   return wrap;
 }
@@ -483,6 +496,12 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     ),
   );
 
+  root.append(h('p', { class: 'note' }, `Дата и время ДТП: ${rep.accidentDate.replace('T', ' ')} (местное время).`));
+  if (rep.legalWarnings.length) root.append(
+    h('div', { class: 'summary bad' }, h('h4', {}, 'Предупреждения о редакциях норм'),
+      ...rep.legalWarnings.map((warning) => h('p', {}, warning))),
+  );
+
   // участники
   const people = h('div', { class: 'people' });
   for (const v of rep.verdicts) {
@@ -500,13 +519,13 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
           f.t !== undefined ? h('button', { type: 'button', class: 'time', onclick: (e: Event) => { e.preventDefault(); app.seek(f.t!); } }, `${f.t.toFixed(1)} с`) : null,
         ),
         h('p', {}, f.detail),
-        refs(f.refs),
+        refs(f.refs, rep.accidentDate),
       );
       card.append(det);
     }
     if (v.legal.length) {
       const legal = h('div', { class: 'legal' }, h('h4', {}, 'Возможная ответственность'));
-      for (const l of v.legal) legal.append(h('div', { class: 'li' }, h('p', {}, l.text), refs(l.refs)));
+      for (const l of v.legal) legal.append(h('div', { class: 'li' }, h('p', {}, l.text), refs(l.refs, rep.accidentDate)));
       card.append(legal);
     }
     people.append(card);
@@ -528,14 +547,14 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
 
   if (rep.duties.length) {
     const d = h('div', { class: 'duties' });
-    for (const x of rep.duties) d.append(h('div', { class: 'li' }, h('p', {}, x.text), refs(x.refs)));
+    for (const x of rep.duties) d.append(h('div', { class: 'li' }, h('p', {}, x.text), refs(x.refs, rep.accidentDate)));
     root.append(h('h4', { class: 'sec' }, 'Что обязаны сделать участники ДТП'), d);
   }
 
   root.append(
     h('h4', { class: 'sec' }, 'Допущения расчёта'),
     h('ul', { class: 'assume' }, ...rep.assumptions.map((s) => h('li', {}, s))),
-    h('p', { class: 'disclaimer' }, DISCLAIMER, ` Нормы сверены: ${LAW_CHECKED}.`),
+    h('p', { class: 'disclaimer' }, DISCLAIMER),
   );
 }
 

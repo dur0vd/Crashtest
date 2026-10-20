@@ -1,3 +1,4 @@
+import { lawRef, type LawRef } from './law';
 import {
   type Geo,
   type RoadHit,
@@ -112,6 +113,9 @@ export interface ActorVerdict {
 }
 
 export interface Report {
+  accidentDate: string;
+  laws: LawRef[];
+  legalWarnings: string[];
   hasCollision: boolean;
   summary: string[];
   events: { t: number; text: string }[];
@@ -1538,5 +1542,14 @@ export function analyze(scene: Scene, tl: Timeline): Report {
     'Если на перекрёстке нет знаков приоритета и светофора, он считается равнозначным.',
   ];
 
-  return { hasCollision: collisions.length > 0, summary, events, findings: ctx.findings, collisions, verdicts, duties, assumptions };
+  const ids = new Set([
+    ...ctx.findings.flatMap((f) => f.refs),
+    ...verdicts.flatMap((v) => v.legal.flatMap((l) => l.refs)),
+    ...duties.flatMap((d) => d.refs),
+  ]);
+  const laws = [...ids].map((id) => lawRef(id, scene.env.accidentDate));
+  const legalWarnings = laws.filter((r) => r.warning).map((r) => `${r.cite}: ${r.warning}`);
+  if (legalWarnings.length) summary.push('Правовая квалификация предварительная: есть пробелы или неподтверждённые сроки действия редакций. См. предупреждения о нормах.');
+
+  return { accidentDate: scene.env.accidentDate, laws, legalWarnings, hasCollision: collisions.length > 0, summary, events, findings: ctx.findings, collisions, verdicts, duties, assumptions };
 }

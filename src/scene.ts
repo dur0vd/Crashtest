@@ -271,7 +271,14 @@ export interface Actor {
   derail?: boolean;
 }
 
+/** Локальные дата и время места ДТП, формат datetime-local. */
+export function defaultAccidentDate(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 export interface Env {
+  accidentDate: string;
   surface: SurfaceType;
   duration: number;
 }
@@ -297,7 +304,7 @@ export function emptyScene(): Scene {
   return {
     version: 1,
     name: 'Новая ситуация',
-    env: { surface: 'dry', duration: 20 },
+    env: { accidentDate: defaultAccidentDate(), surface: 'dry', duration: 20 },
     roads: [],
     sidewalks: [],
     tracks: [],

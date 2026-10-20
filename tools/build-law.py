@@ -4,6 +4,7 @@
 Использование: python3 tools/build-law.py <каталог-кэша>
 Результат: src/data/pdd.json, signs.json, markings.json, koap.json, uk.json
 """
+import argparse
 import json
 import re
 import sys
@@ -14,18 +15,68 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / 'src' / 'data'
-cache = Path(sys.argv[1])
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('cache', type=Path)
+parser.add_argument('--out', type=Path, default=ROOT / 'src' / 'data')
+args = parser.parse_args()
+OUT = args.out
+cache = args.cache
 
 NUM = r'\d+(?:\.\d+)*'
 
 
 def load(doc: str):
-    idx = json.loads((cache / doc / 'index.json').read_text(encoding='utf-8'))
-    for e in idx:
-        f = cache / doc / f"{e['hash']}.html"
-        if f.exists():
-            yield e, BeautifulSoup(f.read_text(encoding='utf-8'), 'lxml')
+    base = cache / doc
+    directories = ([base] if (base / 'index.json').exists() else []) + sorted(
+        d for d in base.iterdir() if d.is_dir() and (d / 'index.json').exists()
+    )
+    directories.sort(key=lambda d: json.loads((d / 'snapshot.json').read_text()).get('revisionDate') or '' if (d / 'snapshot.json').exists() else '')
+    for directory in directories:
+        metadata_file = directory / 'snapshot.json'
+        metadata = json.loads(metadata_file.read_text()) if metadata_file.exists() else {
+            'legalCheck': 'TODO(legal-check): кэш без даты и URL редакции; повторите fetch-law.py'
+        }
+        idx = json.loads((directory / 'index.json').read_text(encoding='utf-8'))
+        for e in idx:
+            f = directory / f"{e['hash']}.html"
+            if not f.exists():
+                raise ValueError(f'Неполный кэш: {f}')
+            yield {**e, 'snapshot': metadata}, BeautifulSoup(f.read_text(encoding='utf-8'), 'lxml')
+
+
+def version(e, text):
+    meta = e['snapshot']
+    if not meta.get('revisionDate') or not meta.get('validFrom'):
+        return {'text': text, 'revisions': [], 'legalCheck': meta.get('legalCheck', 'TODO(legal-check): нет срока действия')}
+    for key in ('revisionDate', 'validFrom', 'validTo'):
+        if meta.get(key):
+            date.fromisoformat(meta[key])
+    if meta.get('validTo') and meta['validTo'] <= meta['validFrom']:
+        raise ValueError('Пустой или обратный интервал редакции')
+    revision = {
+        'validFrom': meta['validFrom'], 'text': text,
+        'source': {'url': e.get('url') or meta['url'], 'docTitle': meta['docTitle'], 'revisionDate': meta['revisionDate']},
+    }
+    if meta.get('validTo'):
+        revision['validTo'] = meta['validTo']
+    if meta.get('legalCheck'):
+        revision['legalCheck'] = meta['legalCheck']
+    if meta.get('effectiveSource'):
+        revision['effectiveSource'] = meta['effectiveSource']
+    sanction = sanction_of(text)
+    if sanction:
+        revision['sanction'] = sanction
+    return {'text': text, 'revisions': [revision]}
+
+
+def sanction_of(text):
+    body = re.split(r'\n\d+(?:\s*[-–]\s*\d+)?\.\s*Утратил', text)[0]
+    match = re.search(r'(?:^|\n|\s)(?:-|—)?\s*\n?((?:влеч[её]т|наказывается|наказываются)[\s\S]*)$', body)
+    return match[1].replace('\n', ' ').strip() if match else None
+
+
+def version_points(e, points):
+    return [{**point, **version(e, point['text'])} for point in points]
 
 
 def paras(soup) -> list[str]:
@@ -76,7 +127,7 @@ for e, soup in load('pdd'):
     m = re.match(r'^(\d+)\.\s+(.*)$', t)
     ps = paras(soup)
     if m and not any(w in t for w in ('Тормозные', 'Рулевое', 'Устройства освещения', 'Обзорность', 'Колеса', 'Сцепные', 'Удерживающие', 'Двигатель', 'Прочие элементы', 'Комплектность', 'знаки', 'Знаки', 'разметка')):
-        pdd['sections'].append({'id': m.group(1), 'title': m.group(2), 'points': parse_points(ps)})
+        pdd['sections'].append({'id': m.group(1), 'title': m.group(2), 'points': version_points(e, parse_points(ps))})
     elif t.startswith('Основные положения'):
         pts = []
         for p in ps:
@@ -85,10 +136,13 @@ for e, soup in load('pdd'):
                 pts.append({'id': mm.group(1), 'lines': [mm.group(2)]})
             elif pts:
                 pts[-1]['lines'].append(p)
-        pdd['basics'] = {'title': 'Основные положения по допуску транспортных средств к эксплуатации и обязанности должностных лиц по обеспечению безопасности дорожного движения', 'points': [{'id': q['id'], 'text': tidy('\n'.join(q['lines']))} for q in pts]}
+        previous_basics = pdd['basics']
+        pdd['basics'] = {'title': 'Основные положения по допуску транспортных средств к эксплуатации и обязанности должностных лиц по обеспечению безопасности дорожного движения', 'points': version_points(e, [{'id': q['id'], 'text': tidy('\n'.join(q['lines']))} for q in pts])}
+        if previous_basics:
+            pdd['basics']['points'] = previous_basics['points'] + pdd['basics']['points']
     elif any(w in t for w in ('Тормозные', 'Рулевое', 'Устройства освещения', 'Обзорность', 'Колеса', 'Сцепные', 'Удерживающие', 'Двигатель', 'Прочие элементы', 'Комплектность')):
         mm = re.match(r'^(\d+)\.\s+(.*)$', t)
-        pdd['faults'].append({'id': mm.group(1), 'title': mm.group(2), 'items': [{'id': q['id'], 'text': q['text']} for q in parse_points(ps)] or [{'id': mm.group(1), 'text': tidy('\n'.join(ps))}]})
+        pdd['faults'].append({'id': mm.group(1), 'title': mm.group(2), 'items': version_points(e, parse_points(ps) or [{'id': mm.group(1), 'text': tidy('\n'.join(ps))}])})
     elif t.startswith('Приложение N 3'):
         pdd['notes'].append({'title': t, 'text': '\n'.join(ps)})
 
@@ -162,6 +216,7 @@ for e, soup in load('pdd'):
     mm = re.match(r'^(\d+)\.\s+(.*)$', t)
     if mm and any(w in t for w in ('знаки', 'Знаки')) and 'таблички' in t.lower() or (mm and t.split('. ', 1)[1] in ('Предупреждающие знаки', 'Знаки приоритета', 'Запрещающие знаки', 'Предписывающие знаки', 'Знаки особых предписаний', 'Информационные знаки', 'Знаки сервиса')):
         items, notes = items_from(ps, 'sign')
+        items = version_points(e, items)
         for it in items:
             f = images.get(f"sign:{it['id']}")
             if f:
@@ -177,6 +232,7 @@ for e, soup in load('pdd'):
     elif t.endswith('Горизонтальная разметка') or t.endswith('Вертикальная разметка'):
         kind = 'horizontal' if 'Горизонтальная' in t else 'vertical'
         items, notes = items_from(ps, 'marking')
+        items = version_points(e, items)
         for it in items:
             f = images.get(f"marking-{'h' if kind == 'horizontal' else 'v'}:{it['id']}")
             if f:
@@ -189,7 +245,7 @@ for e, soup in load('pdd'):
                 sib = next((o for o in items if o is not it and o['text'] == it['text'] and 'img' in o), None)
                 if sib:
                     it['img'] = sib['img']
-        markings[kind] = {'title': t, 'items': items, 'notes': notes}
+        markings[kind] = {'title': t, 'items': (markings[kind]['items'] if markings[kind] else []) + items, 'notes': notes}
 signs['groups'].sort(key=lambda g: int(g['id']))
 
 # ---------------------------------------------------------------- КоАП и УК
@@ -212,8 +268,15 @@ def parse_articles(doc: str, label: str) -> list[dict]:
             if mode == 'notes':
                 notes.append(tidy(p))
                 continue
+            # «2 - 3. Утратили силу» — отдельные части, а не продолжение
+            # диспозиции/санкции предыдущей действующей части.
+            repealed_range = re.match(r'^(\d+)\s*[-–]\s*(\d+)\.\s*(Утратили силу.*)$', p)
+            if repealed_range:
+                parts.extend({'n': str(n), 'lines': [repealed_range[3]]}
+                    for n in range(int(repealed_range[1]), int(repealed_range[2]) + 1))
+                continue
             pm = PART.match(p)
-            if pm and (not parts or True) and not re.match(r'^\d+\)', p):
+            if pm:
                 parts.append({'n': pm.group(1), 'lines': [pm.group(2)]})
             elif parts:
                 parts[-1]['lines'].append(p)
@@ -230,7 +293,7 @@ def parse_articles(doc: str, label: str) -> list[dict]:
             'title': tidy(title),
             'repealed': repealed,
             'intro': intro,
-            'parts': [{'n': q['n'], 'text': tidy('\n'.join(q['lines']))} for q in parts],
+            'parts': [{'n': q['n'], **version(e, tidy('\n'.join(q['lines'])))} for q in parts],
             'notes': notes,
         })
     arts.sort(key=lambda a: [int(x) for x in a['id'].split('.')])
@@ -247,6 +310,45 @@ if missing_uk:
              + '; запустите tools/fetch-law.py для обновления кэша')
 
 
+# Объединяем снимки по идентификаторам. Одинаковый validFrom с разным
+# содержимым — ошибка; молчаливое затирание доказательств недопустимо.
+def merge_nodes(nodes, key, children=None):
+    result = {}
+    for node in nodes:
+        ident = node[key]
+        if ident not in result:
+            result[ident] = node
+            continue
+        old = result[ident]
+        if children:
+            node[children] = merge_nodes(old[children] + node[children], 'n' if children == 'parts' else 'id')
+        elif 'revisions' in node:
+            by_start = {r['validFrom']: r for r in old['revisions']}
+            for revision in node['revisions']:
+                start = revision['validFrom']
+                if start in by_start and by_start[start] != revision:
+                    raise ValueError(f'Конфликт редакций {ident}: {start}')
+                by_start[start] = revision
+            node['revisions'] = sorted(by_start.values(), key=lambda r: r['validFrom'])
+            for left, right in zip(node['revisions'], node['revisions'][1:]):
+                if not left.get('validTo') or left['validTo'] > right['validFrom']:
+                    raise ValueError(f'Пересечение редакций {ident}; задайте validTo исторического снимка в манифесте')
+            if node['revisions']:
+                node['text'] = node['revisions'][-1]['text']
+        result[ident] = node
+    return list(result.values())
+
+if pdd['basics']:
+    pdd['basics']['points'] = merge_nodes(pdd['basics']['points'], 'id')
+for kind in ('horizontal', 'vertical'):
+    if markings[kind]:
+        markings[kind]['items'] = merge_nodes(markings[kind]['items'], 'id')
+pdd['sections'] = merge_nodes(pdd['sections'], 'id', 'points')
+pdd['faults'] = merge_nodes(pdd['faults'], 'id', 'items')
+signs['groups'] = merge_nodes(signs['groups'], 'id', 'signs')
+for data in (koap, uk):
+    data['articles'] = merge_nodes(data['articles'], 'id', 'parts')
+
 # лёгкие индексы для редактора: номер -> [название, картинка]; корпус целиком грузится только в справочнике
 sign_index = {s['id']: [s['title'] or s['text'][:60], s.get('img', '')] for g in signs['groups'] for s in g['signs']}
 marking_index = {s['id']: [s['title'] or re.sub(r'^[\d.]+\s*(<\*>)?\s*(\([^)]*\))?\s*-\s*', '', s['text'].split('\n')[0])[:90], s.get('img', '')] for k in ('horizontal', 'vertical') if markings[k] for s in markings[k]['items']}
@@ -261,6 +363,8 @@ meta = {
     },
 }
 OUT.mkdir(parents=True, exist_ok=True)
+provenance = [json.loads(path.read_text()) for path in sorted(cache.glob('**/snapshot.json'))]
+(OUT / 'law-sources.json').write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding='utf-8')
 for name, data in (('sign-index', sign_index), ('marking-index', marking_index), ('pdd', {**meta, **pdd}), ('signs', {**meta, **signs}), ('markings', {**meta, **markings}), ('koap', {**meta, **koap}), ('uk', {**meta, **uk})):
     (OUT / f'{name}.json').write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
 
@@ -271,4 +375,5 @@ print('разметка:', {k: len(v['items']) if v else 0 for k, v in markings.
 print('КоАП статей', len(koap['articles']), 'частей', sum(len(a['parts']) for a in koap['articles']), '| УК статей', len(uk['articles']), 'частей', sum(len(a['parts']) for a in uk['articles']))
 
 # Keep the synchronous qualification index in sync without loading the full corpus at startup.
-subprocess.run([sys.executable, str(ROOT / "tools" / "build-sanctions.py")], check=True)
+if OUT.resolve() == (ROOT / "src" / "data").resolve():
+    subprocess.run([sys.executable, str(ROOT / "tools" / "build-sanctions.py")], check=True)

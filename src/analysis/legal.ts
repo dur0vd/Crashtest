@@ -1,4 +1,5 @@
-import sanctions from '../data/sanctions.json';
+import { corpus } from '../corpus';
+import { lawRef } from '../law';
 import { type Scene, type Actor, type VehicleType, VEHICLES } from '../scene';
 import { HARM_LABEL, harmRank, type HarmLevel, type CollisionReport, type ActorVerdict, type LegalInput, type LegalSection, type Finding, type RulesSection } from './types';
 
@@ -178,12 +179,12 @@ function legalRefs(f: Finding, a: Actor): string[] {
 }
 
 /** The bundled legal edition is explicit; unsupported dates get no invented sanctions. */
-export const LEGAL_EDITION_DATE = sanctions['koap:12.9#2'].editionDate;
+export const LEGAL_EDITION_DATE = corpus.koap.fetched;
 export const DEFAULT_ASSESSMENT_DATE = LEGAL_EDITION_DATE;
 
 export function analyzeLegal(scene: Scene, rules: RulesSection): { section: LegalSection; findings: Finding[] } {
   const findings = rules.findings.map(f => ({ ...f, refs: legalRefs(f, scene.actors.find(a => a.id === f.actorId)!) }));
-  const assessmentDate = scene.analysisDate ?? DEFAULT_ASSESSMENT_DATE;
+  const assessmentDate = scene.analysisDate ?? scene.env.accidentDate;
   const verdicts = buildVerdicts(scene, rules, findings);
   for (const verdict of verdicts) {
     const a = scene.actors.find(a => a.id === verdict.actorId)!;
@@ -206,22 +207,12 @@ export function analyzeLegal(scene: Scene, rules: RulesSection): { section: Lega
   return { section: { assessmentDate, editionDate: LEGAL_EDITION_DATE, verdicts, duties }, findings };
 }
 
+/** Each sanction comes from the part selected for the assessment date, never a current snapshot fallback. */
 function sanctionsFor(refs: string[], date: string) {
   return refs.filter(ref => ref.startsWith('koap:') || ref.startsWith('uk:')).map(ref => {
-    const entry = sanctionEntry(ref);
-    const editionDate = entry?.editionDate ?? LEGAL_EDITION_DATE;
-    const supported = date === editionDate;
-    const text = supported ? entry?.text ?? null : null;
-    return { ref, text, editionDate, available: supported && text !== null };
+    const selected = lawRef(ref, date);
+    const text = selected.sanction ?? null;
+    return { ref, text, editionDate: selected.source?.revisionDate ?? '', available: text !== null,
+      warning: selected.warning, revision: selected.revision, source: selected.source };
   });
-}
-
-function sanctionEntry(ref: string): { editionDate: string; text: string | null } | undefined {
-  const [kind, rest] = ref.split(':');
-  const tokens = rest.split('.');
-  const [article, part] = rest.includes('#') ? rest.split('#') : kind === 'koap'
-    ? [tokens.slice(0, 2).join('.'), tokens.slice(2).join('.')]
-    : [tokens[0], tokens.slice(1).join('.')];
-  const index: Record<string, { editionDate: string; text: string | null }> = sanctions;
-  return index[`${kind}:${article}#${part}`];
 }

@@ -1,3 +1,4 @@
+import { lawRef } from './law';
 import { type Scene, actorLabels } from './scene';
 import type { Timeline } from './sim';
 import type { Report } from './analysis/types';
@@ -33,5 +34,11 @@ export function analyze(scene: Scene, tl: Timeline): Report {
 
 
   const assumptions = [...technical.assumptions, 'Если на перекрёстке нет знаков приоритета и светофора, он считается равнозначным.'];
-  return { technical, rules, legal, hasCollision: collisions.length > 0, summary, events, findings, collisions, verdicts, duties, assumptions };
+  const accidentDate = scene.env.accidentDate;
+  const ids = new Set([...findings.flatMap(f => f.refs), ...verdicts.flatMap(v => v.legal.flatMap(l => l.refs)), ...duties.flatMap(d => d.refs)]);
+  const laws = [...ids].map(id => lawRef(id, /^(koap|uk):/.test(id) ? legal.assessmentDate : accidentDate));
+  const legalWarnings = laws.filter(r => r.warning).map(r => `${r.cite}: ${r.warning}`);
+  if (legal.assessmentDate !== accidentDate) legalWarnings.push(`Дата правовой оценки ${legal.assessmentDate} задана отдельно от даты ДТП ${accidentDate}.`);
+  if (legalWarnings.length) summary.push('Правовая квалификация предварительная: есть пробелы или неподтверждённые сроки действия редакций. См. предупреждения о нормах.');
+  return { accidentDate, laws, legalWarnings, technical, rules, legal, hasCollision: collisions.length > 0, summary, events, findings, collisions, verdicts, duties, assumptions };
 }

@@ -1,4 +1,5 @@
 import type { Collision } from '../sim';
+import type { LawRef } from '../law';
 
 export type Severity = 'violation' | 'contributing' | 'info';
 
@@ -87,6 +88,9 @@ export const STATUS_LABEL: Record<ActorVerdict['status'], string> = {
 };
 
 export interface Report {
+  accidentDate: string;
+  laws: LawRef[];
+  legalWarnings: string[];
   technical: TechnicalSection;
   rules: RulesSection;
   legal: LegalSection;

@@ -80,6 +80,21 @@ describe('границы этапов экспертного анализа', ()
     expect(historical.legal.assessmentDate).toBe('2020-01-01');
   });
 
+  it('без старого переопределения дата ДТП определяет доступность правовых санкций', () => {
+    const scene = preset('red-light');
+    delete scene.analysisDate;
+    const tl = simulate(scene);
+    scene.env.accidentDate = LEGAL_EDITION_DATE;
+    const current = analyze(scene, tl);
+    expect(current.legal.assessmentDate).toBe(scene.env.accidentDate);
+    expect(current.legal.verdicts.flatMap(v => v.legal.flatMap(l => l.sanctions ?? [])).some(s => s.available)).toBe(true);
+    scene.env.accidentDate = '1900-01-01';
+    const historical = analyze(scene, tl);
+    expect(historical.legal.assessmentDate).toBe('1900-01-01');
+    expect(historical.technical).toEqual(current.technical);
+    expect(historical.legal.verdicts.flatMap(v => v.legal.flatMap(l => l.sanctions ?? [])).every(s => !s.available && s.text === null)).toBe(true);
+  });
+
   it('выполнение оценивается только для наблюдавшегося требования', () => {
     const scene = preset('red-light');
     const report = analyze(scene, simulate(scene));
@@ -113,8 +128,8 @@ it('санкции в отчёте соответствуют тексту до�
   const corpus = await loadCorpus();
   for (const item of report.legal.verdicts.flatMap(v => v.legal)) {
     for (const sanction of item.sanctions ?? []) {
-      expect(sanction.editionDate).toBe(corpus.koap.fetched);
-      const source = resolveRef(corpus, sanction.ref);
+      const source = resolveRef(corpus, sanction.ref, report.legal.assessmentDate);
+      expect(sanction.editionDate).toBe(source?.revision?.source.revisionDate ?? '');
       expect(sanction.text).toBe(source?.sanction ?? null);
     }
   }

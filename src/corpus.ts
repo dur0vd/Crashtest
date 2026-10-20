@@ -1,10 +1,19 @@
-// Полные тексты норм (ПДД, знаки и разметка, КоАП гл. 12, УК гл. 27). Данные тяжёлые, поэтому
-// подгружаются отдельным фрагментом при первом обращении к справочнику или к тексту нормы.
+import { type LawRevision, revisionAt } from './law-version';
+import pdd from './data/pdd.json';
+import signs from './data/signs.json';
+import markings from './data/markings.json';
+import koap from './data/koap.json';
+import uk from './data/uk.json';
+export { sanctionOf } from './law-version';
+
+// Полные тексты и история редакций норм. Корпус доступен синхронно для отчётов.
 // Источник и порядок обновления — tools/fetch-law.py и tools/build-law.py.
 
 export interface PddPoint {
   id: string;
   text: string;
+  revisions: LawRevision[];
+  legalCheck?: string;
 }
 export interface PddSection {
   id: string;
@@ -24,6 +33,8 @@ export interface SignItem {
   id: string;
   title: string;
   text: string;
+  revisions?: LawRevision[];
+  legalCheck?: string;
   group: number;
   img?: string;
   imgs?: string[];
@@ -48,7 +59,7 @@ export interface Article {
   title: string;
   repealed: boolean;
   intro: string[];
-  parts: { n: string; text: string }[];
+  parts: { n: string; text: string; revisions: LawRevision[]; legalCheck?: string }[];
   notes: string[];
 }
 export interface CodeData {
@@ -66,30 +77,9 @@ export interface Corpus {
   uk: CodeData;
 }
 
-let pending: Promise<Corpus> | null = null;
-
-export function loadCorpus(): Promise<Corpus> {
-  pending ??= Promise.all([
-    import('./data/pdd.json'),
-    import('./data/signs.json'),
-    import('./data/markings.json'),
-    import('./data/koap.json'),
-    import('./data/uk.json'),
-  ]).then(([pdd, signs, markings, koap, uk]) => ({
-    pdd: pdd.default as unknown as PddData,
-    signs: signs.default as unknown as SignsData,
-    markings: markings.default as unknown as MarkingsData,
-    koap: koap.default as unknown as CodeData,
-    uk: uk.default as unknown as CodeData,
-  }));
-  return pending;
-}
-
-/** Выдержка с санкцией: часть статьи после «- влечёт…» / «наказывается…». */
-export function sanctionOf(text: string): string | null {
-  const m = text.match(/(?:^|\n|\s)(?:-|—)?\s*\n?((?:влечет|наказывается)[\s\S]*)$/);
-  return m ? m[1].replace(/\n/g, ' ').trim() : null;
-}
+// Синхронный корпус нужен и при сериализации отчёта (включая будущий PDF).
+export const corpus: Corpus = { pdd, signs, markings, koap, uk } as unknown as Corpus;
+export function loadCorpus(): Promise<Corpus> { return Promise.resolve(corpus); }
 
 export interface Resolved {
   /** «п. 9.10 ПДД РФ», «ч. 2 ст. 12.9 КоАП РФ», «знак 2.5» */
@@ -97,6 +87,8 @@ export interface Resolved {
   title: string;
   text: string;
   sanction: string | null;
+  revision?: LawRevision;
+  warning?: string;
   images: string[];
   /** вкладка и запрос для «Открыть в справочнике» */
   where: { tab: RefTab; query: string };
@@ -115,15 +107,40 @@ function splitArticleRef(rest: string): { article: string; part: string } {
   return { article: tokens[0], part: tokens.slice(1).join('.') };
 }
 
-export function resolveRef(c: Corpus, id: string): Resolved | null {
+/** Полная история нормы; принадлежность источнику не зависит от выбранной даты. */
+export function revisionsFor(id: string, c: Corpus = corpus): LawRevision[] {
+  const kind = id.slice(0, id.indexOf(':'));
+  const rest = id.slice(id.indexOf(':') + 1);
+  if (kind === 'pdd') {
+    const points = rest.startsWith('op:') ? c.pdd.basics?.points ?? [] : c.pdd.sections.flatMap((s) => s.points);
+    return points.find((p) => p.id === rest.replace(/^op:/, ''))?.revisions ?? [];
+  }
+  if (kind === 'sign') return c.signs.groups.flatMap((g) => g.signs).find((s) => s.id === rest)?.revisions ?? [];
+  if (kind === 'marking') return [...(c.markings.horizontal?.items ?? []), ...(c.markings.vertical?.items ?? [])].find((s) => s.id === rest)?.revisions ?? [];
+  if (kind === 'koap' || kind === 'uk') {
+    const { article, part } = splitArticleRef(rest);
+    const a = c[kind].articles.find((a) => a.id === article);
+    return (a?.parts.find((p) => p.n === part) ?? (part === '' && a?.parts.length === 1 ? a.parts[0] : undefined))?.revisions ?? [];
+  }
+  return [];
+}
+
+export function resolveRef(c: Corpus, id: string, date: string): Resolved | null {
+  const version = (node: { revisions?: LawRevision[]; legalCheck?: string }) => {
+    const revision = revisionAt(node.revisions ?? [], date);
+    return {
+      text: revision?.text ?? '', sanction: revision?.sanction ?? null, revision,
+      warning: revision?.legalCheck ?? (!revision ? `TODO(legal-check): нет редакции ${id} на дату ${date}. ${node.legalCheck ?? ''}` : undefined),
+    };
+  };
   const [kind, rest] = [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)];
   if (kind === 'pdd') {
     for (const s of c.pdd.sections) {
       const p = s.points.find((x) => x.id === rest);
-      if (p) return { cite: `п. ${p.id} ПДД РФ`, title: s.title, text: p.text, sanction: null, images: [], where: { tab: 'pdd', query: p.id } };
+      if (p) return { cite: `п. ${p.id} ПДД РФ`, title: s.title, ...version(p), images: [], where: { tab: 'pdd', query: p.id } };
     }
     const op = c.pdd.basics?.points.find((x) => x.id === rest.replace(/^op:/, ''));
-    if (rest.startsWith('op:') && op) return { cite: `п. ${op.id} Основных положений`, title: c.pdd.basics!.title, text: op.text, sanction: null, images: [], where: { tab: 'pdd', query: op.id } };
+    if (rest.startsWith('op:') && op) return { cite: `п. ${op.id} Основных положений`, title: c.pdd.basics!.title, ...version(op), images: [], where: { tab: 'pdd', query: op.id } };
     return null;
   }
   if (kind === 'sign' || kind === 'marking') {
@@ -136,8 +153,7 @@ export function resolveRef(c: Corpus, id: string): Resolved | null {
     return {
       cite: `${kind === 'sign' ? 'знак' : 'разметка'} ${it.id}`,
       title: it.title,
-      text: it.text,
-      sanction: null,
+      ...version(it),
       images: it.imgs ?? (it.img ? [it.img] : []),
       where: { tab: kind === 'sign' ? 'signs' : 'markings', query: it.id },
     };
@@ -150,7 +166,7 @@ export function resolveRef(c: Corpus, id: string): Resolved | null {
     const p = a.parts.find((x) => x.n === part) ?? (part === '' && a.parts.length === 1 ? a.parts[0] : undefined);
     if (!p) return null;
     const label = p.n ? `ч. ${p.n} ст. ${a.id}` : `ст. ${a.id}`;
-    return { cite: `${label} ${data.code}`, title: a.title, text: p.text, sanction: sanctionOf(p.text), images: [], where: { tab: kind, query: a.id } };
+    return { cite: `${label} ${data.code}`, title: a.title, ...version(p), images: [], where: { tab: kind, query: a.id } };
   }
   return null;
 }

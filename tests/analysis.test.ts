@@ -184,9 +184,9 @@ describe('регрессии правовой оценки', () => {
 
   it('точный пересказ 13.9 и 13.11 сохраняет ограничения преимущества трамвая', async () => {
     const { lawRef } = await import('../src/law');
-    expect(lawRef('pdd:13.9').text).toContain('в попутном или встречном направлении по равнозначной дороге');
-    expect(lawRef('pdd:13.11').text).toContain('13.11(1)');
-    expect(lawRef('pdd:13.11').text).toContain('между собой водители трамваев');
+    expect(lawRef('pdd:13.9', '2026-10-20').text).toContain('в попутном или встречном направлении по равнозначной дороге');
+    expect(lawRef('pdd:13.11', '2026-10-20').text).toContain('13.11(1)');
+    expect(lawRef('pdd:13.11', '2026-10-20').text).toContain('между собой водители трамваев');
   });
 
   it('на зелёный знаки приоритета и помеха справа не определяют виновника', () => {
@@ -221,10 +221,18 @@ describe('регрессии правовой оценки', () => {
   });
 });
 
-it('ориентиры 118 и 109 раскрываются полным текстом из корпуса', async () => {
+it('ориентиры 118 и 109 сохранены без выдуманной редакции и санкции', async () => {
   const { loadCorpus, resolveRef } = await import('../src/corpus');
   const corpus = await loadCorpus();
-  for (const ref of ['uk:118.1', 'uk:109.1', 'uk:109.3']) expect(resolveRef(corpus, ref), ref).toBeTruthy();
+  for (const ref of ['uk:118.1', 'uk:109.1', 'uk:109.3']) {
+    const selected = resolveRef(corpus, ref, '2026-10-20');
+    expect(selected, ref).toBeTruthy();
+    expect(selected!.warning).toContain('TODO(legal-check)');
+    expect(selected!.sanction).toBeNull();
+    expect(selected!.revision).toBeUndefined();
+    const article = ref.slice(3).split('.')[0];
+    expect(corpus.uk.articles.find(a => a.id === article)!.parts[0].text).toBeTruthy();
+  }
 });
 
 it('поворот налево на зелёный уступает встречному даже при знаке главной дороги', () => {

@@ -6,7 +6,7 @@ import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
-import { DISCLAIMER, LAW_CHECKED } from './law';
+import { DISCLAIMER } from './law';
 import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
@@ -521,7 +521,7 @@ function help(): void {
       h('h3', {}, 'Что учитывается в разборе'),
       h('p', {}, 'Скорость и её ограничения, разметка и выезд на встречную полосу, светофоры, знаки приоритета и запрещающие знаки, очерёдность проезда перекрёстков (включая трамвай и помеху справа), пешеходные переходы, дистанция, трамвайные пути, тротуары, сцепление покрытия, техническая возможность остановиться, примерная тяжесть вреда здоровью и квалификация по КоАП РФ и УК РФ.'),
       h('p', { class: 'disclaimer' }, DISCLAIMER),
-      h('p', { class: 'disclaimer' }, `Нормы права и размеры санкций сверены: ${LAW_CHECKED}.`),
+      h('p', { class: 'disclaimer' }, 'Редакции норм и ссылки на источники указаны в разборе для даты ДТП. TODO(legal-check) означает, что требуется юридическая сверка.'),
     ),
   );
 }

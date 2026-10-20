@@ -18,16 +18,16 @@ describe('разбор готовых ситуаций', () => {
   it('пешеходный переход: виноват водитель', () => {
     const { rep, ids } = run('crosswalk');
     expect(rep.collisions[0].collision.kind).toBe('vp');
-    expect(verdict(rep, ids[0]).status).toBe('guilty');
+    expect(verdict(rep, ids[0]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:14.1', 'koap:12.18']));
-    expect(verdict(rep, ids[1]).status).toBe('clean');
+    expect(verdict(rep, ids[1]).status).toBe('no-violations');
     expect(rep.collisions[0].tech[0].avoidable).toBe(true);
   });
 
   it('пешеход выбежал вне перехода: нарушил пешеход, у водителя нет технической возможности', () => {
     const { rep, ids } = run('ped-run');
-    expect(verdict(rep, ids[0]).status).toBe('clean');
-    expect(verdict(rep, ids[1]).status).toBe('guilty');
+    expect(verdict(rep, ids[0]).status).toBe('no-violations');
+    expect(verdict(rep, ids[1]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[1])).toContain('pdd:4.3');
     expect(rep.collisions[0].tech[0].avoidable).toBe(false);
   });
@@ -35,28 +35,28 @@ describe('разбор готовых ситуаций', () => {
   it('пешеход на красный: нарушил п. 4.4', () => {
     const { rep, ids } = run('ped-red');
     expect(refsOf(rep, ids[1])).toContain('pdd:4.4');
-    expect(verdict(rep, ids[0]).status).toBe('clean');
+    expect(verdict(rep, ids[0]).status).toBe('no-violations');
   });
 
   it('проезд на красный: виноват проехавший на красный', () => {
     const { rep, ids } = run('red-light');
     expect(rep.collisions.length).toBe(1);
-    expect(verdict(rep, ids[0]).status).toBe('guilty');
+    expect(verdict(rep, ids[0]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:6.2', 'koap:12.12.1']));
-    expect(verdict(rep, ids[1]).status).toBe('clean');
+    expect(verdict(rep, ids[1]).status).toBe('no-violations');
   });
 
   it('помеха справа: уступает тот, у кого другой справа', () => {
     const { rep, ids } = run('right-hand');
-    expect(verdict(rep, ids[1]).status).toBe('guilty');
+    expect(verdict(rep, ids[1]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[1])).toEqual(expect.arrayContaining(['pdd:13.11', 'koap:12.13.2']));
-    expect(verdict(rep, ids[0]).status).toBe('clean');
+    expect(verdict(rep, ids[0]).status).toBe('no-violations');
   });
 
   it('знаки приоритета: уступает знак 2.4', () => {
     const { rep, ids } = run('giveway');
     expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['sign:2.4', 'pdd:13.9']));
-    expect(verdict(rep, ids[1]).status).toBe('clean');
+    expect(verdict(rep, ids[1]).status).toBe('no-violations');
   });
 
   it('встречное: выезд через сплошную, УК РФ при опьянении', () => {
@@ -64,35 +64,35 @@ describe('разбор готовых ситуаций', () => {
     expect(refsOf(rep, ids[0])).toEqual(expect.arrayContaining(['pdd:9.1(1)', 'koap:12.15.4']));
     expect(legalRefs(rep, ids[0])).toContain('uk:264.2');
     expect(legalRefs(rep, ids[0])).not.toContain('koap:12.8.1');
-    expect(verdict(rep, ids[1]).status).toBe('clean');
+    expect(verdict(rep, ids[1]).status).toBe('no-violations');
   });
 
   it('наезд сзади: виноват задний', () => {
     const { rep, ids } = run('rear-end');
     expect(refsOf(rep, ids[1])).toEqual(expect.arrayContaining(['pdd:9.10', 'koap:12.15.1']));
-    expect(verdict(rep, ids[0]).status).toBe('clean');
+    expect(verdict(rep, ids[0]).status).toBe('no-violations');
   });
 
   it('гололёд: остановочный путь больше расстояния', () => {
     const { rep, ids } = run('ice');
     const g = rep.collisions[0];
     expect(g.title).toMatch(/наезд сзади/i);
-    expect(verdict(rep, ids[2]).status).toBe('guilty');
+    expect(verdict(rep, ids[2]).status).toBe('causal-violation');
     expect(g.notes.join(' ')).toMatch(/дорожным условиям/);
   });
 
   it('трамвай имеет преимущество', () => {
     const { rep, ids } = run('tram');
-    expect(verdict(rep, ids[0]).status).toBe('clean');
-    expect(verdict(rep, ids[1]).status).toBe('guilty');
+    expect(verdict(rep, ids[0]).status).toBe('no-violations');
+    expect(verdict(rep, ids[1]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[1])).toContain('pdd:13.11');
   });
 
   it('жилая зона: превышение скорости — причина наезда', () => {
     const { rep, ids } = run('speeding');
-    expect(verdict(rep, ids[0]).status).toBe('guilty');
+    expect(verdict(rep, ids[0]).status).toBe('causal-violation');
     expect(refsOf(rep, ids[0])).toContain('pdd:10.2');
-    expect(verdict(rep, ids[1]).status).toBe('clean');
+    expect(verdict(rep, ids[1]).status).toBe('no-violations');
   });
 });
 
@@ -116,8 +116,8 @@ describe('съезд на трассу', () => {
     expect(rep.collisions.length).toBe(1);
     const [dps, first, second] = ids;
     expect(refsOf(rep, first)).toEqual(expect.arrayContaining(['pdd:8.4']));
-    expect(verdict(rep, first).status).toBe('guilty');
-    expect(verdict(rep, second).status).toBe('clean');
+    expect(verdict(rep, first).status).toBe('causal-violation');
+    expect(verdict(rep, second).status).toBe('no-violations');
     expect(refsOf(rep, dps)).toHaveLength(0);
     expect(scene.markings.some((m) => m.kind === '1.16.1')).toBe(true);
   });
@@ -243,7 +243,7 @@ it('поворот налево на зелёный уступает встре�
   expect(rep.collisions.length).toBeGreaterThan(0);
   expect(rep.findings.some((f) => f.actorId === a.id && f.causal && f.refs.includes('pdd:13.4'))).toBe(true);
   expect(rep.findings.some((f) => f.causal && f.refs.includes('pdd:13.9'))).toBe(false);
-  expect(verdict(rep, b.id).status).toBe('clean');
+  expect(verdict(rep, b.id).status).toBe('no-violations');
 });
 
 it('на новый зелёный уступает завершающему проезд по п. 13.8, несмотря на знаки', () => {
@@ -257,7 +257,7 @@ it('на новый зелёный уступает завершающему п�
   const rep = analyze(scene, simulate(scene));
   expect(rep.collisions.length).toBeGreaterThan(0);
   expect(rep.findings.some((f) => f.actorId === scene.actors[0].id && f.causal && f.refs.includes('pdd:13.8'))).toBe(true);
-  expect(verdict(rep, scene.actors[1].id).status).toBe('clean');
+  expect(verdict(rep, scene.actors[1].id).status).toBe('no-violations');
 });
 
 it('мопед требует права управления и подпадает под ст. 264 УК', () => {

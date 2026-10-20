@@ -7,6 +7,7 @@
 import json
 import re
 import sys
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -268,3 +269,6 @@ print('ПДД: разделов', len(pdd['sections']), 'пунктов', n_pts,
 print('знаки:', sum(len(g['signs']) for g in signs['groups']), 'с картинкой', sum(1 for g in signs['groups'] for s in g['signs'] if 'img' in s))
 print('разметка:', {k: len(v['items']) if v else 0 for k, v in markings.items()})
 print('КоАП статей', len(koap['articles']), 'частей', sum(len(a['parts']) for a in koap['articles']), '| УК статей', len(uk['articles']), 'частей', sum(len(a['parts']) for a in uk['articles']))
+
+# Keep the synchronous qualification index in sync without loading the full corpus at startup.
+subprocess.run([sys.executable, str(ROOT / "tools" / "build-sanctions.py")], check=True)

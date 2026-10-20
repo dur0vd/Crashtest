@@ -1,7 +1,8 @@
 // Знаки (приложение 1 к ПДД), разметка (приложение 2) и перевозка грузов (раздел 23):
 // проверки поверх готовой симуляции. Используются из analysis.ts.
 
-import type { Ctx, Finding, GateEvent, Info } from './analysis';
+import type { Ctx, GateEvent, Info } from './analysis/context';
+import type { FindingInput, DraftFinding } from './analysis/types';
 import { roadsAt } from './geo';
 import { densify } from './geo';
 import {
@@ -22,7 +23,7 @@ import { VALUE_SIGNS, signTitle } from './signs';
 import { DT } from './sim';
 
 export interface Kit {
-  add: (f: Omit<Finding, 'causal'> & { causal?: boolean }) => Finding;
+  add: (f: FindingInput) => DraftFinding;
   reasonToBrake: (ctx: Ctx, i: Info, k: number) => boolean;
   boxAt: (i: Info, k: number) => OBB;
   posAt: (i: Info, k: number) => Vec;
@@ -192,7 +193,7 @@ function turnViolation(kit: Kit, i: Info, frame: number, refBase: string, allowe
     t: tOf(frame),
     title: `манёвр «${TURN_RU[turn]}» вопреки ${label}`,
     detail: `После ${label} участник выполнил манёвр «${TURN_RU[turn]}», который запрещён.`,
-    refs: [refBase, leftish ? 'koap:12.16.2' : 'koap:12.16.1'],
+    refs: [refBase, leftish ? 'rule:turn-sign' : 'rule:sign-requirement'],
   });
 }
 
@@ -219,7 +220,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
         t,
         title: `движение вопреки знаку ${s.kind} «${signTitle(s.kind)}»`,
         detail: `${i.label} (${i.a.kind === 'vehicle' ? VEHICLES[i.a.type as VehicleType].name.toLowerCase() : ''}) проехал(а) под знаком, запрещающим такое движение.`,
-        refs: s.kind === '5.1' || s.kind === '5.3' ? [ref, 'pdd:16.1', cls === 'moped' ? 'koap:12.16.1' : 'koap:12.29.2'] : [ref, s.kind === '3.4' ? 'koap:12.16.6' : 'koap:12.16.1'],
+        refs: s.kind === '5.1' || s.kind === '5.3' ? [ref, 'pdd:16.1', cls === 'moped' ? 'rule:sign-requirement' : 'rule:nonmotor-road'] : [ref, s.kind === '3.4' ? 'rule:truck-sign' : 'rule:sign-requirement'],
       });
       continue;
     }
@@ -230,10 +231,10 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
       if (!over) return;
       kit.add({ actorId: i.a.id, severity: 'violation', t, title: `${what} превышает значение на знаке ${s.kind}`, detail: `${has}; на знаке — ${val} ${lim?.unit ?? ''}.`, refs });
     };
-    if (s.kind === '3.11') dimCheck(dims.mass > val * 1000, 'масса ТС', `Фактическая масса ТС с грузом ${(dims.mass / 1000).toFixed(1)} т`, [ref, 'koap:12.21.1#11']);
-    if (s.kind === '3.13') dimCheck(dims.height > val, 'высота ТС', `Высота ТС с грузом ${dims.height.toFixed(1)} м`, [ref, 'koap:12.16.1']);
-    if (s.kind === '3.14') dimCheck(dims.width > val, 'ширина ТС', `Ширина ТС с грузом ${dims.width.toFixed(2)} м`, [ref, 'koap:12.16.1']);
-    if (s.kind === '3.15') dimCheck(dims.length > val, 'длина ТС', `Длина ТС с грузом ${dims.length.toFixed(1)} м`, [ref, 'koap:12.16.1']);
+    if (s.kind === '3.11') dimCheck(dims.mass > val * 1000, 'масса ТС', `Фактическая масса ТС с грузом ${(dims.mass / 1000).toFixed(1)} т`, [ref, 'rule:weight']);
+    if (s.kind === '3.13') dimCheck(dims.height > val, 'высота ТС', `Высота ТС с грузом ${dims.height.toFixed(1)} м`, [ref, 'rule:sign-requirement']);
+    if (s.kind === '3.14') dimCheck(dims.width > val, 'ширина ТС', `Ширина ТС с грузом ${dims.width.toFixed(2)} м`, [ref, 'rule:sign-requirement']);
+    if (s.kind === '3.15') dimCheck(dims.length > val, 'длина ТС', `Длина ТС с грузом ${dims.length.toFixed(1)} м`, [ref, 'rule:sign-requirement']);
 
     // повороты и направления движения
     if (TURN_BAN[s.kind]) turnViolation(kit, i, g.frame, ref, null, TURN_BAN[s.kind], label);
@@ -246,7 +247,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
         if (kmh(i.tr.v[k]) < val - 0.5 && i.tr.v[k] > 0.3) run++;
         else run = 0;
         if (run >= 80) {
-          kit.add({ actorId: i.a.id, severity: 'violation', t: tOf(k), title: `скорость ниже минимальной по знаку 4.6 (${val} км/ч)`, detail: `Скорость ${Math.round(kmh(i.tr.v[k]))} км/ч.`, refs: [ref, 'koap:12.16.1'] });
+          kit.add({ actorId: i.a.id, severity: 'violation', t: tOf(k), title: `скорость ниже минимальной по знаку 4.6 (${val} км/ч)`, detail: `Скорость ${Math.round(kmh(i.tr.v[k]))} км/ч.`, refs: [ref, 'rule:sign-requirement'] });
           break;
         }
       }
@@ -268,7 +269,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
               t: tOf(from),
               title: s.kind === '3.27' ? 'остановка в зоне знака «Остановка запрещена»' : 'стоянка в зоне знака «Стоянка запрещена»',
               detail: s.kind === '3.27' ? 'ТС остановилось в зоне действия знака 3.27.' : 'ТС остаётся на месте в зоне действия знака 3.28 (условно: стоянка — стоит всё время расчёта).',
-              refs: [ref, 'pdd:12.4', 'koap:12.16.4'],
+              refs: [ref, 'pdd:12.4', 'rule:parking-sign'],
             });
             break;
           }
@@ -324,7 +325,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
               t: tOf(k - 7),
               title: `пересечение линии разметки ${m.kind}`,
               detail: `Линию ${m.kind} (${spec.name.toLowerCase()}) пересекать запрещено.${separates ? ' Она разделяет потоки противоположных направлений: ТС оказалось на встречной стороне.' : ''}`,
-              refs: separates ? [`marking:${m.kind}`, 'pdd:9.1(1)', 'koap:12.15.4'] : [`marking:${m.kind}`, 'pdd:9.7', 'koap:12.16.1'],
+              refs: separates ? [`marking:${m.kind}`, 'pdd:9.1(1)', 'rule:opposing-lane'] : [`marking:${m.kind}`, 'pdd:9.7', 'rule:sign-requirement'],
             });
             break;
           }
@@ -347,7 +348,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
                 t: tOf(from),
                 title: `остановка у разметки ${m.kind}, запрещающей остановку`,
                 detail: `ТС остановилось у линии ${m.kind} (${spec.name.toLowerCase()}).`,
-                refs: [`marking:${m.kind}`, 'pdd:12.4', 'koap:12.16.4'],
+                refs: [`marking:${m.kind}`, 'pdd:12.4', 'rule:parking-sign'],
               });
               break;
             }
@@ -369,7 +370,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
               t: tOf(k - 3),
               title: `въезд на островок, обозначенный разметкой ${m.kind}`,
               detail: 'Разметка 1.16 обозначает островки, въезд на которые запрещён.',
-              refs: [`marking:${m.kind}`, 'koap:12.16.1'],
+              refs: [`marking:${m.kind}`, 'rule:sign-requirement'],
             });
             break;
           }
@@ -410,7 +411,7 @@ function inPolygon(poly: Vec[], p: Vec): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Перевозка грузов (раздел 23 ПДД, ст. 12.21 КоАП)
+// Перевозка грузов (раздел 23 ПДД)
 
 export function checkCargoRules(ctx: Ctx, kit: Kit): void {
   for (const i of ctx.infos.values()) {
@@ -419,21 +420,21 @@ export function checkCargoRules(ctx: Ctx, kit: Kit): void {
     const vs = VEHICLES[i.a.type as VehicleType];
     const d = dimsOf(i.a);
     const t = tOf(i.k0);
-    const add = (title: string, detail: string, refs: string[], severity: Finding['severity'] = 'violation') =>
+    const add = (title: string, detail: string, refs: string[], severity: DraftFinding['severity'] = 'violation') =>
       kit.add({ actorId: i.a.id, severity, t, title, detail, refs });
 
     if (c.mass > vs.payload && vs.payload > 0) {
-      add('масса груза превышает допустимую для ТС', `Груз ${c.mass} кг при допустимой нагрузке ${vs.payload} кг.`, ['pdd:23.1', 'koap:12.21#1']);
+      add('масса груза превышает допустимую для ТС', `Груз ${c.mass} кг при допустимой нагрузке ${vs.payload} кг.`, ['pdd:23.1', 'rule:cargo']);
     }
     if (!c.secured) {
-      add('груз закреплён ненадлежащим образом', 'Груз может упасть или создать помехи движению. Водитель обязан контролировать размещение и крепление груза.', ['pdd:23.2', 'koap:12.21#1']);
+      add('груз закреплён ненадлежащим образом', 'Груз может упасть или создать помехи движению. Водитель обязан контролировать размещение и крепление груза.', ['pdd:23.2', 'rule:cargo']);
     }
     if (c.blocksView) {
-      add('груз ограничивает обзор или закрывает световые приборы, номера', 'Перевозка допускается только при условии, что груз не ограничивает водителю обзор и не закрывает внешние световые приборы и регистрационные знаки.', ['pdd:23.3', 'koap:12.21#1']);
+      add('груз ограничивает обзор или закрывает световые приборы, номера', 'Перевозка допускается только при условии, что груз не ограничивает водителю обзор и не закрывает внешние световые приборы и регистрационные знаки.', ['pdd:23.3', 'rule:cargo']);
     }
     const over = c.front > 1 || c.rear > 1 || c.left > 0.4 || c.right > 0.4;
     if (over && !c.marked) {
-      add('выступающий груз не обозначен знаками «Крупногабаритный груз»', `Свесы: спереди ${c.front} м, сзади ${c.rear} м, слева ${c.left} м, справа ${c.right} м. Груз, выступающий более чем на 1 м спереди или сзади либо на 0,4 м сбоку, должен быть обозначен.`, ['pdd:23.4', 'koap:12.21#1']);
+      add('выступающий груз не обозначен знаками «Крупногабаритный груз»', `Свесы: спереди ${c.front} м, сзади ${c.rear} м, слева ${c.left} м, справа ${c.right} м. Груз, выступающий более чем на 1 м спереди или сзади либо на 0,4 м сбоку, должен быть обозначен.`, ['pdd:23.4', 'rule:cargo']);
     } else if (over) {
       add('выступающий груз обозначен знаками «Крупногабаритный груз»', 'Требование п. 23.4 выполнено; в тёмное время суток дополнительно нужны белый фонарь спереди и красный сзади.', ['pdd:23.4'], 'info');
     }
@@ -451,7 +452,7 @@ export function checkCargoRules(ctx: Ctx, kit: Kit): void {
       add(`${what} с грузом превышает допустимую без специального разрешения`, `${what}: ${v.toFixed(2)} м при допустимых ${lim} м (превышение ${Math.round(cm)} см). Движение допускается по специальному разрешению в соответствии со специальными правилами.`, ['pdd:23.5', `koap:12.21.1#${part}`]);
     }
     if (c.dangerous) {
-      add('перевозка опасного груза', 'Опасные грузы перевозятся по специальным правилам (допуск ТС и водителя, аварийная карточка, знаки).', ['pdd:23.5', 'koap:12.21.2#2'], 'info');
+      add('перевозка опасного груза', 'Опасные грузы перевозятся по специальным правилам (допуск ТС и водителя, аварийная карточка, знаки).', ['pdd:23.5', 'rule:dangerous-cargo'], 'info');
     }
   }
 }

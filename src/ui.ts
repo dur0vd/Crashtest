@@ -1,4 +1,5 @@
-import { type ActorVerdict, type CollisionReport, type Finding, type Report, HARM_LABEL } from './analysis';
+import { type CollisionReport, type Finding, type Report, HARM_LABEL, STATUS_LABEL } from './analysis';
+import { LEGAL_EDITION_DATE } from './analysis/legal';
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
@@ -321,6 +322,11 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     field('Появится через, с', num(a.delay, set((v) => (a.delay = v)), { min: 0, max: 60, step: 0.5 })),
     field('Курс, °', num(deg(a.heading), set((v: number) => (a.heading = rad(v))), { step: 5, disabled: a.path.length > 0 }), a.path.length ? 'Курс задаёт первая точка траектории.' : '0° — вправо, 90° — вниз'),
   );
+  if (!isVeh) {
+    const age = h('input', { type: 'number', min: 0, max: 120, step: 1, value: a.age ?? '', placeholder: 'Не указан' });
+    age.addEventListener('change', () => app.edit(() => { a.age = age.value === '' ? undefined : Math.max(0, Math.floor(Number(age.value))); }));
+    box.append(field('Возраст, полных лет', age, 'До 16 лет административная ответственность не наступает.'));
+  }
   if (isVeh) {
     box.append(
       h('div', { class: 'group' },
@@ -375,9 +381,12 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
   root.replaceChildren();
   const s = app.scene();
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
+  const date = h('input', { type: 'date', value: s.analysisDate ?? LEGAL_EDITION_DATE });
+  date.addEventListener('change', () => app.edit(() => { s.analysisDate = date.value || undefined; }));
   root.append(
     h('div', { class: 'form' },
       h('h3', {}, 'Условия'),
+      field('Дата правовой оценки', date, `Доступный снимок норм: ${LEGAL_EDITION_DATE}. Для другой даты санкции требуют проверки.`),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
@@ -451,12 +460,6 @@ const SEV_LABEL: Record<Finding['severity'], string> = {
   info: 'Примечание',
 };
 
-const STATUS_LABEL: Record<ActorVerdict['status'], string> = {
-  guilty: 'Нарушения в причинной связи с ДТП',
-  minor: 'Есть нарушения',
-  clean: 'Нарушений не выявлено',
-};
-
 export function buildReport(root: HTMLElement, app: AppApi): void {
   root.replaceChildren();
   const rep = app.report();
@@ -484,41 +487,67 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     ),
   );
 
-  // участники
-  const people = h('div', { class: 'people' });
-  for (const v of rep.verdicts) {
-    const card = h('div', { class: `person ${v.status}`, onmouseenter: () => app.focus(v.actorId), onmouseleave: () => app.focus(null) },
-      h('div', { class: 'ph' }, dot(v.actorId), h('b', {}, title(v.actorId)), h('span', { class: 'tag' }, STATUS_LABEL[v.status])),
-      h('p', {}, v.text),
-    );
-    const mine = rep.findings.filter((f) => f.actorId === v.actorId);
-    for (const f of mine) {
-      const det = h('details', { class: `finding ${f.severity}${f.causal ? ' causal' : ''}` },
-        h('summary', {},
-          h('span', { class: 'sev' }, SEV_LABEL[f.severity] + (f.causal ? ' · причинная связь' : '')),
-          ' ',
-          f.title,
-          f.t !== undefined ? h('button', { type: 'button', class: 'time', onclick: (e: Event) => { e.preventDefault(); app.seek(f.t!); } }, `${f.t.toFixed(1)} с`) : null,
-        ),
-        h('p', {}, f.detail),
-        refs(f.refs),
-      );
-      card.append(det);
-    }
-    if (v.legal.length) {
-      const legal = h('div', { class: 'legal' }, h('h4', {}, 'Возможная ответственность'));
-      for (const l of v.legal) legal.append(h('div', { class: 'li' }, h('p', {}, l.text), refs(l.refs)));
-      card.append(legal);
-    }
-    people.append(card);
-  }
-  root.append(h('h4', { class: 'sec' }, 'Участники'), people);
+  const traceView = (trace: object) => h('details', { class: 'trace' },
+    h('summary', {}, 'Данные и расчёты'), h('pre', {}, JSON.stringify(trace, null, 2)));
 
-  // столкновения
-  if (rep.collisions.length) {
-    root.append(h('h4', { class: 'sec' }, 'Столкновения и техническая возможность предотвращения'));
-    for (const c of rep.collisions) root.append(collisionCard(c, app, title));
+  const technical = h('section', { class: 'report-technical' }, h('h3', {}, 'Технические выводы'));
+  for (const c of rep.technical.collisions) {
+    const card = h('div', { class: 'collision' }, h('p', {}, `Контакт в ${c.collision.t.toFixed(1)} с, скорость сближения ${(c.collision.rel * 3.6).toFixed(1)} км/ч.`));
+    for (const t of c.tech) card.append(
+      h('p', {}, `${title(t.actorId)}: опасность с ${t.tHazard.toFixed(1)} с; скорость ${t.speedKmh.toFixed(1)} км/ч; доступно ${t.available.toFixed(1)} м; остановочный путь ${t.stopDist.toFixed(1)} м. ${t.avoidable ? 'Техническая возможность остановиться была.' : 'Технической возможности остановиться не было.'}`),
+      h('p', {}, `Расчётный диапазон остановочного пути: ${t.ranges.stopDist[0].toFixed(1)}–${t.ranges.stopDist[1].toFixed(1)} м при времени реакции ${t.ranges.reaction[0]}–${t.ranges.reaction[1]} с.`), traceView(t.trace));
+    for (const harm of c.harm) card.append(h('p', {}, `${title(harm.actorId)}: ${HARM_LABEL[harm.level]}`));
+    card.append(traceView(c.trace));
+    technical.append(card);
   }
+  if (!rep.technical.collisions.length) technical.append(h('p', {}, 'Столкновений не зафиксировано.'));
+  for (const e of rep.technical.events.filter(e => e.kind !== 'collision')) technical.append(
+    h('details', {}, h('summary', {}, `${e.t.toFixed(1)} с · ${e.text}`), traceView(e.trace)));
+  for (const actor of scene.actors) {
+    const points = rep.technical.points.filter(p => p.actorId === actor.id);
+    if (!points.length) continue;
+    // Keep the visible table compact; full frame evidence remains in the report.
+    const selected = points.filter((p, index) => index === 0 || index === points.length - 1 || Math.floor(p.t) !== Math.floor(points[index - 1].t));
+    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, 'Время'), h('th', {}, 'км/ч'), h('th', {}, 'Положение')));
+    for (const p of selected) table.append(h('tr', {},
+      h('td', {}, h('button', { type: 'button', class: 'time', onclick: () => app.seek(p.t) }, `${p.t.toFixed(1)} с`)),
+      h('td', {}, p.speedKmh.toFixed(1)),
+      h('td', {}, p.roads.length === 1 ? `Полоса от оси: ${p.roads[0].laneFromAxis}; смещение ${p.roads[0].lateral.toFixed(1)} м` : p.roads.length ? 'Пересечение дорог' : 'Вне проезжей части')));
+    technical.append(h('details', {}, h('summary', {}, `${title(actor.id)}: скорость и положение на траектории`), table));
+  }
+  for (const event of rep.technical.nearMisses) technical.append(h('p', {}, `Сближение ${title(event.a)} и ${title(event.b)}: просвет ${event.gap.toFixed(1)} м в ${event.t.toFixed(1)} с.`), traceView(event.trace));
+  root.append(technical);
+
+  const rules = h('section', { class: 'report-rules' }, h('h3', {}, 'Соответствие ПДД'));
+  for (const v of rep.rules.actors) {
+    const card = h('div', { class: `person ${v.status}`, onmouseenter: () => app.focus(v.actorId), onmouseleave: () => app.focus(null) },
+      h('div', { class: 'ph' }, dot(v.actorId), h('b', {}, title(v.actorId)), h('span', { class: 'tag' }, STATUS_LABEL[v.status])), h('p', {}, v.text));
+    for (const f of rep.rules.findings.filter(f => f.actorId === v.actorId)) card.append(
+      h('details', { class: `finding ${f.severity}${f.causal ? ' causal' : ''}` },
+        h('summary', {}, h('span', { class: 'sev' }, SEV_LABEL[f.severity] + (f.causal ? ' · причинная связь' : '')), ' ', f.title,
+          f.t !== undefined ? h('button', { type: 'button', class: 'time', onclick: (e: Event) => { e.preventDefault(); app.seek(f.t!); } }, `${f.t.toFixed(1)} с`) : null),
+        h('p', {}, `${f.requirement}: ${f.compliance}.`), h('p', {}, f.detail),
+        h('p', {}, f.prevention === null ? 'Предотвращение ДТП при устранении нарушения: не определить по имеющимся расчётам.' : f.prevention ? 'Устранение нарушения предотвращало ДТП по расчётной модели.' : 'Устранение нарушения не предотвращало ДТП по расчётной модели.'),
+        refs(f.refs), traceView(f.trace)));
+    rules.append(card);
+  }
+  for (const c of rep.rules.collisions) rules.append(collisionCard(c, app, title));
+  root.append(rules);
+
+  const legal = h('section', { class: 'report-legal' }, h('h3', {}, 'Ориентировочная правовая оценка (решение принимает суд/орган)'),
+    h('p', {}, `Дата оценки: ${rep.legal.assessmentDate}. Доступная редакция: ${rep.legal.editionDate}.`));
+  if (rep.legal.assessmentDate !== rep.legal.editionDate) legal.append(h('p', {}, 'Редакция на указанную дату отсутствует: составы приведены как ориентиры, санкции требуют проверки.'));
+  for (const v of rep.legal.verdicts) {
+    const card = h('div', { class: 'person' }, h('h4', {}, title(v.actorId)));
+    if (!v.legal.length) card.append(h('p', {}, 'Оснований для квалификации в пределах модели не выявлено.'));
+    for (const l of v.legal) {
+      card.append(h('p', {}, l.text), refs(l.refs));
+      for (const sanction of l.sanctions ?? []) card.append(h('p', {}, sanction.text ?? 'Санкция в редакции на дату оценки не определена.'));
+      card.append(traceView(l.trace));
+    }
+    legal.append(card);
+  }
+  root.append(legal);
 
   // хронология
   if (rep.events.length) {
@@ -530,7 +559,7 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
   if (rep.duties.length) {
     const d = h('div', { class: 'duties' });
     for (const x of rep.duties) d.append(h('div', { class: 'li' }, h('p', {}, x.text), refs(x.refs)));
-    root.append(h('h4', { class: 'sec' }, 'Что обязаны сделать участники ДТП'), d);
+    legal.append(h('h4', { class: 'sec' }, 'Что обязаны сделать участники ДТП'), d);
   }
 
   root.append(

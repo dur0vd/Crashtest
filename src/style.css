@@ -534,13 +534,13 @@ button {
   margin-bottom: 10px;
   background: var(--panel2);
 }
-.person.guilty {
+.person.causal-violation {
   border-color: rgba(229, 72, 77, 0.6);
 }
-.person.minor {
+.person.noncausal-violation {
   border-color: rgba(255, 178, 36, 0.6);
 }
-.person.clean {
+.person.no-violations {
   border-color: rgba(61, 220, 132, 0.4);
 }
 .ph {
@@ -563,13 +563,13 @@ button {
   background: #0c1016;
   color: var(--muted);
 }
-.guilty .tag {
+.causal-violation .tag {
   color: #ff8f93;
 }
-.minor .tag {
+.noncausal-violation .tag {
   color: var(--warn);
 }
-.clean .tag {
+.no-violations .tag {
   color: var(--ok);
 }
 .person p,
@@ -1033,3 +1033,6 @@ button {
   flex: 1;
   font-size: 13px;
 }
+
+.trace pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: 11px; }
+.person.insufficient-data { border-color: var(--muted); }

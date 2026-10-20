@@ -250,6 +250,8 @@ export interface Cargo {
 export const NO_CARGO: Cargo = { mass: 0, front: 0, rear: 0, left: 0, right: 0, height: 0, marked: false, secured: true, blocksView: false, dangerous: false };
 
 export interface Actor {
+  /** Возраст в полных годах; для ребёнка без возраста правовой субъект не установлен. */
+  age?: number;
   id: string;
   kind: 'vehicle' | 'pedestrian';
   type: VehicleType | PedestrianType;
@@ -275,6 +277,8 @@ export interface Env {
 }
 
 export interface Scene {
+  /** Дата правовой оценки (ISO YYYY-MM-DD). */
+  analysisDate?: string;
   version: 1;
   name: string;
   env: Env;
@@ -393,6 +397,7 @@ export function normalizeScene(raw: unknown): Scene {
   const scene: Scene = {
     ...base,
     name: typeof r.name === 'string' ? r.name : base.name,
+    analysisDate: typeof r.analysisDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.analysisDate) ? r.analysisDate : undefined,
     env: { ...base.env, ...(r.env ?? {}) },
     roads: [],
     sidewalks: [],
@@ -430,6 +435,7 @@ export function normalizeScene(raw: unknown): Scene {
     a.path = a.path ?? [];
     a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
     a.delay = a.delay ?? 0;
+    if (!Number.isInteger(a.age) || a.age! < 0 || a.age! > 120) delete a.age;
   }
   return scene;
 }

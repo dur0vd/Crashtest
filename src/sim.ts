@@ -4,6 +4,7 @@ import {
   type PathData,
   type Vec,
   add,
+  angDiff,
   buildPath,
   dist,
   dot,
@@ -17,6 +18,7 @@ import {
   sub,
 } from './geom';
 import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf } from './scene';
+import { type Dyn, type LossKind, brakeLimit, dynOf, lateralLimit, tractionLimit, wheelFrame } from './wheels';
 
 export const DT = 0.025;
 const G = 9.81;
@@ -35,6 +37,29 @@ export interface Track {
   present: Uint8Array;
   /** после столкновения движется по инерции */
   free: Uint8Array;
+  /** число колёс (0 у пешехода) */
+  nw: number;
+  /** кривизна траектории, 1/м (+ вправо): по ней считаются углы поворота колёс */
+  kap: Float32Array;
+  /** по nw значений на кадр: нагрузка на колесо, Н */
+  wfz: Float32Array;
+  /** режим колеса: 0 катится, 1 на пределе (АБС), 2 заблокировано / скользит, 3 оторвано от дороги */
+  wst: Uint8Array;
+  /** накопленный угол качения колеса, рад */
+  wspin: Float32Array;
+}
+
+/** Событие динамики ТС: работа АБС, блокировка колёс, потеря управляемости. */
+export interface DynEvent {
+  t: number;
+  frame: number;
+  actor: string;
+  kind: 'abs' | 'lock' | LossKind;
+  /** скорость в момент события, м/с */
+  v: number;
+  /** боковое ускорение и его предел (для потери управляемости), м/с² */
+  ay?: number;
+  limit?: number;
 }
 
 export interface Collision {
@@ -66,6 +91,7 @@ export interface Timeline {
   mu: number;
   tracks: Map<string, Track>;
   collisions: Collision[];
+  events: DynEvent[];
 }
 
 interface Node {
@@ -98,6 +124,48 @@ interface Rt {
   shift: number;
   /** едет по рельсам: путь лежит на колее, а удар не сбивает с неё (если нет схода) */
   rail: boolean;
+  /** колёса и их нагрузки (только ТС) */
+  dyn: Dyn | null;
+  /** кривизна пути в текущей точке, 1/м (+ вправо) */
+  kap: number;
+  /** продольное замедление на шаге, м/с² (+ торможение) */
+  aLong: number;
+  /** тормоз на пределе сцепления */
+  sat: boolean;
+  /** сколько секунд тормоз на пределе (без АБС колёса блокируются после задержки) */
+  satT: number;
+  /** предел бокового ускорения по сцеплению, м/с², и до опрокидывания */
+  latMax: number;
+  rollMax: number;
+  latMode: 'understeer' | 'oversteer';
+  /** сколько секунд боковое ускорение превышает предел */
+  lossT: number;
+  /** ТС потеряло управляемость: причина */
+  lost: LossKind | null;
+  /** угловая скорость вращения кузова при заносе, рад/с */
+  yaw: number;
+  abs: boolean;
+  /** замедление при заблокированных колёсах, м/с² (для ТС без АБС) */
+  slide: number;
+}
+
+/** Через сколько секунд на пределе сцепления колёса без АБС блокируются. */
+const LOCK_DELAY = 0.2;
+/** Сколько секунд боковое ускорение должно держаться выше предела, чтобы ТС сорвалось с траектории. */
+const LOSS_DELAY = 0.15;
+/** Наименьшая полуширина окна оценки кривизны пути, м. */
+const CURV_WINDOW = 3;
+
+/**
+ * Кривизна пути на расстоянии s, 1/м (+ вправо): изменение курса на окне, равном пути за ≈ 1 с.
+ * ТС не повторяет изломы ломаной короче этого пути (длина кузова, запаздывание руля), а идёт по её сглаженному варианту.
+ */
+function curvatureAt(path: PathData, s: number, v: number): number {
+  const w = Math.max(CURV_WINDOW, v);
+  const s0 = Math.max(0, s - w);
+  const s1 = Math.min(path.total, s + w);
+  if (s1 - s0 < 1) return 0;
+  return angDiff(pathAt(path, s0).a, pathAt(path, s1).a) / (s1 - s0);
 }
 
 /** Закрытие скорости при ударе, с которой трамвай с разрешённым сходом покидает рельсы, м/с (≈ 20 км/ч). */
@@ -179,12 +247,18 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
   let accel = 2;
   let brake = 3;
   let plan = 3;
-  if (a.kind === 'vehicle') {
+  let slide = 3;
+  const dyn = dynOf(a);
+  let lat = { grip: Infinity, mode: 'understeer' as 'understeer' | 'oversteer', roll: Infinity };
+  if (dyn) {
     const vs = VEHICLES[a.type as VehicleType];
-    // гружёный автомобиль разгоняется медленнее
-    accel = (vs.accel * vs.mass) / spec.mass;
-    brake = Math.min(vs.brakeCap ?? Infinity, mu * G * vs.brakeFactor);
-    plan = Math.min(vs.brakeCap ?? Infinity, SURFACES.dry.mu * G * vs.brakeFactor);
+    // гружёный автомобиль разгоняется медленнее, а на скользкой дороге ведущие колёса не передадут больше, чем держит сцепление
+    accel = Math.min((vs.accel * vs.mass) / spec.mass, tractionLimit(dyn, mu));
+    const bl = brakeLimit(dyn, mu);
+    brake = bl.peak;
+    slide = bl.slide;
+    plan = brakeLimit(dyn, SURFACES.dry.mu).peak;
+    lat = lateralLimit(dyn, mu);
   }
   const p0 = pathAt(path, 0);
   return {
@@ -208,6 +282,19 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     box: { hl: spec.length / 2, hw: spec.width / 2 },
     shift: spec.shift,
     rail: !!rp,
+    dyn,
+    kap: 0,
+    aLong: 0,
+    sat: false,
+    satT: 0,
+    latMax: lat.grip,
+    rollMax: lat.roll,
+    latMode: lat.mode,
+    lossT: 0,
+    lost: null,
+    yaw: 0,
+    abs: !!dyn?.layout.abs,
+    slide,
   };
 }
 
@@ -217,6 +304,8 @@ function boxOf(r: Rt): OBB {
 
 function stepPath(r: Rt, dt: number): void {
   const nodes = r.nodes;
+  r.sat = false;
+  r.aLong = 0;
   if (r.hold > 0) {
     r.hold -= dt;
     r.v = 0;
@@ -239,9 +328,18 @@ function stepPath(r: Rt, dt: number): void {
   }
   const last = nodes[nodes.length - 1];
   const vDes = r.next < nodes.length ? nodes[r.next].V : last.V;
+  // поворот расходует часть сцепления (круг трения): тормозить и разгоняться можно только остатком
+  r.kap = r.dyn && !r.rail ? curvatureAt(r.path, r.s, r.v) : 0;
+  const ay = r.v * r.v * Math.abs(r.kap);
+  const circle = (a: number): number => (ay > 0 ? Math.sqrt(Math.max(0, a * a - ay * ay)) : a);
+  // без АБС колёса, долго работающие на пределе, блокируются и тормозят хуже
+  const locked = r.dyn !== null && !r.abs && r.satT >= LOCK_DELAY;
+  const brk = circle(locked ? r.slide : r.brake);
+  const acc = Math.min(r.accel, circle(r.brake));
+  const v0 = r.v;
   let v = r.v;
-  if (v < vDes) v = Math.min(vDes, v + r.accel * dt);
-  else if (r.next >= nodes.length && v > vDes) v = Math.max(vDes, v - r.brake * dt);
+  if (v < vDes) v = Math.min(vDes, v + acc * dt);
+  else if (r.next >= nodes.length && v > vDes) v = Math.max(vDes, v - brk * dt);
   // огибающая торможения: к каждому узлу впереди водитель планирует успеть сбросить скорость
   let allowed = Infinity;
   for (let j = r.next; j < nodes.length; j++) {
@@ -251,8 +349,23 @@ function stepPath(r: Rt, dt: number): void {
     if (lim < allowed) allowed = lim;
   }
   // реальное замедление ограничено сцеплением, поэтому на скользкой дороге ТС может не успеть
-  if (v > allowed) v = Math.max(allowed, v - r.brake * dt);
+  if (v > allowed) {
+    const vb = v - brk * dt;
+    // тормоз на пределе, если остаться в огибающей не получается (малый допуск — на дискретизацию шага)
+    if (vb > allowed + 0.25 * brk * dt) r.sat = true;
+    v = Math.max(allowed, vb);
+  }
   r.v = Math.max(0, v);
+  r.aLong = (v0 - r.v) / dt;
+  r.satT = r.sat ? r.satT + dt : Math.max(0, r.satT - 2 * dt);
+  // боковое ускорение против предела по сцеплению (с учётом продольного) и порога опрокидывания
+  if (r.dyn && !r.rail && !r.lost && r.v > 2) {
+    const ayNow = r.v * r.v * Math.abs(r.kap);
+    const lim = Math.sqrt(Math.max(0, r.latMax * r.latMax - r.aLong * r.aLong));
+    const kind: LossKind | null = r.rollMax < lim ? (ayNow > r.rollMax ? 'rollover' : null) : ayNow > lim ? r.latMode : null;
+    r.lossT = kind ? r.lossT + dt : Math.max(0, r.lossT - dt);
+    if (kind && r.lossT >= LOSS_DELAY) r.lost = kind;
+  }
   r.s += r.v * dt;
   const p = pathAt(r.path, r.s);
   r.pos = p.p;
@@ -288,6 +401,14 @@ function toFree(r: Rt): void {
   r.mode = 'free';
 }
 
+/** Срыв с траектории: снос (передняя ось), занос (задняя ось с вращением кузова) или опрокидывание. */
+function loseControl(r: Rt, kind: LossKind): void {
+  toFree(r);
+  if (kind === 'oversteer' && r.dyn) {
+    r.yaw = Math.sign(r.kap) * Math.min(3, len(r.vel) / (2 * r.dyn.wb));
+  }
+}
+
 export function simulate(scene: Scene): Timeline {
   const geo = buildGeo(scene);
   const mu = SURFACES[scene.env.surface].mu;
@@ -296,7 +417,16 @@ export function simulate(scene: Scene): Timeline {
 
   const rts = scene.actors.map((a) => makeRuntime(a, mu, geo.tracks.map((t) => t.pts)));
   const tracks = new Map<string, Track>();
+  const events: DynEvent[] = [];
+  const seen = new Set<string>();
+  const note = (r: Rt, kind: DynEvent['kind'], k: number, extra: Partial<DynEvent> = {}): void => {
+    const key = `${r.a.id}|${kind}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    events.push({ t: k * DT, frame: k, actor: r.a.id, kind, v: r.mode === 'free' ? len(r.vel) : r.v, ...extra });
+  };
   for (const r of rts) {
+    const nw = r.dyn ? r.dyn.wheels.length : 0;
     tracks.set(r.a.id, {
       id: r.a.id,
       x: new Float32Array(n),
@@ -305,6 +435,11 @@ export function simulate(scene: Scene): Timeline {
       v: new Float32Array(n),
       present: new Uint8Array(n),
       free: new Uint8Array(n),
+      nw,
+      kap: new Float32Array(n),
+      wfz: new Float32Array(n * nw),
+      wst: new Uint8Array(n * nw),
+      wspin: new Float32Array(n * nw),
     });
   }
 
@@ -320,10 +455,25 @@ export function simulate(scene: Scene): Timeline {
       if (!r.present) continue;
       if (r.mode === 'path') {
         if (k > 0 || r.a.delay > 0) stepPath(r, DT);
+        if (r.dyn && r.satT > 0.1) {
+          if (r.abs) note(r, 'abs', k);
+          else if (r.satT >= LOCK_DELAY) note(r, 'lock', k);
+        }
+        if (r.lost) {
+          const ayNow = r.v * r.v * Math.abs(r.kap);
+          note(r, r.lost, k, { ay: ayNow, limit: r.lost === 'rollover' ? r.rollMax : r.latMax });
+          loseControl(r, r.lost);
+        }
       } else {
         const sp = len(r.vel);
+        if (r.yaw !== 0) {
+          r.h += r.yaw * DT;
+          const damp = Math.abs(r.yaw) - (0.5 + 3 * mu) * DT;
+          r.yaw = damp > 0.02 ? Math.sign(r.yaw) * damp : 0;
+        }
         if (sp > 0) {
-          const dec = r.a.kind === 'pedestrian' ? 4 : mu * G;
+          // на боку кузов скользит с трением по кузову, а не шиной
+          const dec = r.a.kind === 'pedestrian' ? 4 : (r.lost === 'rollover' ? mu + 0.1 : mu) * G;
           const nsp = Math.max(0, sp - dec * DT);
           r.vel = mul(r.vel, nsp / sp);
           r.pos = add(r.pos, mul(r.vel, DT));
@@ -361,6 +511,31 @@ export function simulate(scene: Scene): Timeline {
       tr.v[k] = r.mode === 'free' ? len(r.vel) : r.v;
       tr.present[k] = r.present ? 1 : 0;
       tr.free[k] = r.mode === 'free' ? 1 : 0;
+      if (r.dyn && r.present) {
+        const nw = tr.nw;
+        const o = k * nw;
+        const spin = tr.wspin.subarray(o, o + nw);
+        if (k > 0) spin.set(tr.wspin.subarray(o - nw, o));
+        const path = r.mode === 'path';
+        tr.kap[k] = path ? r.kap : 0;
+        wheelFrame(
+          r.dyn,
+          {
+            v: tr.v[k],
+            kappa: path ? r.kap : 0,
+            aBrake: path ? r.aLong : 0,
+            sat: path && r.sat,
+            locked: !r.abs && r.satT >= LOCK_DELAY,
+            sliding: !path,
+            rolled: r.lost === 'rollover',
+          },
+          mu,
+          DT,
+          spin,
+          tr.wfz.subarray(o, o + nw),
+          tr.wst.subarray(o, o + nw),
+        );
+      }
     }
 
     function resolve(
@@ -421,7 +596,7 @@ export function simulate(scene: Scene): Timeline {
     }
   }
 
-  return { dt: DT, n, duration, mu, tracks, collisions };
+  return { dt: DT, n, duration, mu, tracks, collisions, events };
 }
 
 /** Нужные для разбора характеристики участника на кадре. */

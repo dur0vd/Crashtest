@@ -18,6 +18,7 @@ import {
   actorLabels,
   actorTitle,
 } from './scene';
+import { wheelReport } from './wheels';
 
 type Child = Node | string | null | undefined | false;
 
@@ -305,6 +306,29 @@ function cargoForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(g);
 }
 
+/** Колёса и сцепление: нагрузка на каждое колесо и предельные режимы ТС на выбранном покрытии. */
+function wheelsForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  const surface = app.scene().env.surface;
+  const r = wheelReport(a, surface);
+  if (!r) return;
+  const g = h('div', { class: 'group' }, h('h4', {}, 'Колёса и сцепление'));
+  const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, 'Колесо'), h('th', {}, 'стоя, кг'), h('th', {}, 'при торможении, кг')));
+  for (const w of r.wheels) table.append(h('tr', {}, h('td', {}, w.label), h('td', {}, w.load.toFixed(0)), h('td', {}, w.loadBraking.toFixed(0))));
+  const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1) : '—');
+  const limit =
+    r.limit === 'roll'
+      ? `опрокидывание при ${f1(r.ayRoll)} м/с² (раньше, чем срыв шин: ${f1(r.ayGrip)} м/с²)`
+      : `${r.limitMode === 'understeer' ? 'снос передней оси' : 'занос задней оси'} при ${f1(r.ayGrip)} м/с²${r.ayRoll < 1e3 ? `; опрокидывание — от ${f1(r.ayRoll)} м/с²` : ''}`;
+  g.append(
+    table,
+    h('small', {}, `Привод: ${r.drive}. ${r.abs ? 'Есть АБС: торможение с сохранением управляемости.' : 'АБС нет: при экстренном торможении колёса блокируются.'}`),
+    h('small', {}, `Экстренное торможение: ${r.decel.toFixed(2)} м/с²${r.abs ? '' : `, юзом ${r.decelLocked.toFixed(2)} м/с²`}; с 50 км/ч до остановки ${r.stop50.toFixed(1)} м (без времени реакции).`),
+    h('small', {}, `Поворот: ${limit}. По дуге радиусом 30 м безопасно до ${r.vTurn30.toFixed(0)} км/ч.`),
+    h('small', {}, `Разгон ограничен сцеплением ведущих колёс: ${f1(r.traction)} м/с². Нагрузка на колёса и предел поворота зависят от груза и покрытия (${SURFACES[surface].name.toLowerCase()}).`),
+  );
+  box.append(g);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -341,6 +365,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     );
   }
   if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
+  if (isVeh) wheelsForm(box, a, app);
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
   pathBox.append(

@@ -112,6 +112,45 @@ describe('перекрёсток как геометрическая сущно�
 });
 
 describe('манёвр по въезду и выезду полного пути', () => {
+  it('распознаёт типичный наружный поворот по полному маршруту', () => {
+    const geo = buildGeo(cross());
+    const a = actor([{ x: -6, y: 1.75, v: 20 }, { x: -1.75, y: 6, v: 20 }, { x: -1.75, y: 40, v: 20 }]);
+    a.x = -30;
+    expect(classifyIntersectionMovement(geo, a, geo.intersections[0])).toMatchObject({
+      maneuver: 'right', entryRoadId: 'h', exitRoadId: 'v',
+    });
+  });
+
+  it('использует местный переход дорог, когда наружный поворот обходит оценочную границу', () => {
+    const geo = buildGeo(cross());
+    const a = actor([{ x: -8, y: 1.75, v: 20 }, { x: -1.75, y: 8, v: 20 }, { x: -1.75, y: 40, v: 20 }]);
+    a.x = -30;
+    expect(classifyIntersectionMovement(geo, a, geo.intersections[0])).toMatchObject({
+      maneuver: 'right', entryRoadId: 'h', exitRoadId: 'v', routeSource: 'nearby-road-transition',
+    });
+  });
+
+  it('не обходит обмеренную границу предположением о местном переходе дорог', () => {
+    const scene = cross();
+    scene.intersectionBounds = [{ id: 'survey', roadIds: ['h', 'v'], boundary: [
+      { x: -3.5, y: -3.5 }, { x: 3.5, y: -3.5 }, { x: 3.5, y: 3.5 }, { x: -3.5, y: 3.5 },
+    ] }];
+    const geo = buildGeo(scene);
+    const a = actor([{ x: -8, y: 1.75, v: 20 }, { x: -1.75, y: 8, v: 20 }, { x: -1.75, y: 40, v: 20 }]);
+    a.x = -30;
+    expect(classifyIntersectionMovement(geo, a, geo.intersections[0]).maneuver).toBe('unknown');
+  });
+
+  it('не связывает с перекрёстком удалённый переход между теми же дорогами', () => {
+    const scene = cross();
+    scene.roads[0].pts.push({ x: 80, y: 80 });
+    scene.roads[1].pts.push({ x: 80, y: 80 });
+    const geo = buildGeo(scene);
+    const a = actor([{ x: 80, y: 75, v: 20 }, { x: 75, y: 80, v: 20 }, { x: 0, y: 80, v: 20 }]);
+    Object.assign(a, { x: 80, y: 40, heading: Math.PI / 2 });
+    expect(classifyIntersectionMovement(geo, a, geo.intersections.find(j => Math.abs(j.center.x) < 1)!).maneuver).toBe('unknown');
+  });
+
   it.each([
     ['straight', [{ x: 60, y: 1.75, v: 20 }]],
     ['right', [{ x: -6, y: 1.75, v: 20 }, { x: -1.75, y: 6, v: 20 }, { x: -1.75, y: 60, v: 20 }]],

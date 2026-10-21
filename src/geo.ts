@@ -120,6 +120,7 @@ export interface IntersectionMovement {
   exitHeading: number;
   entryRoadId?: string;
   exitRoadId?: string;
+  routeSource?: 'boundary' | 'nearby-road-transition';
 }
 
 export interface Geo {
@@ -492,7 +493,37 @@ export function classifyIntersectionMovement(geo: Geo, actor: Actor, junction: I
       else if (entry && before && !after) { exit = { point: p, heading: angleOf(delta) }; break; }
     }
   }
-  if (!entry || !exit) return { maneuver: 'unknown', entryHeading: entry?.heading ?? actor.heading, exitHeading: exit?.heading ?? actor.heading };
+  if (!entry || !exit) {
+    if (junction.boundarySource !== 'automatic-estimate') return { maneuver: 'unknown', entryHeading: entry?.heading ?? actor.heading, exitHeading: exit?.heading ?? actor.heading };
+    // With no surveyed corner radii an outer turn can skirt the estimated overlap
+    // polygon. Associate only a local transition between this junction's roads;
+    // a distant bend or a path merely passing nearby is not a junction passage.
+    const nearbyLimit = Math.max(...junction.boundary.map(p => dist(p, junction.center)))
+      + Math.max(...geo.roads.filter(r => junction.roadIds.includes(r.road.id)).map(r => r.width)) + 2;
+    const observations: { roadId: string; heading: number }[] = [];
+    for (let i = 1; i < points.length; i++) {
+      if (dist(points[i - 1], junction.center) > nearbyLimit) continue;
+      const heading = angleOf(sub(points[i], points[i - 1]));
+      const hit = roadsAt(geo, points[i - 1], 0.3).filter(r => junction.roadIds.includes(r.rg.road.id))
+        .sort((a, b) => Math.abs(Math.sin(angDiff(angleOf(a.near.tangent), heading))) - Math.abs(Math.sin(angDiff(angleOf(b.near.tangent), heading))))[0];
+      if (!hit) continue;
+      const roadHeading = angleOf(hit.near.tangent);
+      observations.push({ roadId: hit.rg.road.id, heading: dot(fromAngle(heading), hit.near.tangent) >= 0 ? roadHeading : roadHeading + Math.PI });
+    }
+    const first = observations[0];
+    const last = observations.at(-1);
+    if (first && last && first.roadId !== last.roadId) {
+      const incoming = junction.approaches.find(a => a.roadId === first.roadId && a.entry && Math.abs(angDiff(a.heading, first.heading)) < Math.PI / 4);
+      const outgoing = junction.approaches.find(a => a.roadId === last.roadId && a.exit && Math.abs(angDiff(a.heading + Math.PI, last.heading)) < Math.PI / 4);
+      if (incoming && outgoing) {
+        const turn = angDiff(incoming.heading, outgoing.heading + Math.PI);
+        return { maneuver: Math.abs(turn) < Math.PI / 4 ? 'straight' : Math.abs(turn) > Math.PI * 3 / 4 ? 'uturn' : turn > 0 ? 'right' : 'left',
+          entryHeading: incoming.heading, exitHeading: outgoing.heading + Math.PI,
+          entryRoadId: first.roadId, exitRoadId: last.roadId, routeSource: 'nearby-road-transition' };
+      }
+    }
+    return { maneuver: 'unknown', entryHeading: entry?.heading ?? actor.heading, exitHeading: exit?.heading ?? actor.heading };
+  }
   const approachFor = (event: { point: Vec; heading: number }, entering: boolean) => junction.approaches
     .filter(a => (entering ? a.entry : a.exit) && Math.abs(angDiff(a.heading + (entering ? 0 : Math.PI), event.heading)) < Math.PI / 3)
     .sort((a, b) => dist(a.point, event.point) - dist(b.point, event.point))[0];
@@ -507,7 +538,7 @@ export function classifyIntersectionMovement(geo: Geo, actor: Actor, junction: I
   return { maneuver: Math.abs(delta) < Math.PI / 4 ? 'straight' : Math.abs(delta) > Math.PI * 3 / 4 ? 'uturn' : delta > 0 ? 'right' : 'left',
     entryHeading, exitHeading,
     entryRoadId: entryApproach?.roadId ?? roadAt(entry.point, entryHeading),
-    exitRoadId: exitApproach?.roadId ?? roadAt(exit.point, exitHeading) };
+    exitRoadId: exitApproach?.roadId ?? roadAt(exit.point, exitHeading), routeSource: 'boundary' };
 }
 
 export interface RoadHit {

@@ -587,6 +587,7 @@ export function sidewalkAt(geo: Geo, p: Vec): SidewalkGeo | null {
 
 export function trackAt(geo: Geo, p: Vec, tol = 1.2): { tg: TrackGeo; near: NearestInfo } | null {
   for (const tg of geo.tracks) {
+    if (tg.item.kind === 'railway') continue;
     if (tg.pts.length < 2) continue;
     const near = nearestOnPolyline(tg.pts, p);
     if (near.dist <= tol) return { tg, near };

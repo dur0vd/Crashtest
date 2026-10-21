@@ -108,7 +108,7 @@ function approachSigns(ctx: Ctx, i: Info, j: IntersectionGeo, heading: number, e
 }
 
 function participant(ctx: Ctx, i: Info, j: IntersectionGeo): IntersectionParticipant | null {
-  if (i.k0 >= ctx.tl.n) return null;
+  if (i.k0 >= ctx.tl.n || i.a.railwayTrain) return null;
   const vulnerable = !i.isVeh || i.a.type === 'bicycle' || String(i.a.type) === 'sim';
   const pts = routePoints(i);
   const nearbyDestinationCrossing = vulnerable && pts.some((p, k) => k > 0 && distToSegment(j.center, pts[k - 1], p) < 25);
@@ -339,11 +339,11 @@ export function checkIntersectionObservations(ctx: Ctx, add: (f: FindingInput) =
       if (stopped.length < QUEUE_STOP_SECONDS / DT) continue;
       const kBefore = Math.max(i.k0, p.entryFrame - 1);
       const queue = [...ctx.infos.values()].find(o => {
-        if (!o.isVeh || o === i || !o.tr.present[kBefore] || o.tr.v[kBefore] >= 0.3) return false;
+        if (!o.isVeh || o.a.railwayTrain || o === i || !o.tr.present[kBefore] || o.tr.v[kBefore] >= 0.3) return false;
         const q = toLocal(posAt(o, kBefore), { cx: junction.center.x, cy: junction.center.y, a: p.exitHeading });
         return q.x > 0 && q.x < 35 && Math.abs(q.y) < i.hw + o.hw + 1;
       });
-      const crossTraffic = [...ctx.infos.values()].some(o => o !== i && o.isVeh && routeTouches(o, junction, ctx) && Math.abs(Math.sin(angDiff(p.entryHeading, o.a.heading))) > 0.5);
+      const crossTraffic = [...ctx.infos.values()].some(o => o !== i && o.isVeh && !o.a.railwayTrain && routeTouches(o, junction, ctx) && Math.abs(Math.sin(angDiff(p.entryHeading, o.a.heading))) > 0.5);
       const turningException = ['left', 'right'].includes(p.maneuver);
       // TODO(legal-check): применимость исключения 13.2 к конкретному повороту требует установления предусмотренного Правилами случая; одно направление манёвра не доказывает разрешение.
       if (queue && crossTraffic) add({ actorId: p.actorId, severity: turningException ? 'contributing' : 'violation', t: tOf(p.entryFrame), title: turningException ? 'Затор на выходе после поворота: требуется проверка исключения п. 13.2' : 'Выезд на перекрёсток при существовавшем заторе',

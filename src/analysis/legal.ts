@@ -21,6 +21,15 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
   const hasCollision = reports.length > 0;
 
   for (const a of scene.actors) {
+    if (a.railwayTrain) {
+      const state = rules.actors.find(v => v.actorId === a.id)!;
+      // TODO(legal-check): обязанности машиниста и железнодорожные составы
+      // ответственности требуют отдельного корпуса; трамвайный тип — только носитель колеи.
+      const trace = { actorId: a.id, subject: subjectOf(a), legalScope: 'railway-not-implemented' };
+      verdicts.push({ actorId: a.id, status: state.status, text: state.text,
+        legal: [{ refs: [], text: 'Правовая оценка действий машиниста не реализована; дорожные составы для водителя трамвая к поезду не применяются. TODO(legal-check): отдельные железнодорожные нормы.', trace }], trace });
+      continue;
+    }
     const isVeh = a.kind === 'vehicle';
     const mine = findings.filter((f) => f.actorId === a.id);
     const viol = mine.filter((f) => f.severity === 'violation');
@@ -116,8 +125,10 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
   return verdicts;
 }
 
-function buildDuties(reports: CollisionReport[]): LegalInput[] {
+function buildDuties(scene: Scene, reports: CollisionReport[]): LegalInput[] {
   if (!reports.length) return [];
+  if (!scene.actors.some(a => a.kind === 'vehicle' && !a.railwayTrain
+    && reports.some(r => r.collision.a === a.id || r.collision.b === a.id))) return [];
   const harm = harmToAll(reports);
   const anyHarm = [...harm.values()].some((h) => h !== 'none');
   const out: LegalInput[] = [
@@ -137,9 +148,9 @@ function buildDuties(reports: CollisionReport[]): LegalInput[] {
 export function subjectOf(a: Actor) {
   const spec = a.kind === 'vehicle' ? VEHICLES[a.type as VehicleType] : null;
   const age = a.age ?? (a.kind === 'pedestrian' && a.type === 'child' ? null : 18);
-  return { motorized: !!spec?.motorized, licenseRequired: !!spec?.licenseRequired, age,
+  return { roadSubject: !a.railwayTrain, motorized: !!spec?.motorized, licenseRequired: !a.railwayTrain && !!spec?.licenseRequired, age,
     ageAssumed: a.age === undefined && age !== null,
-    administrativeSubject: age !== null ? age >= 16 : false,
+    administrativeSubject: !a.railwayTrain && age !== null ? age >= 16 : false,
   };
 }
 
@@ -156,6 +167,10 @@ const RULE_OFFENCES: Record<string, string> = {
   'rule:slow-vehicle-yield': 'koap:12.15#1.1',
   'rule:meeting-priority': 'koap:12.15#1',
   'rule:road-position': 'koap:12.15#1',
+  'rule:railway-prohibited-entry': 'koap:12.10#1',
+  'rule:railway-stop': 'koap:12.10#1',
+  'rule:railway-outside': 'koap:12.10#1',
+  'rule:railway-other': 'koap:12.10#2',
   'rule:spacing': 'koap:12.15.1',
   'rule:sidewalk': 'koap:12.15.2',
   'rule:opposing-lane': 'koap:12.15.4',
@@ -202,7 +217,7 @@ export function analyzeLegal(scene: Scene, rules: RulesSection): { section: Lega
   for (const verdict of verdicts) {
     const a = scene.actors.find(a => a.id === verdict.actorId)!;
     const subject = subjectOf(a);
-    if (!subject.administrativeSubject) {
+    if (!a.railwayTrain && !subject.administrativeSubject) {
       verdict.legal = verdict.legal.map(l => ({ ...l, refs: l.refs.filter(r => !r.startsWith('koap:')) })).filter(l => l.refs.length);
       verdict.legal.push({ refs: [], text: a.type === 'child' && a.age === undefined
         ? 'Возраст ребёнка не задан: административная квалификация не определяется; дети до 16 лет не являются субъектами КоАП.'
@@ -213,7 +228,7 @@ export function analyzeLegal(scene: Scene, rules: RulesSection): { section: Lega
       item.trace = { ...item.trace, assessmentDate, editionDate: LEGAL_EDITION_DATE };
     }
   }
-  const duties = buildDuties(rules.collisions).map(l => ({ ...l,
+  const duties = buildDuties(scene, rules.collisions).map(l => ({ ...l,
     trace: { collisions: rules.collisions.map(c => c.trace), assessmentDate, editionDate: LEGAL_EDITION_DATE },
     sanctions: sanctionsFor(l.refs, assessmentDate),
   }));

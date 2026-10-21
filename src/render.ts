@@ -174,6 +174,7 @@ export class Renderer {
     this.drawRoads(geo);
     if (v.mode === 'edit') this.drawIntersectionBoundaries(v, geo);
     this.drawTracks(geo);
+    this.drawRailwayCrossings(v);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
@@ -337,9 +338,9 @@ export class Renderer {
     const { ctx } = this;
     for (const tg of geo.tracks) {
       if (tg.pts.length < 2) continue;
-      if (tg.item.separated) {
+      if (tg.item.separated || tg.item.kind === 'railway') {
         tracePath(ctx, tg.pts);
-        ctx.strokeStyle = '#59606b';
+        ctx.strokeStyle = tg.item.kind === 'railway' ? '#817b70' : '#59606b';
         ctx.lineWidth = GAUGE + 1.4;
         ctx.stroke();
       }
@@ -355,6 +356,53 @@ export class Renderer {
         ctx.lineWidth = 0.12;
         ctx.stroke();
       }
+    }
+  }
+
+  private drawRailwayCrossings(v: ViewState): void {
+    const { ctx } = this;
+    for (const crossing of v.scene.railwayCrossings ?? []) {
+      ctx.save();
+      ctx.translate(crossing.x, crossing.y);
+      ctx.rotate(crossing.angle);
+      ctx.fillStyle = 'rgba(225,190,100,0.10)';
+      ctx.fillRect(-crossing.length / 2, -crossing.width / 2, crossing.length, crossing.width);
+      ctx.strokeStyle = '#e1be64';
+      ctx.lineWidth = Math.max(0.06, 1 / v.cam.s);
+      ctx.setLineDash([0.5, 0.5]);
+      ctx.strokeRect(-crossing.length / 2, -crossing.width / 2, crossing.length, crossing.width);
+      ctx.setLineDash([]);
+      // Положение управления рисуется только по заданному расстоянию до крайних рельсов.
+      if (crossing.controlDistance !== undefined) for (const side of [-1, 1]) {
+        const x = side * (crossing.length / 2 + crossing.controlDistance);
+        const y = side * crossing.width / 2;
+        if (crossing.barrier && crossing.barrier !== 'none') {
+          const closed = crossing.barrier === 'closed' || crossing.barrier === 'closing';
+          ctx.save();
+          ctx.translate(x, y);
+          if (closed) ctx.rotate(-side * Math.PI / 2);
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 0.22;
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(crossing.width * 0.85, 0); ctx.stroke();
+          ctx.strokeStyle = '#e5484d';
+          ctx.setLineDash([0.55, 0.55]); ctx.stroke(); ctx.setLineDash([]);
+          ctx.restore();
+        }
+        if (crossing.lightPresent === true) {
+          ctx.fillStyle = '#171c24';
+          ctx.fillRect(x - 0.4, y - 0.8, 0.8, 0.8);
+          const lit = crossing.signal === 'red' || crossing.signal === 'white';
+          const blink = Math.floor(v.t * 2) % 2 === 0;
+          ctx.fillStyle = lit && blink ? crossing.signal === 'red' ? '#ff3844' : '#ecf0ff' : '#4e5663';
+          ctx.beginPath(); ctx.arc(x, y - 0.4, 0.23, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      if (crossing.stopLineDistance !== undefined) for (const side of [-1, 1]) {
+        const x = side * (crossing.length / 2 + crossing.stopLineDistance);
+        ctx.strokeStyle = '#f2f4f8'; ctx.lineWidth = 0.25;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, side * crossing.width / 2); ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 
@@ -979,7 +1027,7 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
-        this.drawIndicators(a, spec.length, spec.width, v);
+        if (!a.railwayTrain) this.drawIndicators(a, spec.length, spec.width, v);
       }
       ctx.restore();
     }
@@ -1033,8 +1081,9 @@ export class Renderer {
         ctx.fill();
         break;
       case 'tram':
-        for (let i = 1; i < 3; i++) {
-          ctx.fillRect(-L / 2 + (i * L) / 3 - 0.08, -W / 2, 0.16, W);
+        for (let i = 1; i < (a.railwayTrain ? Math.min(100, Math.ceil(L / 15)) : 3); i++) {
+          const sections = a.railwayTrain ? Math.min(100, Math.ceil(L / 15)) : 3;
+          ctx.fillRect(-L / 2 + (i * L) / sections - 0.08, -W / 2, 0.16, W);
         }
         ctx.fillRect(L / 2 - 1.6, -W / 2 + 0.2, 1.3, W - 0.4);
         break;
@@ -1359,6 +1408,17 @@ export class Renderer {
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
+    for (const [index, crossing] of (v.scene.railwayCrossings ?? []).entries()) {
+      const point = worldToScreen(v.cam, this.w, this.h, crossing);
+      const barrier = { none: 'без шлагбаума', open: 'шлагбаум открыт', closing: 'шлагбаум закрывается', closed: 'шлагбаум закрыт' };
+      const signal = { off: 'сигналы выключены', red: 'красный', white: 'бело-лунный' };
+      const text = `Переезд ${index + 1}: ${crossing.barrier ? barrier[crossing.barrier] : 'шлагбаум ?'}, ${crossing.signal ? signal[crossing.signal] : 'сигнал ?'}`;
+      const width = ctx.measureText(text).width + 10;
+      ctx.fillStyle = 'rgba(12,15,20,0.85)';
+      ctx.fillRect(point.x - width / 2, point.y - 24, width, 18);
+      ctx.fillStyle = '#e1be64';
+      ctx.fillText(text, point.x, point.y - 9);
+    }
     const labels = actorLabels(v.scene);
     for (const a of v.scene.actors) {
       const pose = this.poseOf(v, a);
@@ -1366,7 +1426,7 @@ export class Renderer {
       const sp = actorSpec(a);
       const s = worldToScreen(v.cam, this.w, this.h, pose.p);
       const y = s.y - (sp.width / 2) * v.cam.s - 10;
-      const text = labels.get(a.id) ?? '';
+      const text = `${labels.get(a.id) ?? ''}${a.railwayTrain ? ' · поезд' : ''}`;
       const w = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(12,15,20,0.78)';
       ctx.beginPath();

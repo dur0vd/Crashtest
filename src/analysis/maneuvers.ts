@@ -1,11 +1,12 @@
 import { classifyIntersectionMovement, intersectionAt, inIntersectionBoundary, lateralFor, roadsAt, type RoadHit } from '../geo';
-import { angDiff, angleOf, dist, dot, fromAngle, pointInObb, obbCorners, toLocal, nearestOnPolyline } from '../geom';
+import { angDiff, angleOf, dist, dot, fromAngle, pointInObb, obbContact, obbCorners, toLocal, nearestOnPolyline } from '../geom';
 import { type Movement, type Road, LANE_WIDTH, dimsOf } from '../scene';
 import { DT, type Collision } from '../sim';
 import { SIGNAL_CANCEL_SECONDS, SIGNAL_LEAD_METERS, SIGNAL_LEAD_SECONDS, vehicleSignalAt } from '../maneuver-signals';
 import type { Ctx, Info } from './context';
 import { boxAt, posAt, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
+import { railwayBox } from './railway';
 
 /** Observation tolerances, not statutory dimensions or times. */
 const TURN_START_ANGLE = 0.12;
@@ -195,6 +196,7 @@ function forbiddenPlace(ctx: Ctx, i: Info, frame: number): { refs: string[]; roa
   const hit = atRoad(ctx, i, frame);
   const road = hit?.rg.road;
   const reasons = (['bridge', 'tunnel', 'railway-crossing', 'stop-area'] as const).filter(f => feature(road, f));
+  if (!reasons.includes('railway-crossing') && ctx.scene.railwayCrossings?.some(c => obbContact(boxAt(i, frame), railwayBox(c)))) reasons.push('railway-crossing');
   if (feature(road, 'limited-visibility') || road?.visibility !== undefined && road.visibility < 100) reasons.push('limited-visibility' as never);
   const crossing = ctx.geo.crosswalks.some(c => pointInObb(c.item, boxAt(i, frame)) || obbCorners(boxAt(i, frame)).some(p => pointInObb(p, c.box)));
   return { refs: crossing ? ['pdd:8.11', 'pdd:14.1'] : ['pdd:8.11'], road,
@@ -221,7 +223,7 @@ function positionChecks(ctx: Ctx, i: Info, events: ObservedManeuver[], add: Add)
     const directedOrder = ctx.scene.signs.some(sign => ['5.15.1', '5.15.2'].includes(sign.kind)
       && dist(sign, posAt(i, before)) < 40 && Math.abs(angDiff(sign.angle, event.heading)) < 0.5)
       || ctx.scene.markings.some(mark => mark.kind === '1.18' && mark.pts.some(point => dist(point, posAt(i, before)) < 25));
-    const tram = !right && !directedOrder ? ctx.geo.tracks.map(track => ({ track, near: nearestOnPolyline(track.pts, posAt(i, before)) }))
+    const tram = !right && !directedOrder ? ctx.geo.tracks.filter(track => track.item.kind !== 'railway').map(track => ({ track, near: nearestOnPolyline(track.pts, posAt(i, before)) }))
       .filter(item => !item.track.item.separated && !item.near.beyond && item.near.dist <= width + 1.5
         && dot(item.near.tangent, fromAngle(event.heading)) > 0.7
         && toLocal(item.near.point, { cx: i.tr.x[before], cy: i.tr.y[before], a: event.heading }).y <= 0.6)
@@ -376,6 +378,7 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
       for (let k = start; k <= end; k++) {
         const hit = atRoad(ctx, A, k), road = hit?.rg.road, reasons: string[] = [];
         for (const name of ['bridge', 'tunnel', 'railway-crossing', 'limited-visibility'] as const) if (feature(road, name)) reasons.push(name);
+        if (!reasons.includes('railway-crossing') && ctx.scene.railwayCrossings?.some(c => obbContact(boxAt(A, k), railwayBox(c)))) reasons.push('railway-crossing');
         const crossing = ctx.geo.crosswalks.some(c => pointInObb(posAt(A, k), c.box, A.hl));
         if (crossing) reasons.push('pedestrian-crossing');
         const j = intersectionAt(ctx.geo, posAt(A, k));
@@ -387,7 +390,16 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
           const l = toLocal(point, { cx: A.tr.x[k], cy: A.tr.y[k], a: A.tr.h[k] });
           return l.x > 0 && l.x <= 100 && Math.abs(l.y) < 10;
         }));
-        if (beforeRail) reasons.push('less-than-100m-before-railway');
+        const beforeMeasuredRail = ctx.scene.railwayCrossings?.some(c => {
+          const delta = c.angle - A.tr.h[k];
+          if (Math.abs(Math.sin(delta)) > 0.3) return false;
+          const local = toLocal(c, { cx: A.tr.x[k], cy: A.tr.y[k], a: A.tr.h[k] });
+          const along = Math.abs(Math.cos(delta)) * c.length / 2 + Math.abs(Math.sin(delta)) * c.width / 2;
+          const across = Math.abs(Math.cos(delta)) * c.width / 2 + Math.abs(Math.sin(delta)) * c.length / 2;
+          const remaining = local.x - along - A.hl;
+          return remaining >= 0 && remaining <= 100 && Math.abs(local.y) <= across + A.hw;
+        });
+        if (beforeRail || beforeMeasuredRail) reasons.push('less-than-100m-before-railway');
         if (reasons.length) { forbidden.push({ frame: k, reasons }); break; }
       }
       const ban = ctx.gates.find(g => g.actorId === A.a.id && g.sign?.kind === '3.20' && g.frame <= end && (g.until === undefined || g.until > start));
@@ -410,7 +422,7 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
     }
   }
   for (const i of ctx.infos.values()) {
-    if (!i.isVeh || !i.a.maneuverContext?.overtakingDifficult) continue;
+    if (!i.isVeh || i.a.railwayTrain || !i.a.maneuverContext?.overtakingDifficult) continue;
     const hit = atRoad(ctx, i, i.k0);
     if (!hit || hit.rg.road.zone !== 'outside') continue;
     const dimensions = dimsOf(i.a);
@@ -428,7 +440,7 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
 
 export function maneuverPriority(ctx: Ctx, a: string, b: string, col: Collision): ManeuverPriority | null {
   const A = ctx.infos.get(a), B = ctx.infos.get(b);
-  if (!A || !B || !A.isVeh || !B.isVeh || intersectionAt(ctx.geo, col.point)) return null;
+  if (!A || !B || !A.isVeh || !B.isVeh || A.a.railwayTrain || B.a.railwayTrain || intersectionAt(ctx.geo, col.point)) return null;
   const k = Math.max(A.k0, B.k0, col.frame - Math.round(1.5 / DT));
   const opposite = Math.abs(angDiff(A.tr.h[k], B.tr.h[k])) > 2.2;
   const pair = (Y: Info, P: Info, refs: string[], explain: string): ManeuverPriority => ({ from: Y.a.id, to: P.a.id, refs,
@@ -481,7 +493,7 @@ export function maneuverPriority(ctx: Ctx, a: string, b: string, col: Collision)
 
 /** Requirements and causal observations; never mutates the immutable technical stage. */
 export function checkManeuvers(ctx: Ctx, add: Add): void {
-  for (const i of ctx.infos.values()) if (i.isVeh && i.k0 < ctx.tl.n) {
+  for (const i of ctx.infos.values()) if (i.isVeh && !i.a.railwayTrain && i.k0 < ctx.tl.n) {
     const events = observedManeuvers(ctx, i);
     signalChecks(ctx, i, events, add);
     positionChecks(ctx, i, events, add);

@@ -141,11 +141,66 @@ export interface Sidewalk {
 
 export interface TramTrack {
   id: string;
+  /** Старые сцены содержат трамвайные пути. Железная дорога задаётся явно. */
+  kind?: 'tram' | 'railway';
   pts: Vec[];
   radius?: number;
   /** путь выделен бордюром или разделительной полосой */
   separated: boolean;
   smooth: boolean;
+}
+
+/** Геометрия и установленные состояния переезда; незаданный факт неизвестен. */
+export interface RailwayCrossing {
+  id: string;
+  x: number;
+  y: number;
+  /** Курс пересекающей рельсы дороги. */
+  angle: number;
+  /** Ширина поперёк дороги и расстояние между крайними рельсами вдоль дороги, м. */
+  width: number;
+  length: number;
+  barrier?: 'none' | 'open' | 'closing' | 'closed';
+  signal?: 'off' | 'red' | 'white';
+  lightPresent?: boolean;
+  stopLinePresent?: boolean;
+  regulated?: boolean;
+  attendantStop?: boolean;
+  exitBlocked?: boolean;
+  visibleTrainApproaching?: boolean;
+  /** Измеренные расстояния от ближайшего крайнего рельса, симметрично с обеих сторон. */
+  stopLineDistance?: number;
+  controlDistance?: number;
+  source?: string;
+}
+
+/** Параметры конкретного состава из задания/источника; типовые значения не подставляются. */
+export interface RailwayTrain {
+  mass: number;
+  length: number;
+  width: number;
+  brakeDecel: number;
+  source: string;
+  trackId?: string;
+}
+
+export interface RailwayContext {
+  crossingId?: string;
+  bypassingWaitingQueue?: boolean;
+  openedBarrier?: boolean;
+  machineryTransportPosition?: boolean;
+  /** Конструктивная скорость машины менее 8 км/ч, а не её текущая скорость. */
+  slowMachinery?: boolean;
+  tractorSledge?: boolean;
+  trackAuthorityPermission?: boolean;
+  forcedStop?: boolean;
+  passengersDisembarked?: boolean;
+  clearingCrossing?: boolean;
+  stopMessengers?: 'both' | 'worse-visibility' | 'none';
+  messengersPossible?: boolean;
+  stayedByVehicle?: boolean;
+  generalAlarm?: boolean;
+  trainStopSignal?: boolean;
 }
 
 export interface Crosswalk {
@@ -318,6 +373,8 @@ export interface Actor {
   path: Waypoint[];
   flags: DriverFlags;
   maneuverContext?: ManeuverContext;
+  railwayTrain?: RailwayTrain;
+  railwayContext?: RailwayContext;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -340,6 +397,7 @@ export interface Env {
 }
 
 export interface Scene {
+  railwayCrossings?: RailwayCrossing[];
   /** Обмеренные границы по началам закруглений (п. 1.2), заменяют автоматическую оценку. */
   intersectionBounds?: { id: string; roadIds: string[]; boundary: Vec[] }[];
   /** Дата правовой оценки (ISO YYYY-MM-DD). */
@@ -366,6 +424,7 @@ export function emptyScene(): Scene {
     roads: [],
     sidewalks: [],
     tracks: [],
+    railwayCrossings: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -425,6 +484,11 @@ export function pedestrianGreen(scene: Scene, c: Crosswalk, t: number): boolean 
 }
 
 export function actorSpec(a: Actor): { length: number; width: number; mass: number } {
+  if (a.railwayTrain) {
+    validateRailwayTrain(a);
+    const { length, width, mass } = a.railwayTrain;
+    return { length, width, mass };
+  }
   if (a.kind === 'pedestrian') {
     const s = PEDESTRIANS[a.type as PedestrianType];
     return { length: s.size, width: s.size, mass: s.mass };
@@ -446,12 +510,24 @@ export function actorLabels(scene: Scene): Map<string, string> {
 }
 
 export function actorTitle(a: Actor, labels: Map<string, string>): string {
-  const name = a.kind === 'vehicle' ? VEHICLES[a.type as VehicleType].name : PEDESTRIANS[a.type as PedestrianType].name;
+  const name = a.railwayTrain ? 'Поезд' : a.kind === 'vehicle' ? VEHICLES[a.type as VehicleType].name : PEDESTRIANS[a.type as PedestrianType].name;
   return `${labels.get(a.id) ?? a.id} (${name.toLowerCase()})`;
 }
 
 export function cloneScene<T>(s: T): T {
   return JSON.parse(JSON.stringify(s)) as T;
+}
+
+export function validateRailwayTrain(a: Actor): void {
+  const train = a.railwayTrain;
+  if (!train) return;
+  if (a.kind !== 'vehicle' || a.type !== 'tram'
+    || !['mass', 'length', 'width', 'brakeDecel'].every(key => {
+      const value = train[key as 'mass' | 'length' | 'width' | 'brakeDecel'];
+      return Number.isFinite(value) && value > 0;
+    }) || typeof train.source !== 'string' || !train.source.trim()) {
+    throw new Error(`Поезд ${a.id}: нужны положительные масса, длина, ширина, замедление и источник параметров`);
+  }
 }
 
 /** Достраивает отсутствующие поля при загрузке сохранённой сцены. */
@@ -481,6 +557,26 @@ export function normalizeScene(raw: unknown): Scene {
     const arr = (r as Record<string, unknown>)[c];
     if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
   }
+  for (const track of scene.tracks) track.kind = track.kind === 'railway' ? 'railway' : 'tram';
+  if (Array.isArray(r.railwayCrossings)) {
+    scene.railwayCrossings = r.railwayCrossings.map(crossing => {
+      if (!crossing || typeof crossing.id !== 'string'
+        || ![crossing.x, crossing.y, crossing.angle, crossing.width, crossing.length].every(Number.isFinite)
+        || crossing.width <= 0 || crossing.length <= 0) throw new Error('Переезд: нужны координаты, угол и положительные размеры');
+      const result: RailwayCrossing = { id: crossing.id, x: crossing.x, y: crossing.y,
+        angle: crossing.angle, width: crossing.width, length: crossing.length };
+      if (['none', 'open', 'closing', 'closed'].includes(crossing.barrier ?? '')) result.barrier = crossing.barrier;
+      if (['off', 'red', 'white'].includes(crossing.signal ?? '')) result.signal = crossing.signal;
+      for (const key of ['lightPresent', 'stopLinePresent', 'regulated', 'attendantStop', 'exitBlocked', 'visibleTrainApproaching'] as const) {
+        if (typeof crossing[key] === 'boolean') result[key] = crossing[key];
+      }
+      for (const key of ['stopLineDistance', 'controlDistance'] as const) {
+        if (Number.isFinite(crossing[key]) && crossing[key]! >= 0) result[key] = crossing[key];
+      }
+      if (typeof crossing.source === 'string') result.source = crossing.source;
+      return result;
+    });
+  } else delete scene.railwayCrossings;
   for (const road of scene.roads) {
     road.role = ['road', 'adjacent', 'roundabout'].includes(road.role ?? '') ? road.role : 'road';
     road.surfacePriority = ['hard', 'unpaved', 'unknown'].includes(road.surfacePriority ?? '') ? road.surfacePriority : 'hard';
@@ -535,6 +631,24 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    validateRailwayTrain(a);
+    if (a.railwayTrain) {
+      a.railwayTrain.source = a.railwayTrain.source.trim();
+      if (typeof a.railwayTrain.trackId !== 'string') delete a.railwayTrain.trackId;
+      delete a.derail; // Порог схода трамвая не является моделью схода поезда.
+    }
+    const rawRailway = a.railwayContext;
+    if (rawRailway && typeof rawRailway === 'object' && !Array.isArray(rawRailway)) {
+      const context: RailwayContext = {};
+      const facts = ['bypassingWaitingQueue', 'openedBarrier', 'machineryTransportPosition', 'slowMachinery',
+        'tractorSledge', 'trackAuthorityPermission', 'forcedStop', 'passengersDisembarked', 'clearingCrossing',
+        'messengersPossible', 'stayedByVehicle', 'generalAlarm', 'trainStopSignal'] as const;
+      for (const fact of facts) if (typeof rawRailway[fact] === 'boolean') context[fact] = rawRailway[fact];
+      if (typeof rawRailway.crossingId === 'string') context.crossingId = rawRailway.crossingId;
+      if (['both', 'worse-visibility', 'none'].includes(rawRailway.stopMessengers ?? '')) context.stopMessengers = rawRailway.stopMessengers;
+      if (Object.keys(context).length) a.railwayContext = context;
+      else delete a.railwayContext;
+    } else delete a.railwayContext;
     a.coveringUnknown = a.coveringUnknown === true;
     // A pedestrian's path already expresses walking direction. The negative
     // speed convention is reserved for reversing transport, not walking back.
@@ -571,6 +685,8 @@ export function dimsOf(a: Actor): { length: number; width: number; height: numbe
   const sp = actorSpec(a);
   if (a.kind !== 'vehicle') return { length: sp.length, width: sp.width, height: 1.7, mass: sp.mass, shift: 0 };
   const vs = VEHICLES[a.type as VehicleType];
+  // Высота пока не участвует в отдельной модели поезда. Груз автотранспорта к составу не прибавляется.
+  if (a.railwayTrain) return { ...sp, height: vs.height, shift: 0 };
   const c = a.cargo;
   if (!c) return { length: sp.length, width: sp.width, height: vs.height, mass: sp.mass, shift: 0 };
   return {

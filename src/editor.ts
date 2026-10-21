@@ -397,6 +397,10 @@ export class Editor {
       for (const w of a.path) pts.push(w);
     }
     for (const it of [...s.lights, ...s.signs, ...s.crosswalks, ...s.obstacles]) pts.push({ x: it.x, y: it.y });
+    for (const crossing of s.railwayCrossings ?? []) {
+      const radius = Math.hypot(crossing.length, crossing.width) / 2;
+      pts.push({ x: crossing.x - radius, y: crossing.y - radius }, { x: crossing.x + radius, y: crossing.y + radius });
+    }
     if (!pts.length) {
       this.cam = { x: 0, y: 0, s: 8 };
       return;

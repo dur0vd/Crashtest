@@ -1,6 +1,6 @@
 import { type CollisionReport, type Finding, type Report, HARM_LABEL, STATUS_LABEL } from './analysis';
 import type { Editor } from './editor';
-import { deg, rad, segIntersect } from './geom';
+import { deg, nearestOnPolyline, rad, segIntersect } from './geom';
 import { buildGeo } from './geo';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
 import { DISCLAIMER, lawRef, describeRef } from './law';
@@ -141,13 +141,13 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
   const title = {
     roads: 'Дорога',
     sidewalks: 'Тротуар',
-    tracks: 'Трамвайный путь',
+    tracks: it.kind === 'railway' ? 'Железнодорожный путь' : 'Трамвайный путь',
     crosswalks: 'Пешеходный переход',
     lights: 'Светофор',
     signs: 'Дорожный знак',
     markings: 'Дорожная разметка',
     obstacles: 'Препятствие',
-    actors: it.kind === 'pedestrian' ? 'Пешеход' : 'Транспортное средство',
+    actors: it.railwayTrain ? 'Поезд' : it.kind === 'pedestrian' ? 'Пешеход' : 'Транспортное средство',
   }[sel.col];
   const box = h('div', { class: 'form' }, h('h3', {}, title));
 
@@ -181,11 +181,12 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       break;
     case 'tracks':
       box.append(
+        field('Назначение пути', select([['tram', 'Трамвайный'], ['railway', 'Железнодорожный']], it.kind ?? 'tram', (value) => app.edit(() => { it.kind = value; }, true))),
         check('Выделенный путь (отделён бордюром)', it.separated, set((v) => (it.separated = v))),
         field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 200 })),
         check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
-        h('small', {}, 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
+        h('small', {}, it.kind === 'railway' ? 'Поезд следует только железнодорожному пути. Место пересечения с дорогой и управление переездом задаются во вкладке «Среда».' : 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
       );
       break;
     case 'crosswalks': {
@@ -422,17 +423,95 @@ function maneuverContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+/** Параметры поезда задаются целиком: неподтверждённого «типового состава» нет. */
+function railwayTrainForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  const train = a.railwayTrain;
+  const group = h('details', { class: 'group', open: !!train }, h('summary', {}, train ? 'Параметры поезда' : 'Задать железнодорожный поезд'),
+    h('p', { class: 'hint' }, 'Введите массу всего состава, габариты и установленное замедление по исходным материалам. Трамвайные параметры не подставляются. Это упрощённое движение по колее; проверьте применимость постоянного замедления.'));
+  let mass = train?.mass;
+  let length = train?.length;
+  let width = train?.width;
+  let brakeDecel = train?.brakeDecel;
+  let trackId = train?.trackId;
+  const source = h('textarea', { rows: 3, value: train?.source ?? '', placeholder: 'Документ, измерение, страница; для учебных данных — явно указать условность' });
+  const note = h('p', { class: 'note', role: 'status' });
+  const railwayTracks = app.scene().tracks.filter(track => track.kind === 'railway');
+  group.append(
+    field('Масса состава, кг', optionalNumber(mass, value => { mass = value; }, { min: 0.001, step: 100 })),
+    field('Длина состава, м', optionalNumber(length, value => { length = value; }, { min: 0.001, step: 0.1 })),
+    field('Ширина состава, м', optionalNumber(width, value => { width = value; }, { min: 0.001, step: 0.01 })),
+    field('Установленное замедление поезда, м/с²', optionalNumber(brakeDecel, value => { brakeDecel = value; }, { min: 0.001, step: 0.01 })),
+    field('Источник параметров поезда', source),
+    field('Железнодорожный путь поезда', select([['', 'Ближайший железнодорожный путь'], ...railwayTracks.map((track, index) => [track.id, `Железнодорожный путь ${index + 1} (${track.id})`] as [string, string])], trackId ?? '', value => { trackId = value || undefined; })),
+    note,
+    button(train ? 'Применить параметры поезда' : 'Применить как поезд', () => {
+      if (![mass, length, width, brakeDecel].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) || !source.value.trim()) {
+        note.textContent = 'Заполните четыре положительных параметра и укажите их источник. Для учебного примера обозначьте данные как условные.';
+        return;
+      }
+      const trackGeometry = buildGeo(app.scene()).tracks.filter(track => track.item.kind === 'railway' && (!trackId || track.item.id === trackId));
+      if (!trackGeometry.some(track => track.pts.length >= 2 && nearestOnPolyline(track.pts, a).dist < 4)) {
+        note.textContent = 'Нарисуйте железнодорожный путь и поставьте участника ближе 4 м к выбранному пути. Назначение пути меняется в его свойствах.';
+        return;
+      }
+      app.edit(() => {
+        a.railwayTrain = { mass: mass!, length: length!, width: width!, brakeDecel: brakeDecel!, source: source.value.trim(), ...(trackId ? { trackId } : {}) };
+        delete a.derail;
+      }, true);
+    }),
+  );
+  if (train) group.append(button('Вернуть режим трамвая', () => app.edit(() => { delete a.railwayTrain; }, true)));
+  box.append(group);
+}
+
+function railwayContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  type Context = NonNullable<Actor['railwayContext']>;
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Установленные обстоятельства на переезде'),
+    h('small', {}, 'Отсутствие сведений сохраняется как «Не установлено». Вынужденная остановка оценивается отдельно от запрещённой остановки.'));
+  group.append(field('Переезд для этих обстоятельств', select([['', 'Не указан'], ...(app.scene().railwayCrossings ?? []).map((crossing, index) => [crossing.id, `Переезд ${index + 1} (${crossing.id})`] as [string, string])], a.railwayContext?.crossingId ?? '', value => app.edit(() => {
+    const context = a.railwayContext ??= {};
+    if (value) context.crossingId = value;
+    else delete context.crossingId;
+  }))));
+  const facts: [Exclude<keyof Context, 'crossingId' | 'stopMessengers'>, string][] = [
+    ['bypassingWaitingQueue', 'Объезжает ожидающие ТС с выездом на встречную полосу'],
+    ['openedBarrier', 'Самовольно открывал шлагбаум'],
+    ['machineryTransportPosition', 'Сельскохозяйственная или строительная машина в транспортном положении'],
+    ['slowMachinery', 'Конструктивная скорость машины менее 8 км/ч'],
+    ['tractorSledge', 'Тракторные сани-волокуши'],
+    ['trackAuthorityPermission', 'Имеется разрешение начальника дистанции пути'],
+    ['forcedStop', 'Остановка на переезде является вынужденной'],
+    ['passengersDisembarked', 'Люди немедленно высажены из ТС'],
+    ['clearingCrossing', 'Принимаются меры для освобождения переезда'],
+    ['messengersPossible', 'Имелась возможность направить людей вдоль путей'],
+    ['stayedByVehicle', 'Водитель остался возле ТС'],
+    ['generalAlarm', 'Подаётся сигнал общей тревоги'],
+    ['trainStopSignal', 'При приближении поезда подан сигнал остановки навстречу ему'],
+  ];
+  for (const [key, label] of facts) group.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], a.railwayContext?.[key] === true ? 'yes' : a.railwayContext?.[key] === false ? 'no' : 'unknown', value => app.edit(() => {
+    const context = a.railwayContext ??= {};
+    if (value === 'unknown') delete context[key];
+    else context[key] = value === 'yes';
+  }))));
+  group.append(field('Люди с сигналом остановки в 1000 м от переезда', select([['unknown', 'Не установлено'], ['both', 'В обе стороны пути'], ['worse-visibility', 'В сторону худшей видимости (один человек)'], ['none', 'Не направлялись']], a.railwayContext?.stopMessengers ?? 'unknown', value => app.edit(() => {
+    const context = a.railwayContext ??= {};
+    if (value === 'unknown') delete context.stopMessengers;
+    else context.stopMessengers = value;
+  })), 'П. 15.5: при имеющейся возможности; людям объясняют правила подачи сигнала остановки.'));
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
   const isVeh = a.kind === 'vehicle';
   const types: [string, string][] = isVeh
-    ? (Object.keys(VEHICLES) as VehicleType[]).map((k) => [k, VEHICLES[k].name])
+    ? (Object.keys(VEHICLES) as VehicleType[]).map((k) => [k, k === 'tram' && a.railwayTrain ? 'Поезд (параметры ниже)' : VEHICLES[k].name])
     : (Object.keys(PEDESTRIANS) as (keyof typeof PEDESTRIANS)[]).map((k) => [k, PEDESTRIANS[k].name]);
   const color = h('input', { type: 'color', value: a.color });
   color.addEventListener('change', () => app.edit(() => (a.color = color.value)));
   box.append(
-    field('Тип', select(types, a.type, (v) => app.edit(() => (a.type = v as Actor['type']), true))),
+    field('Тип', select(types, a.type, (v) => app.edit(() => { a.type = v as Actor['type']; if (v !== 'tram') delete a.railwayTrain; }, true))),
     field('Цвет', color),
     field('Скорость в начале, км/ч', num(a.speed, value => app.edit(() => { a.speed = value; ed.syncHeading(a); }, true), { min: isVeh ? -50 : 0, max: 250 }), isVeh ? 'Отрицательная скорость — задний ход. Траектория задаёт направление перемещения, кузов обращён в противоположную сторону.' : undefined),
     field('Появится через, с', num(a.delay, set((v) => (a.delay = v)), { min: 0, max: 60, step: 0.5 })),
@@ -459,13 +538,17 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Рельсы'),
-        h('p', { class: 'hint' }, 'Трамвай едет строго по ближайшему пути (точки маршрута притягиваются к колее). Удар его не сдвигает, он тормозит на рельсах.'),
-        check('Возможен сход с путей (удар от 20 км/ч)', !!a.derail, set((v) => (a.derail = v))),
+        h('p', { class: 'hint' }, a.railwayTrain ? 'Поезд следует железнодорожной колее; масса, габариты и замедление берутся из параметров ниже. Модель не рассчитывает сход поезда с рельсов.' : 'Трамвай едет строго по ближайшему трамвайному пути (точки маршрута притягиваются к колее). Удар его не сдвигает, он тормозит на рельсах.'),
+        !a.railwayTrain && check('Возможен сход с путей (удар от 20 км/ч)', !!a.derail, set((v) => (a.derail = v))),
       ),
     );
+    railwayTrainForm(box, a, app);
   }
   if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
-  if (isVeh) maneuverContextForm(box, a, app);
+  if (isVeh && !a.railwayTrain) {
+    maneuverContextForm(box, a, app);
+    railwayContextForm(box, a, app);
+  }
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
   pathBox.append(
@@ -553,6 +636,68 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
     field('До манёвра, м', num(s.env.signalLeadMeters ?? SIGNAL_LEAD_METERS, set((value: number) => { s.env.signalLeadMeters = value; }), { min: 1, max: 1000, step: 1 })),
   ));
   intersectionBoundariesForm(root, app, () => buildEnv(root, app, extra));
+  railwayCrossingsForm(root, app, () => buildEnv(root, app, extra));
+}
+
+function railwayCrossingsForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {
+  type Crossing = NonNullable<Scene['railwayCrossings']>[number];
+  const group = h('details', { class: 'form' }, h('summary', {}, 'Железнодорожные переезды'),
+    h('p', { class: 'note' }, 'Рельсовый путь рисуется на карте с назначением «Железнодорожный». Здесь задаются измеренная область переезда и установленные состояния управления. Неизвестные факты не считаются разрешающими.'));
+  for (const [index, crossing] of (app.scene().railwayCrossings ?? []).entries()) {
+    const panel = h('details', { class: 'group' }, h('summary', {}, `Переезд ${index + 1} (${crossing.id})`));
+    const set = <K extends keyof Crossing>(key: K, value: Crossing[K]) => app.edit(() => { crossing[key] = value; });
+    panel.append(
+      field('X переезда, м', num(crossing.x, value => set('x', value), { step: 0.1 })),
+      field('Y переезда, м', num(crossing.y, value => set('y', value), { step: 0.1 })),
+      field('Курс дороги через переезд, °', num(deg(crossing.angle), value => set('angle', rad(value)), { step: 1 })),
+      field('Длина между крайними рельсами вдоль дороги, м', num(crossing.length, value => set('length', value), { min: 0.01, step: 0.1 })),
+      field('Ширина переезда поперёк дороги, м', num(crossing.width, value => set('width', value), { min: 0.01, step: 0.1 })),
+      field('Шлагбаум', select([['unknown', 'Не установлено'], ['none', 'Отсутствует'], ['open', 'Открыт'], ['closing', 'Закрывается'], ['closed', 'Закрыт']], crossing.barrier ?? 'unknown', value => set('barrier', value === 'unknown' ? undefined : value))),
+      field('Сигнал на переезде', select([['unknown', 'Не установлен'], ['off', 'Красный и белый выключены'], ['red', 'Запрещающий красный'], ['white', 'Мигающий бело-лунный']], crossing.signal ?? 'unknown', value => set('signal', value === 'unknown' ? undefined : value))),
+    );
+    const facts: [keyof Pick<Crossing, 'regulated' | 'lightPresent' | 'stopLinePresent' | 'attendantStop' | 'exitBlocked' | 'visibleTrainApproaching'>, string][] = [
+      ['regulated', 'Переезд регулируемый'],
+      ['lightPresent', 'Светофор физически имеется'],
+      ['stopLinePresent', 'Имеется стоп-линия / знак 6.16 или 2.5'],
+      ['attendantStop', 'Дежурный подаёт запрещающий сигнал'],
+      ['exitBlocked', 'Затор за переездом вынудит остановиться на путях'],
+      ['visibleTrainApproaching', 'В пределах видимости приближается поезд'],
+    ];
+    for (const [key, label] of facts) panel.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], crossing[key] === true ? 'yes' : crossing[key] === false ? 'no' : 'unknown', value => set(key, value === 'unknown' ? undefined : value === 'yes'))));
+    panel.append(
+      field('От крайнего рельса до стоп-линии / знака, м', optionalNumber(crossing.stopLineDistance, value => set('stopLineDistance', value), { min: 0, step: 0.1 })),
+      field('От крайнего рельса до светофора / шлагбаума, м', optionalNumber(crossing.controlDistance, value => set('controlDistance', value), { min: 0, step: 0.1 })),
+      h('small', {}, 'Эти расстояния задают симметричное расположение с двух сторон переезда. Если стороны различаются или измерений нет, оставьте поле пустым; расстояние не будет установлено автоматически.'),
+      field('Источник геометрии и состояний переезда', h('textarea', { rows: 3, value: crossing.source ?? '', onchange: (event: Event) => set('source', (event.target as HTMLTextAreaElement).value.trim() || undefined) })),
+      button('Показать этот переезд', () => { app.editor.cam.x = crossing.x; app.editor.cam.y = crossing.y; app.editor.onView(); }),
+      button('Удалить переезд', () => { app.edit(() => { app.scene().railwayCrossings = (app.scene().railwayCrossings ?? []).filter(item => item.id !== crossing.id); }); rebuild(); }),
+    );
+    group.append(panel);
+  }
+  let length: number | undefined;
+  let width: number | undefined;
+  let angle = 0;
+  const source = h('textarea', { rows: 2, placeholder: 'Схема, измерения; для учебного примера укажите условность' });
+  const note = h('p', { class: 'note', role: 'status' });
+  const draft = h('details', { class: 'group' }, h('summary', {}, 'Добавить переезд в центре карты'),
+    field('Длина нового переезда между крайними рельсами, м', optionalNumber(undefined, value => { length = value; }, { min: 0.01, step: 0.1 })),
+    field('Ширина нового переезда, м', optionalNumber(undefined, value => { width = value; }, { min: 0.01, step: 0.1 })),
+    field('Курс дороги нового переезда, °', num(0, value => { angle = rad(value); }, { step: 1 })),
+    field('Источник нового переезда', source), note,
+    button('Добавить переезд', () => {
+      if (!length || !width || !source.value.trim()) { note.textContent = 'Укажите положительные размеры и источник. Для учебной геометрии обозначьте её как условную.'; return; }
+      app.edit(() => {
+        const crossings = app.scene().railwayCrossings ??= [];
+        const ids = new Set(crossings.map(item => item.id));
+        let number = crossings.length + 1;
+        while (ids.has(`railway-crossing-${number}`)) number++;
+        crossings.push({ id: `railway-crossing-${number}`, x: app.editor.cam.x, y: app.editor.cam.y, angle, length: length!, width: width!, source: source.value.trim() });
+      });
+      rebuild();
+    }),
+  );
+  group.append(draft);
+  root.append(group);
 }
 
 function intersectionBoundariesForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {

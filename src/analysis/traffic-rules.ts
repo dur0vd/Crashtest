@@ -29,6 +29,7 @@ import {
 
 import type { Ctx, Info } from './context';
 import { checkManeuvers, maneuverPriority } from './maneuvers';
+import { checkRailway, railwayPriority } from './railway';
 import { movementPermission } from '../traffic-control';
 import { buildPriorityGraphs, checkIntersectionObservations, controllerAt, graphPriority, turningVulnerablePriority, movementFor } from './intersections';
 import type { FindingInput, DraftFinding, TechAssessment, CollisionReport, Finding, RulesSection, ActorVerdict } from './types';
@@ -65,6 +66,7 @@ function zoneLimit(type: VehicleType, zone: 'city' | 'outside' | 'residential'):
 }
 
 export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; refs: string[] } | null {
+  if (i.a.railwayTrain) return null;
   const hits = roadsAt(ctx.geo, posAt(i, k), 1);
   if (!hits.length) return null;
   const active = activeSigns(ctx, i.a.id, k, 100000);
@@ -156,7 +158,7 @@ function checkPosition(ctx: Ctx, i: Info): void {
       }
     }
     const tk = trackAt(ctx.geo, p, 1.1);
-    if (tk && dot(fromAngle(i.tr.h[k]), tk.near.tangent) < -0.3 && i.tr.v[k] > 0.5) {
+    if (tk && tk.tg.item.kind !== 'railway' && dot(fromAngle(i.tr.h[k]), tk.near.tangent) < -0.3 && i.tr.v[k] > 0.5) {
       tramOnc++;
       if (tramOncK < 0) tramOncK = k;
     }
@@ -403,6 +405,13 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       const ob = geo.obstacles.find((x) => x.item.id === col.b)!;
       title = 'Наезд на препятствие';
       description = `${A.label} столкнулся с препятствием (${obstacleName(ob.item.kind)}) на скорости около ${impactKmh} км/ч.`;
+      if (A.a.railwayTrain) {
+        const assessment = addTech(A, col.b);
+        if (assessment) notes.push(techText(assessment, A.label, obstacleName(ob.item.kind)));
+        notes.push('Для поезда приведён технический расчёт по заданным параметрам. Причина столкновения и обязанности машиниста по дорожным правилам не устанавливаются.');
+        reports.push(finishCollision(ctx, col, title, description, tech, notes));
+        continue;
+      }
       const onRoad = roadsAt(geo, posAt(A, kp), 1).length > 0;
       const tr = addTech(A, col.b);
       if (!onRoad) {
@@ -447,6 +456,12 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       const road = roadsAt(geo, pPos, 1)[0];
       const resZone = road?.rg.road.zone === 'residential';
       const tr = addTech(veh, ped.a.id);
+      if (veh.a.railwayTrain) {
+        if (tr) notes.push(techText(tr, veh.label, ped.label));
+        notes.push('Железнодорожный состав не получает обязанности водителя дорожного ТС по разделам 13–14 ПДД. Условия появления человека на путях и причины наезда требуют отдельных исходных данных.');
+        reports.push(finishCollision(ctx, col, title, description, tech, notes));
+        continue;
+      }
       const onSidewalk = !road && !!sidewalkAt(geo, pPos);
       let driverBlamed = false;
 
@@ -533,10 +548,32 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     const atInter = !!intersectionAt(geo, col.point);
     const trA = addTech(A, B.a.id);
     const trB = addTech(B, A.a.id);
+    if (A.a.railwayTrain && B.a.railwayTrain) {
+      title = 'Столкновение поездов';
+      description = `${A.label} и ${B.label} столкнулись на железнодорожных путях.`;
+      notes.push('Правила очерёдности дорожных ТС к двум железнодорожным составам не применяются; приведены заданные параметры и технический расчёт.');
+      reports.push(finishCollision(ctx, col, title, description, tech, notes));
+      continue;
+    }
 
+    const railway = railwayPriority(ctx, A.a.id, B.a.id, col);
     const turnDuty = turningVulnerablePriority(ctx, A.a.id, B.a.id, col.point);
     const maneuverDuty = maneuverPriority(ctx, A.a.id, B.a.id, col);
-    if (turnDuty) {
+    if (railway) {
+      title = 'Столкновение с поездом';
+      description = `${A.label} и ${B.label} столкнулись на железнодорожных путях, скорость сближения около ${impactKmh} км/ч.`;
+      notes.push(railway.explain);
+      if (railway.failureEstablished) {
+        addFinding(ctx, { actorId: railway.from, severity: 'violation', t, causal: true,
+          title: 'не уступил дорогу поезду', detail: railway.explain, refs: railway.refs, trace: railway.trace });
+        for (const finding of ctx.findings) if (finding.actorId === railway.from && finding.refs.includes('rule:railway-prohibited-entry')) finding.causal = true;
+      } else {
+        addFinding(ctx, { actorId: railway.from, severity: 'contributing', t,
+          title: 'данных о причине остановки или пересечении путей недостаточно', detail: railway.explain,
+          refs: ['pdd:15.1'], trace: { ...railway.trace, compliance: 'не определить' } });
+      }
+      for (const [i, assessment] of [[A, trA], [B, trB]] as const) if (assessment) notes.push(techText(assessment, i.label, i === A ? B.label : A.label));
+    } else if (turnDuty) {
       title = 'Столкновение при повороте с пересекающим дорогу велосипедистом';
       description = turnDuty.explain;
       addFinding(ctx, { actorId: turnDuty.from, severity: 'violation', t, causal: true, title: 'не уступил пересекающему дорогу при повороте', detail: turnDuty.explain, refs: turnDuty.refs, trace: turnDuty.trace });
@@ -714,7 +751,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     }
     // груз, выступающий за габариты ТС, участвовал в контакте
     for (const i of [A, Bi]) {
-      if (!i || !i.a.cargo || !cargoInvolved(i, boxAt, kp, col.point)) continue;
+      if (!i || i.a.railwayTrain || !i.a.cargo || !cargoInvolved(i, boxAt, kp, col.point)) continue;
       notes.push(`${i.label}: удар пришёлся на груз, выступающий за габариты ТС (п. 23.1–23.4 ПДД).`);
       for (const f of ctx.findings) {
         if (f.actorId === i.a.id && f.severity === 'violation' && !f.causal && f.refs.some((r) => r.startsWith('pdd:23.'))) f.causal = true;
@@ -777,7 +814,7 @@ function nearMisses(ctx: Ctx): void {
     const A = ctx.infos.get(event.a)!;
     const B = ctx.infos.get(event.b)!;
     ctx.events.push({ t: event.t, text: `Опасное сближение ${A.label} и ${B.label}: просвет ${event.gap.toFixed(1)} м` });
-    for (const i of [A, B]) ctx.findings.push({ actorId: i.a.id, severity: 'info', t: event.t, causal: false,
+    for (const i of [A, B].filter(i => !i.a.railwayTrain)) ctx.findings.push({ actorId: i.a.id, severity: 'info', t: event.t, causal: false,
       title: `опасное сближение с ${(i === A ? B : A).label}`,
       detail: `Минимальный просвет между кузовами — ${event.gap.toFixed(1)} м. Столкновения не произошло.`,
       refs: ['pdd:9.10'], trace: event.trace });
@@ -826,18 +863,19 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   const ctx: Ctx = { ...technical, gates: technical.gates.map(g => ({ ...g })), findings: [], events: [], priorityGraphs: [], onc: new Map(), lightViolations: new Map(), stopSkipped: new Map(), pedEntry: new Map() };
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
-    if (i.isVeh) {
+    if (i.isVeh && !i.a.railwayTrain) {
       checkSpeed(ctx, i);
       checkPosition(ctx, i);
       checkLights(ctx, i);
       checkSigns(ctx, i);
-    } else {
+    } else if (!i.isVeh) {
       checkPedestrian(ctx, i);
     }
   }
   ctx.priorityGraphs = buildPriorityGraphs(ctx);
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
   checkManeuvers(ctx, f => addFinding(ctx, f));
+  checkRailway(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {
     const directional = finding.refs.some(ref => /^sign:(?:3\.18\.[12]|3\.19|4\.1\.[1-6])$/.test(ref) || ref === 'marking:1.18');
     if (directional) {
@@ -905,7 +943,10 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
     const i = ctx.infos.get(a.id)!;
     let status: ActorVerdict['status'];
     let text: string;
-    if (causal.length) {
+    if (a.railwayTrain) {
+      status = 'insufficient-data';
+      text = 'Для поезда выполнен технический расчёт по заданным параметрам. Соблюдение железнодорожных обязанностей машиниста дорожная модель не определяет.';
+    } else if (causal.length) {
       status = 'causal-violation';
       text = `Нарушения в причинной связи со столкновением: ${causal.map(f => f.title).join('; ')}.`;
     } else if (viol.length) {

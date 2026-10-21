@@ -186,6 +186,7 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
   if (ctrl.length === 1) ctrl.push(add(start, mul(fromAngle(a.heading), a.speed < 0 ? -2000 : 2000)));
   const onRail = a.kind === 'vehicle' && VEHICLES[a.type as VehicleType].rail;
   const rp = onRail ? railPath(a, tracks) : null;
+  if (a.railwayTrain && !rp) throw new Error(`Поезд ${a.id}: задайте железнодорожный путь не далее 4 м от начальной точки`);
   const path = rp ? rp.path : buildPath(ctrl, true);
   // A waypoint's signed speed describes travel towards that waypoint. An
   // initial zero-speed target preserves the starting gear until it is reached.
@@ -212,6 +213,13 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     accel = (vs.accel * vs.mass) / spec.mass;
     brake = Math.min(vs.brakeCap ?? Infinity, mu * G * vs.brakeFactor);
     plan = Math.min(vs.brakeCap ?? Infinity, SURFACES.dry.mu * G * vs.brakeFactor);
+    if (a.railwayTrain) {
+      // TODO(source-check): каталог составов и тяговая модель. Здесь только
+      // явно заданная исходная скорость и постоянное замедление из источника.
+      accel = 0;
+      brake = a.railwayTrain.brakeDecel;
+      plan = brake;
+    }
   }
   const p0 = pathAt(path, 0);
   return {
@@ -271,7 +279,7 @@ function stepPath(r: Rt, dt: number, time: number): void {
   while (r.next < nodes.length) {
     const nd = nodes[r.next];
     const left = nd.s - r.s;
-    const settled = nd.directionStop ? r.v <= r.brake * dt + 1e-9 : r.v < 1.0;
+    const settled = nd.directionStop || r.a.railwayTrain ? r.v <= r.brake * dt + 1e-9 : r.v < 1.0;
     if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && settled) {
       // On a slippery surface an unreachable stop may have been passed. Keep
       // braking to rest there; never skip the requested hold or move backwards.
@@ -338,7 +346,7 @@ function hit(r: Rt, rel: number): void {
     toFree(r);
     return;
   }
-  if (r.a.derail && rel >= DERAIL_REL) {
+  if (!r.a.railwayTrain && r.a.derail && rel >= DERAIL_REL) {
     r.rail = false;
     toFree(r);
     return;
@@ -367,7 +375,9 @@ export function simulate(scene: Scene): Timeline {
   const duration = Math.max(1, scene.env.duration);
   const n = Math.floor(duration / DT) + 1;
 
-  const rts = scene.actors.map((a) => makeRuntime(a, mu, geo.tracks.map((t) => t.pts)));
+  const rts = scene.actors.map((a) => makeRuntime(a, mu, geo.tracks.filter(t => a.railwayTrain
+    ? t.item.kind === 'railway' && (!a.railwayTrain.trackId || t.item.id === a.railwayTrain.trackId)
+    : t.item.kind !== 'railway').map(t => t.pts)));
   const tracks = new Map<string, Track>();
   for (const r of rts) {
     tracks.set(r.a.id, {

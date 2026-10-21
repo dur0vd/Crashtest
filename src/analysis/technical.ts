@@ -60,7 +60,7 @@ export function prepare(scene: Scene, tl: Timeline): TechnicalContext {
       k0,
       kEnd,
       trav,
-      brake: vs ? Math.min(vs.brakeCap ?? Infinity, mu * 9.81 * vs.brakeFactor) : 3,
+      brake: a.railwayTrain?.brakeDecel ?? (vs ? Math.min(vs.brakeCap ?? Infinity, mu * 9.81 * vs.brakeFactor) : 3),
       rail: !!vs?.rail,
     });
   }

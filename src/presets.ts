@@ -489,6 +489,39 @@ export const MANEUVER_COMPLIANT_PRESETS: Preset[] = [
   },
 ];
 
+/** Учебные числа состава — условие синтетической задачи, не натурные характеристики. */
+export const RAILWAY_PRESETS: Preset[] = [
+  {
+    id: 'railway-red-entry',
+    title: 'Переезд: въезд под красный перед поездом',
+    hint: 'Закрытый шлагбаум и красный сигнал. Автомобиль въезжает на пути перед поездом. Параметры состава заданы только для синтетического учебного примера.',
+    build: () => railwayExample(false),
+  },
+  {
+    id: 'railway-stop-before-barrier',
+    title: 'Переезд: остановка перед шлагбаумом',
+    hint: 'Те же дорога, поезд и запрещающие сигналы. Автомобиль действительно тормозит и ожидает перед заданной стоп-линией; поезд проходит по рельсам.',
+    build: () => railwayExample(true),
+  },
+];
+
+function railwayExample(compliant: boolean): Scene {
+  const b = straight(new Builder().name(compliant ? 'Ожидание перед переездом' : 'Въезд на закрытый переезд').duration(14));
+  b.track([[0, -180], [0, 180]], { kind: 'railway', separated: true });
+  b.scene.railwayCrossings = [{ id: 'rc1', x: 0, y: 0, angle: 0, width: 9, length: 1.52,
+    barrier: 'closed', signal: 'red', lightPresent: true, regulated: true,
+    stopLinePresent: true, stopLineDistance: 8, controlDistance: 4,
+    attendantStop: false, exitBlocked: false, visibleTrainApproaching: true,
+    source: 'Синтетическая геометрия учебного примера; расстояния симметричны с обеих сторон' }];
+  b.vehicle('car', -35, 1.75, 0, 18, compliant ? [[-15, 1.75, 0]] : [[100, 1.75, 18]]);
+  if (compliant) b.scene.actors[0].path[0].hold = 20;
+  b.vehicle('tram', 0, -90, 90, 36, [[0, 170, 36]], { color: '#c4ad72', railwayTrain: {
+    mass: 120000, length: 30, width: 3, brakeDecel: 0.6, trackId: b.scene.tracks[0].id,
+    source: 'Условные входные данные синтетического примера: 120000 кг, 30×3 м, j=0.6 м/с²; не эмпирический каталог',
+  } });
+  return b.done();
+}
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -680,6 +713,7 @@ export const PRESETS: Preset[] = [
   ...INTERSECTION_CONTROL_PRESETS,
   ...MANEUVER_PRESETS,
   ...MANEUVER_COMPLIANT_PRESETS,
+  ...RAILWAY_PRESETS,
 ];
 
 export function blankScene(): Scene {

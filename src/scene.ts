@@ -103,12 +103,20 @@ export interface EdgePt {
   w: number;
 }
 
+/** Установленные особенности участка, используемые при проверке манёвров. */
+export type RoadFeature = 'bridge' | 'tunnel' | 'railway-crossing' | 'limited-visibility' | 'stop-area' | 'motorway';
+
 export interface Road {
   id: string;
   /** Выезд с прилегающей территории не образует перекрёсток (п. 1.2). */
   role?: 'road' | 'adjacent' | 'roundabout';
   /** Для определения главной по покрытию; неизвестное покрытие не предполагается твёрдым. */
   surfacePriority?: 'hard' | 'unpaved' | 'unknown';
+  features?: RoadFeature[];
+  /** Установленная дальность видимости дороги, м; отсутствие значения означает неизвестность. */
+  visibility?: number;
+  /** Полоса разгона/торможения задаётся отдельной полосой дороги. */
+  laneRole?: 'ordinary' | 'acceleration' | 'deceleration';
   pts: Vec[];
   /** радиус скругления поворотов оси, м (0 — без скругления) */
   radius?: number;
@@ -229,13 +237,18 @@ export interface Obstacle {
   kind: ObstacleKind;
 }
 
+export type TurnSignal = 'none' | 'left' | 'right' | 'hazard';
+
 export interface Waypoint {
   x: number;
   y: number;
-  /** скорость в этой точке, км/ч */
+  /** Скорость в этой точке, км/ч; отрицательное значение у ТС означает задний ход. */
   v: number;
   /** сколько секунд стоять, если скорость в точке нулевая */
   hold?: number;
+  signal?: TurnSignal;
+  /** Абсолютное время включения сигнала от начала симуляции, с. */
+  signalAt?: number;
 }
 
 export interface DriverFlags {
@@ -268,6 +281,24 @@ export interface Cargo {
 
 export const NO_CARGO: Cargo = { mass: 0, front: 0, rear: 0, left: 0, right: 0, height: 0, marked: false, secured: true, blocksView: false, dangerous: false };
 
+/** Подтверждённые обстоятельства манёвра. Незаданный факт не считается ложным. */
+export interface ManeuverContext {
+  longVehicleException?: boolean;
+  cannotKeepExtreme?: boolean;
+  expectedStraight?: boolean;
+  oncomingClear?: boolean;
+  overtakeReturnClear?: boolean;
+  overtakenAccelerates?: boolean;
+  opposingObstacle?: boolean;
+  steepSlope?: boolean;
+  slopeDownhill?: boolean;
+  overtakingDifficult?: boolean;
+  keptRight?: boolean;
+  yieldedByStop?: boolean;
+  handSignal?: 'none' | 'left' | 'right' | 'stop';
+  indicatorsUnavailable?: boolean;
+}
+
 export interface Actor {
   /** Водитель не может определить наличие покрытия: п. 13.13. */
   coveringUnknown?: boolean;
@@ -280,12 +311,13 @@ export interface Actor {
   y: number;
   heading: number;
   color: string;
-  /** скорость в начальной точке, км/ч */
+  /** Скорость в начальной точке, км/ч; отрицательная у ТС означает задний ход. */
   speed: number;
   /** появление на сцене, с */
   delay: number;
   path: Waypoint[];
   flags: DriverFlags;
+  maneuverContext?: ManeuverContext;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -300,6 +332,9 @@ export function defaultAccidentDate(): string {
 
 export interface Env {
   accidentDate: string;
+  /** Параметры модели заблаговременности сигнала; ПДД не задают эти числа. */
+  signalLeadSeconds?: number;
+  signalLeadMeters?: number;
   surface: SurfaceType;
   duration: number;
 }
@@ -439,6 +474,9 @@ export function normalizeScene(raw: unknown): Scene {
     obstacles: [],
     actors: [],
   };
+  for (const field of ['signalLeadSeconds', 'signalLeadMeters'] as const) {
+    if (!Number.isFinite(scene.env[field]) || scene.env[field]! <= 0) delete scene.env[field];
+  }
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
     if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
@@ -446,6 +484,11 @@ export function normalizeScene(raw: unknown): Scene {
   for (const road of scene.roads) {
     road.role = ['road', 'adjacent', 'roundabout'].includes(road.role ?? '') ? road.role : 'road';
     road.surfacePriority = ['hard', 'unpaved', 'unknown'].includes(road.surfacePriority ?? '') ? road.surfacePriority : 'hard';
+    const features: RoadFeature[] = ['bridge', 'tunnel', 'railway-crossing', 'limited-visibility', 'stop-area', 'motorway'];
+    if (Array.isArray(road.features)) road.features = [...new Set(road.features.filter(feature => features.includes(feature)))];
+    else delete road.features;
+    if (!Number.isFinite(road.visibility) || road.visibility! < 0) delete road.visibility;
+    if (!['ordinary', 'acceleration', 'deceleration'].includes(road.laneRole ?? '')) delete road.laneRole;
     road.lanes = road.lanes ?? 1;
     road.center = road.center ?? 'dashed';
     road.oneWay = !!road.oneWay;
@@ -493,7 +536,29 @@ export function normalizeScene(raw: unknown): Scene {
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
     a.coveringUnknown = a.coveringUnknown === true;
-    a.path = a.path ?? [];
+    // A pedestrian's path already expresses walking direction. The negative
+    // speed convention is reserved for reversing transport, not walking back.
+    const minimumSpeed = a.kind === 'vehicle' ? -50 : 0;
+    const speed = (value: number): number => Number.isFinite(value) ? Math.max(minimumSpeed, Math.min(250, value)) : 0;
+    a.speed = speed(a.speed);
+    a.path = Array.isArray(a.path) ? a.path.filter(w => w && Number.isFinite(w.x) && Number.isFinite(w.y)) : [];
+    for (const waypoint of a.path) {
+      waypoint.v = speed(waypoint.v);
+      waypoint.signal = ['none', 'left', 'right', 'hazard'].includes(waypoint.signal ?? '') ? waypoint.signal : 'none';
+      if (!Number.isFinite(waypoint.signalAt) || waypoint.signalAt! < 0) delete waypoint.signalAt;
+      if (!Number.isFinite(waypoint.hold) || waypoint.hold! < 0) delete waypoint.hold;
+    }
+    const rawContext = a.maneuverContext;
+    if (rawContext && typeof rawContext === 'object' && !Array.isArray(rawContext)) {
+      const context: ManeuverContext = {};
+      const booleanFacts = ['longVehicleException', 'cannotKeepExtreme', 'expectedStraight', 'oncomingClear',
+        'overtakeReturnClear', 'overtakenAccelerates', 'opposingObstacle', 'steepSlope', 'slopeDownhill',
+        'overtakingDifficult', 'keptRight', 'yieldedByStop', 'indicatorsUnavailable'] as const;
+      for (const fact of booleanFacts) if (typeof rawContext[fact] === 'boolean') context[fact] = rawContext[fact];
+      if (['none', 'left', 'right', 'stop'].includes(rawContext.handSignal ?? '')) context.handSignal = rawContext.handSignal;
+      if (Object.keys(context).length) a.maneuverContext = context;
+      else delete a.maneuverContext;
+    } else delete a.maneuverContext;
     a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
     a.delay = a.delay ?? 0;
     if (!Number.isInteger(a.age) || a.age! < 0 || a.age! > 120) delete a.age;

@@ -381,6 +381,114 @@ export const INTERSECTION_CONTROL_PRESETS: Preset[] = [
   },
 ];
 
+/** Cases from section 8/11. Commands carry explicit simulation times. */
+export const MANEUVER_PRESETS: Preset[] = [
+  {
+    id: 'overtake-left-turn', title: 'Обгон автомобиля, поворачивающего налево',
+    hint: 'Впереди идущий автомобиль заранее подал левый сигнал. Сигнал не даёт ему преимущества; безопасность поворота и запрет обгона проверяются отдельно.',
+    build: () => {
+      const b = straight(new Builder().name('Обгон поворачивающего налево').duration(12), 'dashed', 1, 100)
+        .vehicle('car', -20, 1.75, 0, 18, [[-8, 1.75, 18], [-1.75, -6, 18], [-1.75, -40, 18]])
+        .vehicle('car', -45, 1.75, 0, 50, [[-28, -1.75, 50], [-5, -1.75, 50], [30, 1.75, 50]]);
+      b.scene.env.accidentDate = '2026-10-21T12:00';
+      for (const point of b.scene.actors[0].path) { point.signal = 'left'; point.signalAt = 0; }
+      Object.assign(b.scene.actors[0].path.at(-1)!, { signal: 'none', signalAt: 4.6 });
+      b.scene.actors[1].maneuverContext = { expectedStraight: false, oncomingClear: true, overtakeReturnClear: true };
+      return b.done();
+    },
+  },
+  {
+    id: 'uturn-from-right-lane', title: 'Разворот с правой полосы',
+    hint: 'Две полосы в каждом направлении. Крайнее положение и исключения для габаритов оцениваются отдельно от поданного сигнала.',
+    build: () => {
+      const b = straight(new Builder().name('Разворот из правой полосы').duration(18), 'dashed', 2, 100)
+        .vehicle('car', -40, 5.25, 0, 18, [[-10, 5.25, 18], [-2, 0, 18], [-12, -5.25, 18], [-60, -5.25, 18]]);
+      b.scene.env.accidentDate = '2026-10-21T12:00';
+      for (const point of b.scene.actors[0].path) { point.signal = 'left'; point.signalAt = 0; }
+      b.scene.actors[0].maneuverContext = { cannotKeepExtreme: false, longVehicleException: false };
+      return b.done();
+    },
+  },
+  {
+    id: 'reverse-from-parking', title: 'Выезд задним ходом с парковки',
+    hint: 'Отрицательная скорость задаёт задний ход; кузов направлен противоположно движению. Проверяются безопасность манёвра и обязанность уступить при выезде.',
+    build: () => {
+      const b = straight(new Builder().name('Задний ход с парковки').duration(12), 'dashed', 1, 90)
+        .vehicle('car', 0, 9, 90, -8, [[0, 1.75, -8], [0, -8, -8]])
+        .vehicle('car', -25, 1.75, 0, 30, [[70, 1.75, 30]]);
+      b.scene.env.accidentDate = '2026-10-21T12:00';
+      return b.done();
+    },
+  },
+  {
+    id: 'lane-change-no-signal', title: 'Перестроение без указателя поворота',
+    hint: 'Водитель смещается из правой полосы в левую. Другой участник ожидал прямолинейного движения; это исходное условие примера, а не следствие отсутствия сигнала.',
+    build: () => {
+      const b = straight(new Builder().name('Перестроение без сигнала').duration(12), 'dashed', 2, 100)
+        .vehicle('car', -40, 5.25, 0, 36, [[-20, 5.25, 36], [5, 1.75, 36], [65, 1.75, 36]])
+        .vehicle('car', -45, 1.75, 0, 40, [[75, 1.75, 40]]);
+      b.scene.env.accidentDate = '2026-10-21T12:00';
+      b.scene.actors[1].maneuverContext = { expectedStraight: true };
+      return b.done();
+    },
+  },
+];
+
+/** Same road situations with an observed precaution instead of hiding an actor. */
+export const MANEUVER_COMPLIANT_PRESETS: Preset[] = [
+  {
+    id: 'overtake-left-turn-yield', title: 'Отказ от обгона перед левым поворотом',
+    hint: 'Задний автомобиль останавливается в своей полосе, ожидает поворота лидера и продолжает движение без выезда на встречную.',
+    build: () => {
+      const scene = MANEUVER_PRESETS.find(p => p.id === 'overtake-left-turn')!.build();
+      scene.name = 'Ожидание поворачивающего налево';
+      scene.env.duration = 18;
+      scene.actors[1].path = [{ x: -30, y: 1.75, v: 0, hold: 5 }, { x: 60, y: 1.75, v: 30 }];
+      return scene;
+    },
+  },
+  {
+    id: 'uturn-from-left-lane', title: 'Разворот из крайнего левого положения',
+    hint: 'Та же дорога с двумя полосами. До разворота автомобиль занимает левую полосу своего направления и подаёт сигнал заранее.',
+    build: () => {
+      const scene = MANEUVER_PRESETS.find(p => p.id === 'uturn-from-right-lane')!.build();
+      scene.name = 'Разворот из левой полосы';
+      const actor = scene.actors[0];
+      actor.y = 1.75;
+      actor.path = [{ x: -10, y: 1.75, v: 18, signal: 'left', signalAt: 0 },
+        { x: -2, y: 0, v: 18, signal: 'left', signalAt: 0 },
+        { x: -12, y: -1.75, v: 18, signal: 'left', signalAt: 0 },
+        { x: -60, y: -1.75, v: 18, signal: 'none', signalAt: 10 }];
+      return scene;
+    },
+  },
+  {
+    id: 'reverse-from-parking-yield', title: 'Задний ход с парковки после уступки',
+    hint: 'Водитель останавливается перед краем проезжей части, пропускает автомобиль и продолжает задний ход. Участники остаются в сцене всё время.',
+    build: () => {
+      const scene = MANEUVER_PRESETS.find(p => p.id === 'reverse-from-parking')!.build();
+      scene.name = 'Безопасный задний ход после уступки';
+      scene.env.duration = 18;
+      scene.actors[0].path.unshift({ x: 0, y: 7, v: 0, hold: 5 });
+      return scene;
+    },
+  },
+  {
+    id: 'lane-change-signal-yield', title: 'Перестроение с сигналом после пропуска ТС',
+    hint: 'Автомобиль едет медленнее, заранее включает левый сигнал и перестраивается после прохождения попутного ТС. Сам сигнал преимущества не создаёт.',
+    build: () => {
+      const scene = MANEUVER_PRESETS.find(p => p.id === 'lane-change-no-signal')!.build();
+      scene.name = 'Заблаговременный сигнал перед перестроением';
+      scene.env.duration = 18;
+      const actor = scene.actors[0];
+      actor.speed = 18;
+      actor.path = actor.path.map((point, index) => ({ ...point, v: 18, signal: index === actor.path.length - 1 ? 'none' as const : 'left' as const, signalAt: index === actor.path.length - 1 ? 9.5 : 0 }));
+      scene.actors[1].maneuverContext = { ...scene.actors[1].maneuverContext, expectedStraight: false };
+      return scene;
+    },
+  },
+];
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -543,7 +651,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'ramp-merge',
     title: 'Съезд на трассу: перестроение на полосе разгона',
-    hint: 'Двухполосный съезд сужается в одну полосу разгона и вливается в трёхполосную трассу. ТС 2 перестраивается из левой полосы в правую (сигнал поворота не моделируется), ТС 3 догоняет по правой полосе и бьёт его, когда тот ещё частично на левой. На островке стоит машина ДПС (ТС 1).',
+    hint: 'Двухполосный съезд сужается в одну полосу разгона и вливается в трёхполосную трассу. ТС 2 перестраивается из левой полосы в правую (сигнал поворота не задан), ТС 3 догоняет по правой полосе и бьёт его, когда тот ещё частично на левой. На островке стоит машина ДПС (ТС 1).',
     build: () => {
       const b = new Builder().name('Съезд на трассу, перестроение на разгоне').duration(14);
       // трасса: три полосы в одну сторону (на восток), справа — съезд
@@ -570,6 +678,8 @@ export const PRESETS: Preset[] = [
   },
   ...INTERSECTION_PRESETS,
   ...INTERSECTION_CONTROL_PRESETS,
+  ...MANEUVER_PRESETS,
+  ...MANEUVER_COMPLIANT_PRESETS,
 ];
 
 export function blankScene(): Scene {

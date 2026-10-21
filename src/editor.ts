@@ -963,7 +963,7 @@ export class Editor {
       if (!a) return;
       this.checkpoint();
       const last = a.path[a.path.length - 1];
-      a.path.push({ x: p.x, y: p.y, v: last ? last.v : a.speed });
+      a.path.push({ x: p.x, y: p.y, v: last ? last.v : a.speed, signal: 'none' });
       this.syncHeading(a);
       this.selWp = a.path.length - 1;
       this.changed(true);
@@ -975,9 +975,12 @@ export class Editor {
     this.onTool();
   }
 
-  /** Курс участника с траекторией всегда направлен на первую точку. */
+  /** The first segment determines body orientation; reversing faces away from travel. */
   syncHeading(a: Actor): void {
-    if (a.path.length) a.heading = angleOf(sub(a.path[0], a));
+    if (a.path.length) {
+      const reversing = (a.path[0].v || a.speed) < 0;
+      a.heading = angleOf(sub(a.path[0], a)) + (reversing ? Math.PI : 0);
+    }
   }
 
   private place(at: Vec, angle: number | null): void {

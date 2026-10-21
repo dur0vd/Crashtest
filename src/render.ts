@@ -20,6 +20,7 @@ import {
 import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
 import { DT } from './sim';
+import { vehicleSignalAt } from './maneuver-signals';
 
 export interface Camera {
   x: number;
@@ -950,7 +951,8 @@ export class Renderer {
         return { p: { x: tr.x[k], y: tr.y[k] }, h: tr.h[k], present: !!tr.present[k], free: !!tr.free[k] };
       }
     }
-    return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) : a.heading, present: true, free: false };
+    const reversing = a.path.length && (a.path[0].v || a.speed) < 0;
+    return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) + (reversing ? Math.PI : 0) : a.heading, present: true, free: false };
   }
 
   private drawActors(v: ViewState): void {
@@ -977,9 +979,33 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
+        this.drawIndicators(a, spec.length, spec.width, v);
       }
       ctx.restore();
     }
+  }
+
+  private drawIndicators(a: Actor, length: number, width: number, v: ViewState): void {
+    if (a.maneuverContext?.indicatorsUnavailable || Math.floor(v.t * 2) % 2 !== 0) return;
+    const track = v.mode === 'play' ? v.tl?.tracks.get(a.id) : undefined;
+    const state = vehicleSignalAt(a, v.t, track?.waypointTimes);
+    if (state.signal === 'none') return;
+    const { ctx } = this;
+    const radius = Math.max(0.11, Math.min(width * 0.3, 2.4 / v.cam.s));
+    ctx.save();
+    ctx.fillStyle = '#ffb020';
+    ctx.strokeStyle = '#6b3d00';
+    ctx.lineWidth = Math.max(0.045, 0.7 / v.cam.s);
+    ctx.shadowColor = '#ffb020';
+    ctx.shadowBlur = 5;
+    const sides = state.signal === 'hazard' ? [-1, 1] : state.signal === 'left' ? [-1] : [1];
+    for (const side of sides) for (const x of [-length / 2 + 0.16, length / 2 - 0.16]) {
+      ctx.beginPath();
+      ctx.arc(x, side * width / 2, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawVehicleBody(a: Actor, L: number, W: number): void {
@@ -1380,7 +1406,7 @@ export class Renderer {
         const tr = v.tl.tracks.get(a.id);
         if (!tr || !tr.present[k]) continue;
         const s = worldToScreen(v.cam, this.w, this.h, { x: tr.x[k], y: tr.y[k] });
-        const txt = `${Math.round(kmh(tr.v[k]))} км/ч`;
+        const txt = `${tr.reversing?.[k] ? 'Задний ход · ' : ''}${Math.round(kmh(tr.v[k]))} км/ч`;
         const tw = ctx.measureText(txt).width + 8;
         const y = s.y + (actorSpec(a).width / 2) * v.cam.s + 10;
         ctx.fillStyle = 'rgba(12,15,20,0.78)';

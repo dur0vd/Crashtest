@@ -6,6 +6,7 @@ import { imgUrl, loadCorpus, resolveRef } from './corpus';
 import { DISCLAIMER, lawRef, describeRef } from './law';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { SIGN_GROUPS, SIGN_IDS, VALUE_SIGNS, signFile, signGroupOf, signTitle } from './signs';
+import { SIGNAL_LEAD_METERS, SIGNAL_LEAD_SECONDS, suggestSignals, suggestedSignalUpdates, vehicleSignalAt } from './maneuver-signals';
 import {
   type Actor,
   NO_CARGO,
@@ -83,6 +84,19 @@ function check(label: string, value: boolean, onChange: (v: boolean) => void): H
   return h('label', { class: 'check' }, i, h('span', {}, label));
 }
 
+function optionalNumber(value: number | undefined, onChange: (value: number | undefined) => void, options: { min?: number; max?: number; step?: number } = {}): HTMLInputElement {
+  const input = h('input', { type: 'number', value: value ?? '', placeholder: 'Не установлено', min: options.min, max: options.max, step: options.step ?? 0.1, inputmode: 'decimal' });
+  input.addEventListener('change', () => {
+    if (input.value.trim() === '') return onChange(undefined);
+    const parsed = Number(input.value.replace(',', '.'));
+    if (!Number.isFinite(parsed)) { input.value = value === undefined ? '' : String(value); return; }
+    const next = Math.max(options.min ?? -Infinity, Math.min(options.max ?? Infinity, parsed));
+    input.value = String(next);
+    onChange(next);
+  });
+  return input;
+}
+
 function button(label: string, onClick: () => void, cls = ''): HTMLButtonElement {
   return h('button', { type: 'button', class: `btn ${cls}`, onclick: onClick }, label);
 }
@@ -156,6 +170,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         button('Развернуть направление', () => app.edit(() => it.pts.reverse())),
       );
       narrowingForm(box, it as unknown as Road, app);
+      roadManeuverForm(box, it as unknown as Road, app);
       break;
     case 'sidewalks':
       box.append(
@@ -356,6 +371,57 @@ function cargoForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(g);
 }
 
+function roadManeuverForm(box: HTMLElement, road: Road, app: AppApi): void {
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Особенности участка для манёвров и обгона'),
+    h('small', {}, 'Отмечайте подтверждённые особенности именно этого участка. Для отдельного моста, переезда или полосы задайте отдельный участок дороги.'));
+  group.append(field('Роль полосы', select([['ordinary', 'Обычная'], ['acceleration', 'Полоса разгона'], ['deceleration', 'Полоса торможения']], road.laneRole ?? 'ordinary', value => app.edit(() => { road.laneRole = value; }))),
+    field('Установленная видимость дороги, м', optionalNumber(road.visibility, value => app.edit(() => { road.visibility = value; }), { min: 0, max: 10000, step: 1 }), 'Не заполняйте, если дальность не установлена.'));
+  const features: [NonNullable<Road['features']>[number], string][] = [
+    ['bridge', 'Мост, путепровод, эстакада или участок под ними'],
+    ['tunnel', 'Тоннель'],
+    ['railway-crossing', 'Железнодорожный переезд'],
+    ['limited-visibility', 'Ограниченная видимость, менее 100 м'],
+    ['stop-area', 'Место остановки маршрутного транспорта'],
+    ['motorway', 'Автомагистраль'],
+  ];
+  for (const [feature, label] of features) group.append(check(label, !!road.features?.includes(feature), enabled => app.edit(() => {
+    road.features = enabled ? [...new Set([...(road.features ?? []), feature])] : (road.features ?? []).filter(value => value !== feature);
+  })));
+  box.append(group);
+}
+
+function maneuverContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  type Context = NonNullable<Actor['maneuverContext']>;
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Установленные обстоятельства манёвра'),
+    h('small', {}, '«Не установлено» сохраняет неопределённость. Выбирайте «Да» или «Нет» только по исходным материалам. Эти обстоятельства сами по себе не устанавливают нарушение или причинную связь.'));
+  const facts: [Exclude<keyof Context, 'handSignal'>, string][] = [
+    ['longVehicleException', 'Установлены габаритные причины отступления от крайнего положения'],
+    ['cannotKeepExtreme', 'Установлены иные причины невозможности поворота из крайнего положения'],
+    ['expectedStraight', 'Участник исходил из прямолинейного движения другого ТС'],
+    ['oncomingClear', 'Встречная полоса свободна на достаточном расстоянии'],
+    ['overtakeReturnClear', 'Установлена возможность безопасного возвращения после обгона'],
+    ['overtakenAccelerates', 'Обгоняемое ТС повышало скорость во время обгона'],
+    ['opposingObstacle', 'На стороне участника имеется препятствие встречному разъезду'],
+    ['steepSlope', 'Затруднённый разъезд происходит на уклоне'],
+    ['slopeDownhill', 'Участник движется на спуск'],
+    ['overtakingDifficult', 'Обгон или опережение следующими ТС затруднены'],
+    ['keptRight', 'Участник принял возможно правее, чтобы пропустить следующие ТС'],
+    ['yieldedByStop', 'Участник остановился, чтобы пропустить следующие ТС'],
+    ['indicatorsUnavailable', 'Световые указатели отсутствуют или неисправны'],
+  ];
+  for (const [key, label] of facts) group.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], a.maneuverContext?.[key] === true ? 'yes' : a.maneuverContext?.[key] === false ? 'no' : 'unknown', value => app.edit(() => {
+    const context = a.maneuverContext ??= {};
+    if (value === 'unknown') delete context[key];
+    else context[key] = value === 'yes';
+  }))));
+  group.append(field('Установленный сигнал рукой', select([['unknown', 'Не установлено'], ['none', 'Сигнал рукой не подавался'], ['left', 'Левый поворот / разворот'], ['right', 'Правый поворот'], ['stop', 'Торможение']], a.maneuverContext?.handSignal ?? 'unknown', value => app.edit(() => {
+    const context = a.maneuverContext ??= {};
+    if (value === 'unknown') delete context.handSignal;
+    else context.handSignal = value;
+  })), 'Сигнал рукой допустим при отсутствии или неисправности световых указателей (п. 8.1).'));
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -368,9 +434,9 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
   box.append(
     field('Тип', select(types, a.type, (v) => app.edit(() => (a.type = v as Actor['type']), true))),
     field('Цвет', color),
-    field('Скорость в начале, км/ч', num(a.speed, set((v) => (a.speed = v)), { min: 0, max: 250 })),
+    field('Скорость в начале, км/ч', num(a.speed, value => app.edit(() => { a.speed = value; ed.syncHeading(a); }, true), { min: isVeh ? -50 : 0, max: 250 }), isVeh ? 'Отрицательная скорость — задний ход. Траектория задаёт направление перемещения, кузов обращён в противоположную сторону.' : undefined),
     field('Появится через, с', num(a.delay, set((v) => (a.delay = v)), { min: 0, max: 60, step: 0.5 })),
-    field('Курс, °', num(deg(a.heading), set((v: number) => (a.heading = rad(v))), { step: 5, disabled: a.path.length > 0 }), a.path.length ? 'Курс задаёт первая точка траектории.' : '0° — вправо, 90° — вниз'),
+    field('Курс кузова, °', num(deg(a.heading), set((v: number) => (a.heading = rad(v))), { step: 5, disabled: a.path.length > 0 }), a.path.length ? 'Курс определяется первой точкой и направлением движения: при заднем ходе кузов обращён против перемещения.' : '0° — вправо, 90° — вниз'),
   );
   if (!isVeh) {
     const age = h('input', { type: 'number', min: 0, max: 120, step: 1, value: a.age ?? '', placeholder: 'Не указан' });
@@ -399,6 +465,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     );
   }
   if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
+  if (isVeh) maneuverContextForm(box, a, app);
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
   pathBox.append(
@@ -406,20 +473,47 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       button(ed.tool === 'path' ? 'Рисую… (нажмите «Готово»)' : a.path.length ? 'Дорисовать траекторию' : 'Нарисовать траекторию', () => ed.setTool(ed.tool === 'path' ? 'select' : 'path'), 'primary'),
       button('Очистить', () => app.edit(() => ((a.path = []), (ed.selWp = null)), true)),
     ),
-    h('small', {}, 'Нажимайте на карту, чтобы ставить точки. Скорость в точке — та, с которой ТС её проезжает; тормозит максимально поздно. Нулевая скорость — остановка в точке.'),
+    h('small', {}, 'Нажимайте на карту, чтобы ставить точки. Нулевая скорость — остановка, отрицательная — задний ход на сегменте к точке. При смене направления машина сначала останавливается. Сигнал без отдельного времени подаётся при достижении точки; время включения задаётся от начала симуляции.'),
   );
   if (a.path.length) {
     const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, '№'), h('th', {}, 'км/ч'), h('th', {}, 'пауза, с'), h('th', {})));
     a.path.forEach((w, i) => {
       const tr = h('tr', { class: ed.selWp === i ? 'on' : '', onclick: () => ed.select(ed.sel, i) },
         h('td', {}, String(i + 1)),
-        h('td', {}, num(w.v, set((v) => (w.v = v)), { min: 0, max: 250 })),
-        h('td', {}, w.v < 0.3 ? num(w.hold ?? 0, set((v) => (w.hold = v)), { min: 0, max: 30, step: 0.5 }) : '—'),
+        h('td', {}, num(w.v, value => app.edit(() => { w.v = value; ed.syncHeading(a); }, true), { min: isVeh ? -50 : 0, max: 250 })),
+        h('td', {}, Math.abs(w.v) < 0.3 ? num(w.hold ?? 0, set((v) => (w.hold = v)), { min: 0, max: 30, step: 0.5 }) : '—'),
         h('td', {}, h('button', { type: 'button', class: 'x', title: 'Удалить точку', onclick: (e: Event) => { e.stopPropagation(); app.edit(() => { a.path.splice(i, 1); ed.syncHeading(a); ed.selWp = null; }, true); } }, '✕')),
       );
       table.append(tr);
+      if (isVeh) table.append(h('tr', {}, h('td', { colspan: 4 },
+        field(`Сигнал у точки ${i + 1}`, select([['none', 'Не подаётся / выключить'], ['left', 'Левый'], ['right', 'Правый'], ['hazard', 'Аварийная сигнализация']], w.signal ?? 'none', value => app.edit(() => { w.signal = value; }, true))),
+        field('Подать команду в t, с', optionalNumber(w.signalAt, value => app.edit(() => { w.signalAt = value; }, true), { min: 0, max: app.scene().env.duration, step: 0.1 }), 'Пусто — при фактическом достижении точки. «Выключить» также является отдельной командой.'),
+      )));
     });
     pathBox.append(table);
+    if (isVeh) {
+      const signal = vehicleSignalAt(a, 0);
+      pathBox.append(h('small', {}, `В начале симуляции: ${signal.signal === 'none' ? 'сигнал выключен' : signal.signal === 'hazard' ? 'аварийная сигнализация' : signal.signal === 'left' ? 'левый сигнал' : 'правый сигнал'}.`));
+      const suggestions = suggestSignals(a);
+      if (suggestions.length) {
+        const proposed = h('details', { class: 'group' }, h('summary', {}, 'Подсказки указателей поворота'),
+          h('small', {}, `ПДД не задают число секунд или метров для заблаговременности. Ориентиры ${app.scene().env.signalLeadSeconds ?? SIGNAL_LEAD_SECONDS} с и ${app.scene().env.signalLeadMeters ?? SIGNAL_LEAD_METERS} м — параметры учебной модели, настраиваемые во вкладке «Среда»; время по заданной траектории до расчёта оценочное. Проверьте исходные данные и время фактического манёвра.`));
+        for (const suggestion of suggestions) {
+          const updates = suggestedSignalUpdates(a, suggestion, undefined, { leadSeconds: app.scene().env.signalLeadSeconds, leadMeters: app.scene().env.signalLeadMeters });
+          proposed.append(h('div', {}, h('p', {}, `Точка ${suggestion.waypointIndex + 1}: ${suggestion.signal === 'left' ? 'левый' : 'правый'} сигнал. ${suggestion.detail}`),
+            suggestion.maneuverTime === null || !updates.length
+              ? h('small', {}, 'Время манёвра не установлено. Задайте время сигнала вручную.')
+              : button(`Принять: включить в ${updates[0].signalAt.toFixed(1)} с`, () => app.edit(() => {
+                for (const update of updates) {
+                  const waypoint = a.path[update.waypointIndex];
+                  if (waypoint) { waypoint.signal = update.signal; waypoint.signalAt = update.signalAt; }
+                }
+              }, true)),
+            updates.length ? h('small', {}, `Будут согласованы команды у точек ${updates.map(update => update.waypointIndex + 1).join(', ')} в интервале до манёвра, включая команду выключения в этом интервале. Проверьте выключение сигнала после манёвра.`) : null));
+        }
+        pathBox.append(proposed);
+      }
+    }
   }
   box.append(pathBox);
   void rebuild;
@@ -453,6 +547,11 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
       h('p', { class: 'note' }, 'Чтобы перемещать карту, перетаскивайте пустое место, колесо мыши — масштаб. На телефоне: два пальца — масштаб и перемещение.'),
     ),
   );
+  root.append(h('details', { class: 'form' }, h('summary', {}, 'Ориентиры заблаговременности сигнала'),
+    h('p', { class: 'note' }, 'ПДД не устанавливают число секунд или метров для заблаговременной подачи сигнала. Это настраиваемые ориентиры учебной модели, а не правовая норма.'),
+    field('До манёвра, с', num(s.env.signalLeadSeconds ?? SIGNAL_LEAD_SECONDS, set((value: number) => { s.env.signalLeadSeconds = value; }), { min: 0.1, max: 60, step: 0.1 })),
+    field('До манёвра, м', num(s.env.signalLeadMeters ?? SIGNAL_LEAD_METERS, set((value: number) => { s.env.signalLeadMeters = value; }), { min: 1, max: 1000, step: 1 })),
+  ));
   intersectionBoundariesForm(root, app, () => buildEnv(root, app, extra));
 }
 

@@ -15,6 +15,7 @@ import {
   obbContact,
   pathAt,
   sub,
+  wrapAngle,
 } from './geom';
 import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf } from './scene';
 
@@ -29,12 +30,16 @@ export interface Track {
   y: Float32Array;
   /** курс, рад */
   h: Float32Array;
-  /** скорость, м/с */
+  /** Модуль физической скорости, м/с; направление заднего хода — reversing. */
   v: Float32Array;
   /** участник находится на сцене */
   present: Uint8Array;
   /** после столкновения движется по инерции */
   free: Uint8Array;
+  /** Задний ход в текущем кадре, курс h относится к кузову, не к вектору скорости. */
+  reversing?: Uint8Array;
+  /** Фактические абсолютные времена достижения точек Actor.path; -1 — не достигнута. */
+  waypointTimes?: number[];
 }
 
 export interface Collision {
@@ -72,6 +77,10 @@ interface Node {
   s: number;
   V: number;
   hold: number;
+  reverse: boolean;
+  waypointIndex?: number;
+  /** Before the next segment changes direction this node is a mandatory stop. */
+  directionStop?: boolean;
 }
 
 interface Rt {
@@ -98,6 +107,10 @@ interface Rt {
   shift: number;
   /** едет по рельсам: путь лежит на колее, а удар не сбивает с неё (если нет схода) */
   rail: boolean;
+  reverse: boolean;
+  waypointTimes: number[];
+  /** Braking past a reversing point continues in the incoming direction. */
+  stopOverrun: boolean;
 }
 
 /** Закрытие скорости при ударе, с которой трамвай с разрешённым сходом покидает рельсы, м/с (≈ 20 км/ч). */
@@ -170,12 +183,26 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
   const spec = dimsOf(a);
   const start: Vec = { x: a.x, y: a.y };
   const ctrl: Vec[] = [start, ...a.path.map((w) => ({ x: w.x, y: w.y }))];
-  if (ctrl.length === 1) ctrl.push(add(start, mul(fromAngle(a.heading), 2000)));
+  if (ctrl.length === 1) ctrl.push(add(start, mul(fromAngle(a.heading), a.speed < 0 ? -2000 : 2000)));
   const onRail = a.kind === 'vehicle' && VEHICLES[a.type as VehicleType].rail;
   const rp = onRail ? railPath(a, tracks) : null;
   const path = rp ? rp.path : buildPath(ctrl, true);
-  const nodes: Node[] = [{ s: 0, V: ms(a.speed), hold: 0 }];
-  a.path.forEach((w, i) => nodes.push({ s: path.nodeS[i + 1], V: ms(Math.max(0, w.v)), hold: w.hold ?? 0 }));
+  // A waypoint's signed speed describes travel towards that waypoint. An
+  // initial zero-speed target preserves the starting gear until it is reached.
+  const initialReverse = a.kind === 'vehicle' && (a.path[0]?.v ? a.path[0].v < 0 : a.speed < 0);
+  const nodes: Node[] = [{ s: 0, V: ms(Math.abs(a.speed)), hold: 0, reverse: initialReverse }];
+  let reverse = initialReverse;
+  a.path.forEach((w, i) => {
+    if (w.v !== 0) reverse = a.kind === 'vehicle' && w.v < 0;
+    nodes.push({ s: path.nodeS[i + 1], V: ms(Math.abs(w.v)), hold: w.hold ?? 0, reverse, waypointIndex: i });
+  });
+  // Switching between forward and reverse is never a change of signed velocity
+  // at speed. The preceding waypoint becomes a stop even if its authored speed
+  // is nonzero; the next segment starts only after a recorded resting frame.
+  for (let i = 1; i < nodes.length - 1; i++) if (nodes[i].reverse !== nodes[i + 1].reverse) {
+    nodes[i].V = 0;
+    nodes[i].directionStop = true;
+  }
   let accel = 2;
   let brake = 3;
   let plan = 3;
@@ -195,7 +222,7 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     s: 0,
     v: nodes[0].V,
     pos: p0.p,
-    h: p0.a,
+    h: initialReverse ? wrapAngle(p0.a + Math.PI) : p0.a,
     mode: 'path',
     vel: { x: 0, y: 0 },
     hold: 0,
@@ -208,6 +235,9 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     box: { hl: spec.length / 2, hw: spec.width / 2 },
     shift: spec.shift,
     rail: !!rp,
+    reverse: initialReverse,
+    waypointTimes: a.path.map(() => -1),
+    stopOverrun: false,
   };
 }
 
@@ -215,32 +245,57 @@ function boxOf(r: Rt): OBB {
   return { cx: r.pos.x + Math.cos(r.h) * r.shift, cy: r.pos.y + Math.sin(r.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: r.h };
 }
 
-function stepPath(r: Rt, dt: number): void {
-  const nodes = r.nodes;
+/** Reconnect the still-unvisited route after a friction-limited gear-change stop.
+ * A missed stop is not corrected by teleporting backwards to the drawn waypoint. */
+function continueAfterOverrun(r: Rt): void {
+  const tail = r.nodes.slice(r.next);
+  if (!tail.length) return;
+  const ctrl = [r.pos, ...tail.map(nd => pathAt(r.path, nd.s).p)];
+  const path = buildPath(ctrl, true);
+  r.path = path;
+  r.nodes = [{ s: 0, V: 0, hold: 0, reverse: r.reverse }, ...tail.map((nd, i) => ({ ...nd, s: path.nodeS[i + 1] }))];
+  r.next = 1;
+  r.s = 0;
+}
+
+function stepPath(r: Rt, dt: number, time: number): void {
   if (r.hold > 0) {
-    r.hold -= dt;
+    r.hold = Math.max(0, r.hold - dt);
     r.v = 0;
     return;
   }
+  let nodes = r.nodes;
+  // A preceding mandatory stop has already produced a resting frame.
+  if (r.next < nodes.length && nodes[r.next].reverse !== r.reverse && r.v === 0) r.reverse = nodes[r.next].reverse;
   // достигнутые узлы
   while (r.next < nodes.length) {
     const nd = nodes[r.next];
     const left = nd.s - r.s;
-    if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && r.v < 1.0) {
+    const settled = nd.directionStop ? r.v <= r.brake * dt + 1e-9 : r.v < 1.0;
+    if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && settled) {
       // On a slippery surface an unreachable stop may have been passed. Keep
       // braking to rest there; never skip the requested hold or move backwards.
       r.s = Math.max(r.s, nd.s);
       r.v = 0;
       r.hold = nd.hold;
-      const stopped = pathAt(r.path, r.s);
-      r.pos = stopped.p;
-      r.h = stopped.a;
+      if (!r.stopOverrun) r.pos = pathAt(r.path, r.s).p;
+      // Preserve body orientation during the stop/hold. At a reverse cusp the
+      // outgoing path tangent points backwards, though the body has not turned.
+      if (nd.waypointIndex !== undefined && r.waypointTimes[nd.waypointIndex] < 0) r.waypointTimes[nd.waypointIndex] = time;
       r.next++;
-      if (nd.hold > 0) return;
+      const changesDirection = nd.directionStop === true;
+      if (r.stopOverrun) {
+        continueAfterOverrun(r);
+        r.stopOverrun = false;
+        nodes = r.nodes;
+      }
+      if (nd.hold > 0 || changesDirection) return;
       continue;
     }
-    if (left <= 0 && nd.V >= 0.3) r.next++;
-    else break;
+    if (left <= 0 && nd.V >= 0.3) {
+      if (nd.waypointIndex !== undefined && r.waypointTimes[nd.waypointIndex] < 0) r.waypointTimes[nd.waypointIndex] = time;
+      r.next++;
+    } else break;
   }
   const last = nodes[nodes.length - 1];
   const vDes = r.next < nodes.length ? nodes[r.next].V : last.V;
@@ -258,10 +313,23 @@ function stepPath(r: Rt, dt: number): void {
   // реальное замедление ограничено сцеплением, поэтому на скользкой дороге ТС может не успеть
   if (v > allowed) v = Math.max(allowed, v - r.brake * dt);
   r.v = Math.max(0, v);
-  r.s += r.v * dt;
+  const step = r.v * dt;
+  const target = nodes[r.next];
+  if (r.stopOverrun || target?.directionStop && r.s + step >= target.s && r.v > r.brake * dt + 1e-9) {
+    // Continue the incoming physical movement while the brakes bring the car
+    // to rest; following the outgoing cusp at speed would rotate its body.
+    r.pos = add(r.pos, mul(fromAngle(r.h), step * (r.reverse ? -1 : 1)));
+    r.s = target.s;
+    r.stopOverrun = true;
+    return;
+  }
+  r.s += step;
   const p = pathAt(r.path, r.s);
   r.pos = p.p;
-  r.h = p.a;
+  if (r.v > 0) r.h = r.reverse ? wrapAngle(p.a + Math.PI) : p.a;
+  for (const nd of nodes) if (nd.V >= 0.3 && nd.s <= r.s && nd.waypointIndex !== undefined && r.waypointTimes[nd.waypointIndex] < 0) {
+    r.waypointTimes[nd.waypointIndex] = time;
+  }
 }
 
 /** Реакция на удар: обычное ТС и пешеход слетают с траектории, трамвай остаётся на рельсах и тормозит. */
@@ -277,14 +345,14 @@ function hit(r: Rt, rel: number): void {
   }
   const d = (r.v * r.v) / (2 * Math.min(r.brake, r.plan));
   r.nodes = [
-    { s: r.s, V: r.v, hold: 0 },
-    { s: r.s + d, V: 0, hold: 0 },
+    { s: r.s, V: r.v, hold: 0, reverse: r.reverse },
+    { s: r.s + d, V: 0, hold: 0, reverse: r.reverse },
   ];
   r.next = 1;
 }
 
 function velocityOf(r: Rt): Vec {
-  return r.mode === 'free' ? r.vel : mul(fromAngle(r.h), r.v);
+  return r.mode === 'free' ? r.vel : mul(fromAngle(r.h), r.v * (r.reverse ? -1 : 1));
 }
 
 function toFree(r: Rt): void {
@@ -310,6 +378,8 @@ export function simulate(scene: Scene): Timeline {
       v: new Float32Array(n),
       present: new Uint8Array(n),
       free: new Uint8Array(n),
+      reversing: new Uint8Array(n),
+      waypointTimes: r.waypointTimes,
     });
   }
 
@@ -324,7 +394,7 @@ export function simulate(scene: Scene): Timeline {
       if (!r.present && t >= r.a.delay - 1e-9) r.present = true;
       if (!r.present) continue;
       if (r.mode === 'path') {
-        if (k > 0 || r.a.delay > 0) stepPath(r, DT);
+        if (k > 0 || r.a.delay > 0) stepPath(r, DT, t);
       } else {
         const sp = len(r.vel);
         if (sp > 0) {
@@ -366,6 +436,7 @@ export function simulate(scene: Scene): Timeline {
       tr.v[k] = r.mode === 'free' ? len(r.vel) : r.v;
       tr.present[k] = r.present ? 1 : 0;
       tr.free[k] = r.mode === 'free' ? 1 : 0;
+      tr.reversing![k] = r.present && (r.mode === 'path' ? r.reverse : dot(r.vel, fromAngle(r.h)) < -1e-6) ? 1 : 0;
     }
 
     function resolve(

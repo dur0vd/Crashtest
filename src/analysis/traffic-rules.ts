@@ -12,7 +12,6 @@ import {
   fromAngle,
   kmh,
   pointInObb,
-  obbCorners,
   angleOf,
   toLocal,
 } from '../geom';
@@ -29,6 +28,7 @@ import {
 } from '../scene';
 
 import type { Ctx, Info } from './context';
+import { checkManeuvers, maneuverPriority } from './maneuvers';
 import { movementPermission } from '../traffic-control';
 import { buildPriorityGraphs, checkIntersectionObservations, controllerAt, graphPriority, turningVulnerablePriority, movementFor } from './intersections';
 import type { FindingInput, DraftFinding, TechAssessment, CollisionReport, Finding, RulesSection, ActorVerdict } from './types';
@@ -289,47 +289,6 @@ function checkSigns(ctx: Ctx, i: Info): void {
   }
 }
 
-function checkOvertakes(ctx: Ctx): void {
-  for (const o of ctx.technical.overtakes) {
-    const A = ctx.infos.get(o.overtaker)!;
-    const B = ctx.infos.get(o.overtaken)!;
-    ctx.events.push({ t: tOf(o.frame), text: `${A.label} обгоняет ${B.label}` });
-    const signs = activeSigns(ctx, A.a.id, o.frame, 500).filter((s) => s.kind === '3.20');
-    if (signs.length) {
-      addFinding(ctx, {
-        actorId: A.a.id,
-        severity: 'violation',
-        t: tOf(o.frame),
-        title: 'обгон в зоне действия знака «Обгон запрещён»',
-        detail: `${A.label} обогнал ${B.label} после знака 3.20.`,
-        refs: ['sign:3.20', 'rule:sign-requirement'],
-      });
-    }
-    for (const cw of ctx.geo.crosswalks) {
-      let near = false;
-      for (let k = Math.max(A.k0, o.frame - 60); k <= Math.min(A.kEnd, o.frame + 60); k += 2) {
-        const bx = boxAt(A, k);
-        if (obbCorners(bx).some((c) => pointInObb(c, cw.box, 0.5))) {
-          near = true;
-          break;
-        }
-      }
-      if (near) {
-        const wrong = ctx.onc.get(A.a.id);
-        addFinding(ctx, {
-          actorId: A.a.id,
-          severity: 'violation',
-          t: tOf(o.frame),
-          title: 'обгон на пешеходном переходе',
-          detail: `${A.label} обгоняет ${B.label} в зоне пешеходного перехода.`,
-          refs: wrong ? ['pdd:11.4', 'rule:opposing-lane'] : ['pdd:11.4'],
-        });
-        break;
-      }
-    }
-  }
-}
-
 /** Пешеход находится в зоне действия знака 5.21 «Жилая зона» (до ближайшего 5.22 в радиусе 150 м). */
 function inLivingZone(ctx: Ctx, p: Vec): boolean {
   const near = (kind: string): number =>
@@ -576,6 +535,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     const trB = addTech(B, A.a.id);
 
     const turnDuty = turningVulnerablePriority(ctx, A.a.id, B.a.id, col.point);
+    const maneuverDuty = maneuverPriority(ctx, A.a.id, B.a.id, col);
     if (turnDuty) {
       title = 'Столкновение при повороте с пересекающим дорогу велосипедистом';
       description = turnDuty.explain;
@@ -601,6 +561,13 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       } else {
         notes.push('Очерёдность по наблюдавшимся сигналам и траекториям однозначно не определена.');
         for (const i of [A, B]) addFinding(ctx, { actorId: i.a.id, severity: 'contributing', t, title: 'недостаточно данных об очерёдности проезда', detail: 'Граф приоритета не устанавливает однозначной обязанности уступить; нарушение приоритета не назначается.', refs: ['pdd:1.5'] });
+      }
+    } else if (maneuverDuty) {
+      title = 'Столкновение при манёвре';
+      description = maneuverDuty.explain;
+      notes.push(maneuverDuty.explain);
+      if (!ctx.findings.some(f => f.actorId === maneuverDuty.from && f.causal && f.refs.some(ref => maneuverDuty.refs.includes(ref)))) {
+        addFinding(ctx, { actorId: maneuverDuty.from, severity: 'violation', causal: true, t, title: 'манёвр создал помеху имеющему преимущество', detail: maneuverDuty.explain, refs: maneuverDuty.refs, trace: maneuverDuty.trace });
       }
     } else if (dh < 0.7 && ((rA === 'front' && rB === 'rear') || (rB === 'front' && rA === 'rear'))) {
       // ---- попутное, наезд сзади
@@ -870,7 +837,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   }
   ctx.priorityGraphs = buildPriorityGraphs(ctx);
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
-  checkOvertakes(ctx);
+  checkManeuvers(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {
     const directional = finding.refs.some(ref => /^sign:(?:3\.18\.[12]|3\.19|4\.1\.[1-6])$/.test(ref) || ref === 'marking:1.18');
     if (directional) {

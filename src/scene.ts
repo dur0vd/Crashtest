@@ -203,6 +203,28 @@ export interface RailwayContext {
   trainStopSignal?: boolean;
 }
 
+/** Установленные условия применения специальных сигналов; отсутствие bool неизвестно. */
+export interface SpecialSignals {
+  beacon: 'unknown' | 'none' | 'blue' | 'blue-red' | 'yellow' | 'orange' | 'white';
+  siren?: boolean;
+  urgentDuty?: boolean;
+  colorScheme?: boolean;
+  safetyEnsured?: boolean;
+  /** Установленное основание обязательного жёлтого/оранжевого маячка по 3.4. */
+  warningReason?: 'road-work' | 'recovery' | 'oversized' | 'high-danger-cargo' | 'heavy-sign-exemption'
+    | 'oversize-escort' | 'dangerous-escort' | 'cycling-training-escort' | 'children-group';
+}
+
+/** Факты для конкретной пары, не распространяющиеся автоматически на остальных. */
+export interface SpecialInteraction {
+  otherId: string;
+  yielded?: boolean;
+  yieldingVerified?: boolean;
+  beaconVisible?: boolean;
+  immediateStopPossible?: boolean;
+  organizedMovementObstructed?: boolean;
+}
+
 export interface Crosswalk {
   id: string;
   x: number;
@@ -375,6 +397,8 @@ export interface Actor {
   maneuverContext?: ManeuverContext;
   railwayTrain?: RailwayTrain;
   railwayContext?: RailwayContext;
+  specialSignals?: SpecialSignals;
+  specialInteractions?: SpecialInteraction[];
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -631,6 +655,35 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    const rawSignals = a.specialSignals;
+    if (rawSignals && typeof rawSignals === 'object' && !Array.isArray(rawSignals)) {
+      const signals: SpecialSignals = { beacon: ['unknown', 'none', 'blue', 'blue-red', 'yellow', 'orange', 'white'].includes(rawSignals.beacon)
+        ? rawSignals.beacon : 'unknown' };
+      for (const fact of ['siren', 'urgentDuty', 'colorScheme', 'safetyEnsured'] as const) {
+        if (typeof rawSignals[fact] === 'boolean') signals[fact] = rawSignals[fact];
+      }
+      if (['road-work', 'recovery', 'oversized', 'high-danger-cargo', 'heavy-sign-exemption',
+        'oversize-escort', 'dangerous-escort', 'cycling-training-escort', 'children-group'].includes(rawSignals.warningReason ?? '')) {
+        signals.warningReason = rawSignals.warningReason;
+      }
+      a.specialSignals = signals;
+    } else delete a.specialSignals;
+    if (Array.isArray(a.specialInteractions)) {
+      const seen = new Set<string>();
+      a.specialInteractions = a.specialInteractions.filter(pair => {
+        if (!pair || typeof pair.otherId !== 'string' || pair.otherId === a.id
+          || !scene.actors.some(other => other.id === pair.otherId) || seen.has(pair.otherId)) return false;
+        seen.add(pair.otherId);
+        return true;
+      }).map(pair => {
+        const result: SpecialInteraction = { otherId: pair.otherId };
+        for (const fact of ['yielded', 'yieldingVerified', 'beaconVisible', 'immediateStopPossible', 'organizedMovementObstructed'] as const) {
+          if (typeof pair[fact] === 'boolean') result[fact] = pair[fact];
+        }
+        return result;
+      });
+      if (!a.specialInteractions.length) delete a.specialInteractions;
+    } else delete a.specialInteractions;
     validateRailwayTrain(a);
     if (a.railwayTrain) {
       a.railwayTrain.source = a.railwayTrain.source.trim();

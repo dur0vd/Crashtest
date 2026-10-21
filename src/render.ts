@@ -1027,10 +1027,37 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
-        if (!a.railwayTrain) this.drawIndicators(a, spec.length, spec.width, v);
+        if (!a.railwayTrain) {
+          this.drawIndicators(a, spec.length, spec.width, v);
+          this.drawSpecialSignals(a, spec.width, v);
+        }
       }
       ctx.restore();
     }
+  }
+
+  private drawSpecialSignals(a: Actor, width: number, v: ViewState): void {
+    const beacon = a.specialSignals?.beacon;
+    if (!beacon || beacon === 'none' || beacon === 'unknown') return;
+    const { ctx } = this;
+    // Мигание — условное изображение включённого сигнала, не измеренная частота устройства.
+    const phase = Math.floor(v.t * 4) % 2;
+    const radius = Math.max(0.12, Math.min(width * 0.16, 4 / v.cam.s));
+    ctx.save();
+    ctx.fillStyle = '#151c28';
+    ctx.fillRect(-radius * 1.4, -width * 0.3 - radius, radius * 2.8, width * 0.6 + radius * 2);
+    const color = { blue: '#318dff', 'blue-red': '#318dff', yellow: '#ffbd24', orange: '#ff8c20', white: '#f5f7ff' }[beacon];
+    for (const side of [-1, 1]) {
+      const lit = beacon === 'blue-red' ? (side < 0 ? phase === 0 : phase === 1) : phase === 0;
+      const lampColor = beacon === 'blue-red' && side > 0 ? '#ff3844' : color;
+      ctx.fillStyle = lit ? lampColor : '#35404e';
+      ctx.shadowColor = lit ? lampColor : 'transparent';
+      ctx.shadowBlur = lit ? 8 : 0;
+      ctx.beginPath();
+      ctx.arc(0, side * width * 0.3, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   private drawIndicators(a: Actor, length: number, width: number, v: ViewState): void {
@@ -1426,7 +1453,7 @@ export class Renderer {
       const sp = actorSpec(a);
       const s = worldToScreen(v.cam, this.w, this.h, pose.p);
       const y = s.y - (sp.width / 2) * v.cam.s - 10;
-      const text = `${labels.get(a.id) ?? ''}${a.railwayTrain ? ' · поезд' : ''}`;
+      const text = `${labels.get(a.id) ?? ''}${a.railwayTrain ? ' · поезд' : ''}${a.specialSignals?.siren === true ? ' · сирена' : ''}`;
       const w = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(12,15,20,0.78)';
       ctx.beginPath();

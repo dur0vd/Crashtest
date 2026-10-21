@@ -427,7 +427,7 @@ function maneuverContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
 function railwayTrainForm(box: HTMLElement, a: Actor, app: AppApi): void {
   const train = a.railwayTrain;
   const group = h('details', { class: 'group', open: !!train }, h('summary', {}, train ? 'Параметры поезда' : 'Задать железнодорожный поезд'),
-    h('p', { class: 'hint' }, 'Введите массу всего состава, габариты и установленное замедление по исходным материалам. Трамвайные параметры не подставляются. Это упрощённое движение по колее; проверьте применимость постоянного замедления.'));
+    h('p', { class: 'note' }, 'Введите массу всего состава, габариты и установленное замедление по исходным материалам. Трамвайные параметры не подставляются. Это упрощённое движение по колее; проверьте применимость постоянного замедления.'));
   let mass = train?.mass;
   let length = train?.length;
   let width = train?.width;
@@ -501,6 +501,68 @@ function railwayContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+function specialSignalsForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  type Signals = NonNullable<Actor['specialSignals']>;
+  type Interaction = NonNullable<Actor['specialInteractions']>[number];
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Специальные сигналы'),
+    h('p', { class: 'note' }, 'Преимущество по п. 3.1–3.2 требует синего маячка и специального звукового сигнала. Сам по себе синий маячок без звука преимущества не даёт; жёлтый и оранжевый маячки преимущества не дают. Требования регулировщика сохраняют силу.'),
+    h('small', {}, 'Отступление по п. 3.1 связано с неотложным заданием и обеспечением безопасности. «Не установлено» сохраняет неопределённость; отмечайте обстоятельства по исходным материалам.'));
+  group.append(field('Проблесковый маячок', select([['unknown', 'Не установлено'], ['none', 'Не включён'], ['blue', 'Синий'], ['blue-red', 'Синий и красный'], ['yellow', 'Жёлтый'], ['orange', 'Оранжевый'], ['white', 'Бело-лунный']], a.specialSignals?.beacon ?? 'unknown', value => app.edit(() => {
+    const signals = a.specialSignals ??= { beacon: 'unknown' };
+    signals.beacon = value;
+  }))));
+  group.append(field('Основание для жёлтого или оранжевого маячка', select([
+    ['unknown', 'Не установлено'],
+    ['road-work', 'Дорожные работы'],
+    ['recovery', 'Эвакуация ТС'],
+    ['oversized', 'Движение крупногабаритного ТС'],
+    ['high-danger-cargo', 'Перевозка груза повышенной опасности'],
+    ['heavy-sign-exemption', 'Тяжеловесное ТС с предусмотренным исключением по знакам'],
+    ['oversize-escort', 'Сопровождение крупногабаритного или тяжеловесного ТС'],
+    ['dangerous-escort', 'Сопровождение ТС с опасным грузом'],
+    ['cycling-training-escort', 'Сопровождение тренировки велосипедистов'],
+    ['children-group', 'Организованная перевозка группы детей'],
+  ], a.specialSignals?.warningReason ?? 'unknown', value => app.edit(() => {
+    const signals = a.specialSignals ??= { beacon: 'unknown' };
+    if (value === 'unknown') delete signals.warningReason;
+    else signals.warningReason = value;
+  })), 'Повышенная опасность груза устанавливается отдельно; отметка об опасном грузе сама по себе её не подтверждает.'));
+  const facts: [Exclude<keyof Signals, 'beacon' | 'warningReason'>, string][] = [
+    ['siren', 'Специальный звуковой сигнал включён'],
+    ['urgentDuty', 'Выполняется неотложное служебное задание'],
+    ['colorScheme', 'Имеется специальная цветографическая схема'],
+    ['safetyEnsured', 'Безопасность отступления от правил обеспечена'],
+  ];
+  for (const [key, label] of facts) group.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], a.specialSignals?.[key] === true ? 'yes' : a.specialSignals?.[key] === false ? 'no' : 'unknown', value => app.edit(() => {
+    const signals = a.specialSignals ??= { beacon: 'unknown' };
+    if (value === 'unknown') delete signals[key];
+    else signals[key] = value === 'yes';
+  }))));
+  const labels = actorLabels(app.scene());
+  for (const other of app.scene().actors.filter(actor => actor.id !== a.id && actor.kind === 'vehicle' && !actor.railwayTrain)) {
+    const interaction = a.specialInteractions?.find(item => item.otherId === other.id);
+    const pair = h('details', { class: 'group' }, h('summary', {}, `В отношении ${actorTitle(other, labels)}`));
+    const pairFacts: [Exclude<keyof Interaction, 'otherId'>, string][] = [
+      ['yielded', 'Уступил этому участнику'],
+      ['yieldingVerified', 'Убедился, что этот участник уступает'],
+      ['beaconVisible', 'Маячок этого участника был виден'],
+      ['immediateStopPossible', 'Мог немедленно остановиться при приближении к стоящему с маячком'],
+      ['organizedMovementObstructed', 'Движением рядом с той же скоростью создаёт помеху организованному движению этого ТС'],
+    ];
+    for (const [key, label] of pairFacts) pair.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], interaction?.[key] === true ? 'yes' : interaction?.[key] === false ? 'no' : 'unknown', value => app.edit(() => {
+      const interactions = a.specialInteractions ??= [];
+      let current = interactions.find(item => item.otherId === other.id);
+      if (!current && value !== 'unknown') { current = { otherId: other.id }; interactions.push(current); }
+      if (!current) return;
+      if (value === 'unknown') delete current[key];
+      else current[key] = value === 'yes';
+      if (Object.keys(current).length === 1) a.specialInteractions = interactions.filter(item => item !== current);
+    }))));
+    group.append(pair);
+  }
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -538,7 +600,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Рельсы'),
-        h('p', { class: 'hint' }, a.railwayTrain ? 'Поезд следует железнодорожной колее; масса, габариты и замедление берутся из параметров ниже. Модель не рассчитывает сход поезда с рельсов.' : 'Трамвай едет строго по ближайшему трамвайному пути (точки маршрута притягиваются к колее). Удар его не сдвигает, он тормозит на рельсах.'),
+        h('p', { class: 'note' }, a.railwayTrain ? 'Поезд следует железнодорожной колее; масса, габариты и замедление берутся из параметров ниже. Модель не рассчитывает сход поезда с рельсов.' : 'Трамвай едет строго по ближайшему трамвайному пути (точки маршрута притягиваются к колее). Удар его не сдвигает, он тормозит на рельсах.'),
         !a.railwayTrain && check('Возможен сход с путей (удар от 20 км/ч)', !!a.derail, set((v) => (a.derail = v))),
       ),
     );
@@ -548,6 +610,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
   if (isVeh && !a.railwayTrain) {
     maneuverContextForm(box, a, app);
     railwayContextForm(box, a, app);
+    specialSignalsForm(box, a, app);
   }
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));

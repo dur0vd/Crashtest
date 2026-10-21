@@ -522,6 +522,36 @@ function railwayExample(compliant: boolean): Scene {
   return b.done();
 }
 
+export const SPECIAL_SIGNAL_PRESETS: Preset[] = [
+  {
+    id: 'special-signal-conflict',
+    title: 'Спецтранспорт: преимущество и обязанность убедиться',
+    hint: 'На перекрёстке спецТС с синим маячком и звуком въезжает поперёк своего красного. Другой водитель не уступает; спецТС не убедилось в уступании. Проверяются действия обоих.',
+    build: () => specialSignalExample(false),
+  },
+  {
+    id: 'special-signal-yield',
+    title: 'Спецтранспорт: уступить перед перекрёстком',
+    hint: 'Те же позиции и сигналы. Обычный автомобиль тормозит перед конфликтным местом; спецТС выполняет неотложное задание после установленной проверки уступания и безопасности.',
+    build: () => specialSignalExample(true),
+  },
+];
+
+function specialSignalExample(compliant: boolean): Scene {
+  const b = cross(new Builder().name(compliant ? 'Уступить спецтранспорту' : 'Конфликт со спецтранспортом').duration(13));
+  b.light(-14, 1.75, 0, [60, 0, 0]);
+  b.light(-1.75, -14, 90, [0, 0, 60]);
+  b.vehicle('car', -35, 1.75, 0, 25,
+    compliant ? [[-15, 1.75, 0], [100, 1.75, 25]] : [[100, 1.75, 25]]);
+  b.vehicle('van', -1.75, -35, 90, 25, [[-1.75, 100, 25]], { color: '#f1f1e6',
+    specialSignals: { beacon: 'blue', siren: true, urgentDuty: true, colorScheme: true, safetyEnsured: compliant } });
+  const [ordinary, special] = b.scene.actors;
+  if (compliant) ordinary.path[0].hold = 6;
+  ordinary.specialInteractions = [{ otherId: special.id, yielded: compliant, beaconVisible: true }];
+  special.specialInteractions = [{ otherId: ordinary.id, yieldingVerified: compliant }];
+  return b.done();
+}
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -714,6 +744,7 @@ export const PRESETS: Preset[] = [
   ...MANEUVER_PRESETS,
   ...MANEUVER_COMPLIANT_PRESETS,
   ...RAILWAY_PRESETS,
+  ...SPECIAL_SIGNAL_PRESETS,
 ];
 
 export function blankScene(): Scene {

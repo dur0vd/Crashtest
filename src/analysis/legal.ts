@@ -171,6 +171,9 @@ const RULE_OFFENCES: Record<string, string> = {
   'rule:railway-stop': 'koap:12.10#1',
   'rule:railway-outside': 'koap:12.10#1',
   'rule:railway-other': 'koap:12.10#2',
+  'rule:special-priority-blue-unmarked': 'koap:12.17#1',
+  'rule:special-priority-marked': 'koap:12.17#2',
+  'rule:special-priority-blue-red-unmarked': 'koap:12.17#3',
   'rule:spacing': 'koap:12.15.1',
   'rule:sidewalk': 'koap:12.15.2',
   'rule:opposing-lane': 'koap:12.15.4',
@@ -188,6 +191,9 @@ const RULE_OFFENCES: Record<string, string> = {
 };
 
 function legalRefs(f: Finding, a: Actor): string[] {
+  // A rule observed as complied with or not established is not an offence.
+  // Keep explicit references, but never infer an administrative part from its code.
+  if (f.severity !== 'violation') return [...f.refs];
   const subject = subjectOf(a);
   const codes = (f.trace.ruleCodes ?? []) as string[];
   const refs = codes.flatMap(code => {

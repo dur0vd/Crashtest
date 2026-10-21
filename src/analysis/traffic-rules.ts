@@ -30,13 +30,14 @@ import {
 import type { Ctx, Info } from './context';
 import { checkManeuvers, maneuverPriority } from './maneuvers';
 import { checkRailway, railwayPriority } from './railway';
+import { applySpecialDeparture, blueBeacon, checkSpecialSignals, specialPairState, specialPriority } from './special-signals';
 import { movementPermission } from '../traffic-control';
 import { buildPriorityGraphs, checkIntersectionObservations, controllerAt, graphPriority, turningVulnerablePriority, movementFor } from './intersections';
 import type { FindingInput, DraftFinding, TechAssessment, CollisionReport, Finding, RulesSection, ActorVerdict } from './types';
 import { type TechnicalContext, boxAt, posAt, tOf, leftmostLat, stoppingCalculation, regionOf, sampleTrace } from './technical';
 
 function addFinding(ctx: Ctx, f: FindingInput): DraftFinding {
-  const full: DraftFinding = { causal: false, ...f };
+  const full: DraftFinding = { causal: false, ...applySpecialDeparture(ctx, f) };
   ctx.findings.push(full);
   if (full.t !== undefined && full.severity !== 'info') {
     ctx.events.push({ t: full.t, text: `${ctx.infos.get(full.actorId)!.label}: ${full.title}` });
@@ -237,14 +238,16 @@ function checkLights(ctx: Ctx, i: Info): void {
       }
     }
     if (bad) {
-      addFinding(ctx, { actorId: i.a.id, severity: 'violation', t,
+      const finding = addFinding(ctx, { actorId: i.a.id, severity: 'violation', t,
         trace: { ...evidence?.trace, permission, light: controlling },
         title: controlling.kind === 'controller' ? 'не выполнено требование регулировщика' : phase === 'red' ? 'проезд на красный сигнал светофора' : 'проезд при запрещённом направлении или сигнале',
         detail: `${permission.reason}. Скорость ${Math.round(kmh(i.tr.v[g.frame]))} км/ч.${note}`,
         refs: [...permission.refs, 'pdd:6.13', ...(prior && light.stopLine !== false ? ['pdd:13.7'] : []), 'rule:signal'] });
-      const list = ctx.lightViolations.get(i.a.id) ?? [];
-      list.push({ light: controlling, frame: g.frame });
-      ctx.lightViolations.set(i.a.id, list);
+      if (finding.severity === 'violation') {
+        const list = ctx.lightViolations.get(i.a.id) ?? [];
+        list.push({ light: controlling, frame: g.frame });
+        ctx.lightViolations.set(i.a.id, list);
+      }
     }
   }
 }
@@ -265,7 +268,7 @@ function checkSigns(ctx: Ctx, i: Info): void {
         }
       }
       if (!stopped) {
-        addFinding(ctx, {
+        const finding = addFinding(ctx, {
           actorId: i.a.id,
           severity: 'violation',
           t,
@@ -273,9 +276,11 @@ function checkSigns(ctx: Ctx, i: Info): void {
           detail: `Скорость при пересечении линии — ${Math.round(kmh(i.tr.v[g.frame]))} км/ч, полной остановки не было.`,
           refs: ['sign:2.5', 'rule:sign-requirement'],
         });
-        const list = ctx.stopSkipped.get(i.a.id) ?? [];
-        list.push(g.frame);
-        ctx.stopSkipped.set(i.a.id, list);
+        if (finding.severity === 'violation') {
+          const list = ctx.stopSkipped.get(i.a.id) ?? [];
+          list.push(g.frame);
+          ctx.stopSkipped.set(i.a.id, list);
+        }
       }
     } else if (s.kind === '3.1') {
       const onOneWay = roadsAt(ctx.geo, posAt(i, g.frame), 2).some((h) => h.rg.road.oneWay);
@@ -532,7 +537,9 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           notes.push('Пешеход нарушил правила перехода, но и водитель мог предотвратить наезд — возможна обоюдная ответственность.');
         } else {
           notes.push('Пешеход вышел на проезжую часть вне перехода; у водителя не было технической возможности остановиться. Причинная связь с действиями водителя не установлена.');
-          if (tr?.avoidableAtLimit) notes.push('При скорости в пределах допустимой наезда удалось бы избежать — превышение скорости находится в причинной связи.');
+          if (tr?.avoidableAtLimit && ctx.findings.some(f => f.actorId === veh.a.id && f.severity === 'violation' && f.refs.includes('rule:speed'))) {
+            notes.push('При скорости в пределах допустимой наезда удалось бы избежать — превышение скорости находится в причинной связи.');
+          }
         }
       }
       if (tr) notes.unshift(techText(tr, veh.label, ped.label));
@@ -557,8 +564,30 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     }
 
     const railway = railwayPriority(ctx, A.a.id, B.a.id, col);
+    const special = specialPriority(ctx, A.a.id, B.a.id, kp);
+    const movingSpecial = blueBeacon(A.a) && A.tr.v[kp] > 0.1 || blueBeacon(B.a) && B.tr.v[kp] > 0.1;
+    const specialState = movingSpecial ? specialPairState(A.a, B.a) : 'none';
     const turnDuty = turningVulnerablePriority(ctx, A.a.id, B.a.id, col.point);
     const maneuverDuty = maneuverPriority(ctx, A.a.id, B.a.id, col);
+    if (!railway && (special || specialState === 'both' || specialState === 'unknown') && dh < 0.7
+      && ((rA === 'front' && rB === 'rear') || (rB === 'front' && rA === 'rear'))) {
+      const rear = rA === 'front' ? A : B, leader = rear === A ? B : A;
+      const first = Math.max(rear.k0, leader.k0, kp - Math.ceil(1 / DT));
+      const stableLeader = Array.from({ length: kp - first + 1 }, (_, index) => first + index).every(k => {
+        const local = toLocal(posAt(leader, k), { cx: rear.tr.x[k], cy: rear.tr.y[k], a: rear.tr.h[k] });
+        return leader.tr.v[k] < 0.1 && local.x > 0 && Math.abs(local.y) < rear.hw + leader.hw;
+      });
+      // Blue lights do not establish the stopped leading driver's ability to
+      // clear a lane. Preserve the independently observed rear driver's unsafe
+      // movement; the separate 3.1/3.2 analysis cannot erase this contact.
+      if (stableLeader && rear.tr.v[kp] > 0.1 && !rear.tr.reversing?.[kp]) addFinding(ctx, {
+        actorId: rear.a.id, severity: 'violation', causal: true, t,
+        title: 'не обеспечено безопасное приближение к стоящему впереди ТС',
+        detail: 'Движущийся участник въехал передней частью в заднюю часть ТС, неподвижного в том же ряду. Специальные сигналы не устраняют требование безопасности; возможность впереди стоящего водителя освободить полосу отдельно не установлена.',
+        refs: ['pdd:9.10', 'pdd:10.1', 'rule:spacing'],
+        trace: { collisionFrame: frame, otherActorId: leader.a.id, stationaryLeaderObservationSeconds: (kp - first) * DT,
+          independentSafetyAssessment: true } });
+    }
     if (railway) {
       title = 'Столкновение с поездом';
       description = `${A.label} и ${B.label} столкнулись на железнодорожных путях, скорость сближения около ${impactKmh} км/ч.`;
@@ -573,6 +602,17 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           refs: ['pdd:15.1'], trace: { ...railway.trace, compliance: 'не определить' } });
       }
       for (const [i, assessment] of [[A, trA], [B, trB]] as const) if (assessment) notes.push(techText(assessment, i.label, i === A ? B.label : A.label));
+    } else if (special) {
+      title = 'Столкновение при приближении спецтранспорта';
+      description = special.explain;
+      notes.push(special.explain);
+      notes.push('Обязанность уступить по п. 3.2 и условия использования приоритета по п. 3.1 оцениваются отдельно; специальные сигналы не исключают нарушения у обоих водителей.');
+      for (const [i, assessment] of [[A, trA], [B, trB]] as const) if (assessment) notes.push(techText(assessment, i.label, i === A ? B.label : A.label));
+    } else if (specialState === 'both' || specialState === 'unknown') {
+      title = 'Столкновение с неопределёнными условиями специального приоритета';
+      description = specialState === 'both' ? 'Специальные сигналы обоих участников не определяют преимущество одного перед другим.'
+        : 'Включение специального звукового сигнала не установлено; очередность с учётом п. 3.2 определить нельзя.';
+      notes.push(description);
     } else if (turnDuty) {
       title = 'Столкновение при повороте с пересекающим дорогу велосипедистом';
       description = turnDuty.explain;
@@ -874,6 +914,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   }
   ctx.priorityGraphs = buildPriorityGraphs(ctx);
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
+  checkSpecialSignals(ctx, f => addFinding(ctx, f));
   checkManeuvers(ctx, f => addFinding(ctx, f));
   checkRailway(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {
@@ -905,7 +946,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   // скорость — причина, если при допустимой скорости столкновения удалось бы избежать
   for (const r of collisions) {
     for (const t of r.tech) {
-      if (t.avoidableAtLimit && !t.avoidable) {
+      if (t.avoidableAtLimit && !t.avoidable && ctx.findings.some(f => f.actorId === t.actorId && f.severity === 'violation' && f.refs.includes('rule:speed'))) {
         for (const f of ctx.findings) {
           if (f.actorId === t.actorId && f.severity === 'violation' && f.refs.some((x) => x === 'rule:speed')) f.causal = true;
         }

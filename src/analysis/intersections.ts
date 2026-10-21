@@ -6,6 +6,7 @@ import { movementPermission } from '../traffic-control';
 import type { Ctx, Info } from './context';
 import type { FindingInput, Trace } from './types';
 import { boxAt, posAt, tOf } from './technical';
+import { specialDeparture, specialPairState, specialPriority } from './special-signals';
 
 /** These are observation windows, not numerical requirements imposed by the PDD. */
 const APPROACH_WINDOW_SECONDS = 6;
@@ -142,6 +143,13 @@ function participant(ctx: Ctx, i: Info, j: IntersectionGeo): IntersectionPartici
   const gateFrame = gate?.frame ?? entryFrame;
   const control = light ? movementPermission(light, { ...i.a, heading: movement.entryHeading }, movement.maneuver, tOf(gateFrame))
     : { regulated: false, allowed: null, yieldToAll: false, refs: [], reason: 'Нерегулируемый подход' };
+  if (control.allowed === false) {
+    const departure = specialDeparture(i.a, light?.kind === 'controller');
+    if (departure !== false) {
+      control.allowed = departure;
+      control.reason += departure === true ? '; условия отступления по п. 3.1 заданы' : '; условия отступления по п. 3.1 не установлены полностью';
+    }
+  }
   const signs = approachSigns(ctx, i, j, movement.entryHeading, entryFrame);
   let priority = signs.some(s => s.kind === '2.1') ? 1 : signs.some(s => s.kind === '2.4' || s.kind === '2.5') ? -1 : 0;
   const main = ctx.scene.signs.find(s => s.mainDirections?.length && dist(s, j.center) < 60);
@@ -189,6 +197,10 @@ function compare(ctx: Ctx, j: IntersectionGeo, a: IntersectionParticipant, b: In
     }
   }
   if (!A.isVeh || !B.isVeh) return null;
+  const specialState = specialPairState(A.a, B.a);
+  const special = specialPriority(ctx, a.actorId, b.actorId, Math.max(a.gateFrame, b.gateFrame));
+  if (special) return special;
+  if (specialState === 'both' || specialState === 'unknown') return null;
   const regulated = a.regulated || b.regulated;
   if (!regulated && (A.a.coveringUnknown || ctx.scene.roads.find(r => r.id === a.roadId)?.surfacePriority === 'unknown') && (B.a.coveringUnknown || ctx.scene.roads.find(r => r.id === b.roadId)?.surfacePriority === 'unknown') && !a.signs.some(s => ['2.1', '2.4', '2.5'].includes(s)) && !b.signs.some(s => ['2.1', '2.4', '2.5'].includes(s))) return null;
   if (regulated) {

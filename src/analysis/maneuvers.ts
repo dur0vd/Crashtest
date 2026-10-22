@@ -1,3 +1,4 @@
+import { isSmallRider, mobilityPlaceAt } from '../mobility';
 import { classifyIntersectionMovement, intersectionAt, inIntersectionBoundary, lateralFor, roadsAt, type RoadHit } from '../geo';
 import { angDiff, angleOf, dist, dot, fromAngle, pointInObb, obbContact, obbCorners, toLocal, nearestOnPolyline } from '../geom';
 import { type Movement, type Road, LANE_WIDTH, dimsOf } from '../scene';
@@ -138,7 +139,7 @@ function signalChecks(ctx: Ctx, i: Info, events: ObservedManeuver[], add: Add): 
     const leadSeconds = ctx.scene.env.signalLeadSeconds ?? SIGNAL_LEAD_SECONDS;
     const leadMeters = ctx.scene.env.signalLeadMeters ?? SIGNAL_LEAD_METERS;
     const signal = vehicleSignalAt(i.a, Math.max(0, t - DT / 2), i.tr.waypointTimes);
-    const handRequired = context?.indicatorsUnavailable === true || i.a.type === 'bicycle' && context?.indicatorsUnavailable !== false;
+    const handRequired = context?.indicatorsUnavailable === true || ['bicycle', 'sim'].includes(i.a.type) && context?.indicatorsUnavailable !== false;
     const hand = context?.handSignal;
     const handKnown = handRequired && hand !== undefined;
     const handMatches = handKnown && (event.kind === 'stop' ? hand === 'stop' : event.direction ? hand === event.direction : hand === 'left' || hand === 'right');
@@ -214,6 +215,21 @@ function positionChecks(ctx: Ctx, i: Info, events: ObservedManeuver[], add: Add)
     const lat = localLat(i, before, hit) + (road.oneWay ? width / 2 : 0);
     const roundaboutEntry = !!event.intersectionId && !!ctx.geo.intersections.find(j => j.id === event.intersectionId)?.roundabout && road.role !== 'roundabout';
     const right = event.direction === 'right';
+    if (isSmallRider(i.a)) {
+      const place = mobilityPlaceAt(ctx.geo, posAt(i, before), i.tr.h[before]);
+      if (!['carriageway', 'cycle-zone'].includes(place.surface)) continue;
+      const rightPermission = i.a.mobilityContext?.leftTurnPermittedFromRight;
+      if (!right && rightPermission === true) {
+        const rightLane = lat >= width - LANE_WIDTH - 0.15;
+        add({ actorId: i.a.id, severity: rightLane ? 'info' : 'violation', t: tOf(before),
+          title: 'положение при разрешённом повороте из правой полосы', detail: 'Проверено специальное условие 24.8: поворот разрешён из правой полосы; общее требование левого положения не подменяет его.',
+          refs: ['pdd:24.8', ...(!rightLane ? ['rule:mobility'] : [])], trace: { maneuver: event, lateral: lat, width, compliance: rightLane ? 'выполнено' : 'не выполнено' } });
+        continue;
+      }
+      const tramRoad = ctx.geo.tracks.some(t => t.item.kind !== 'railway' && t.pts.some(p => roadsAt(ctx.geo, p).some(h => h.rg.road.id === road.id)));
+      // 24.8 decides admission/uncertainty; do not independently demand moving onto tram rails.
+      if (!right && (road.lanes > 1 || tramRoad)) continue;
+    }
     const inExtremeLane = right ? lat >= width - LANE_WIDTH - 0.15 : lat >= -0.15 && lat <= LANE_WIDTH + 0.15;
     const context = i.a.maneuverContext;
     const narrowUturn = event.kind === 'uturn' && !event.intersectionId && context?.cannotKeepExtreme === true;

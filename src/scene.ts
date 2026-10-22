@@ -8,6 +8,7 @@ import { LEGACY_SIGN_KIND } from './signs';
 // Каталог участников движения
 
 export type VehicleType =
+  | 'sim'
   | 'bicycle'
   | 'moped'
   | 'motorcycle'
@@ -56,6 +57,8 @@ export interface VehicleSpec {
 }
 
 export const VEHICLES: Record<VehicleType, VehicleSpec> = {
+  // Zero values are an unconfigured draft, never a physical parameter set.
+  sim: { motorized: false, licenseRequired: false, name: 'СИМ', length: 0, width: 0, mass: 0, accel: 0, brakeFactor: 0, vmax: 0, color: '#45c9b2', exposed: true, rail: false, route: false, heavy: false, height: 0, payload: 0 },
   bicycle: { motorized: false, licenseRequired: false, name: 'Велосипед', length: 1.8, width: 0.6, mass: 95, accel: 1.0, brakeFactor: 0.6, vmax: 35, color: '#2fb36b', exposed: true, rail: false, route: false, heavy: false, height: 1.8, payload: 0 },
   moped: { motorized: true, licenseRequired: true, name: 'Мопед', length: 1.8, width: 0.7, mass: 150, accel: 1.4, brakeFactor: 0.8, vmax: 50, color: '#f5a524', exposed: true, rail: false, route: false, heavy: false, height: 1.7, payload: 0 },
   motorcycle: { motorized: true, licenseRequired: true, name: 'Мотоцикл', length: 2.2, width: 0.8, mass: 280, accel: 4.0, brakeFactor: 0.9, vmax: 200, color: '#ff6b3d', exposed: true, rail: false, route: false, heavy: false, height: 1.5, payload: 0 },
@@ -175,7 +178,15 @@ export interface Road {
   smooth: boolean;
 }
 
+export const MOBILITY_SURFACES = ['sidewalk', 'footpath', 'cyclepath', 'sharedpath', 'pedestrian-side', 'cycle-side', 'cycle-lane', 'shoulder', 'pedestrian-zone', 'cycle-zone'] as const;
+export type MobilitySurface = typeof MOBILITY_SURFACES[number];
+
 export interface Sidewalk {
+  /** Legacy corridors remain sidewalks. A lane/zone is an explicitly measured corridor. */
+  mobilityKind?: MobilitySurface;
+  /** Direction along drawn corridor, required to establish admission to a cycle lane. */
+  travelDirection?: 'forward' | 'reverse' | 'both';
+  source?: string;
   id: string;
   pts: Vec[];
   radius?: number;
@@ -297,7 +308,7 @@ export interface TrafficLight {
   /** сдвиг цикла, с */
   offset: number;
   mode?: 'cycle' | 'flashing-yellow' | 'off';
-  kind?: 'vehicle' | 'tram' | 'reversible' | 'controller';
+  kind?: 'vehicle' | 'bicycle' | 'pedestrian' | 'tram' | 'reversible' | 'controller';
   mainDirections?: Movement[];
   extraSection?: { directions: Movement[]; on: boolean };
   reversibleState?: 'red' | 'yellow' | 'green';
@@ -421,10 +432,54 @@ export interface ManeuverContext {
   indicatorsUnavailable?: boolean;
 }
 
+/** Explicit, user-sourced parameters; no confirmed SIM catalogue is bundled. */
+export interface SimParameters {
+  deviceMass?: number;
+  riderMass?: number;
+  length?: number;
+  width?: number;
+  height?: number;
+  accel?: number;
+  brakeDecel?: number;
+  source?: string;
+}
+
+/** Facts apply along the authored route; split scenarios if they change with time. */
+export interface MobilityContext {
+  cycleInfrastructureUnavailable?: boolean;
+  carriagewayUnavailable?: boolean;
+  shoulderUnavailable?: boolean;
+  pedestrianInfrastructureUnavailable?: boolean;
+  accompaniesChildUnder14?: boolean;
+  carriesChildUnder7?: boolean;
+  adultAccompanied?: boolean;
+  column?: boolean;
+  roadAllowsCycling?: boolean;
+  roadSpeedLimit?: number;
+  roadEquipmentComplete?: boolean;
+  pedestrianObstruction?: boolean;
+  pedestrianDanger?: boolean;
+  pedestrianPriorityRespected?: boolean;
+  pedestrianSpeedKmh?: number;
+  singleFile?: boolean;
+  leftBypass?: boolean;
+  leftTurnPermittedFromRight?: boolean;
+  /** Confirmed consequences of a rule violation, NOT an injury simulation output. */
+  causedVehicleObstruction?: boolean;
+  /** Requirement whose violation caused the confirmed consequence, e.g. pdd:24.8. */
+  consequenceRuleRef?: string;
+  negligentHarm?: 'none' | 'light' | 'medium';
+  source?: string;
+}
+
 export interface Actor {
   stopContext?: StopContext;
   warningContext?: WarningContext;
   doorContext?: DoorContext;
+  simParameters?: SimParameters;
+  mobilityContext?: MobilityContext;
+  /** Walking is represented by kind=pedestrian; this records the led device. */
+  leadingDevice?: 'bicycle' | 'sim' | 'moped' | 'motorcycle';
   /** Водитель не может определить наличие покрытия: п. 13.13. */
   coveringUnknown?: boolean;
   /** Возраст в полных годах; для ребёнка без возраста правовой субъект не установлен. */
@@ -558,7 +613,8 @@ export function lightPhase(l: TrafficLight, t: number): LightPhase {
 export function pedestrianGreen(scene: Scene, c: Crosswalk, t: number): boolean | null {
   if (!c.lightId) return null;
   const l = scene.lights.find((x) => x.id === c.lightId);
-  if (!l) return null;
+  if (!l || l.mode === 'off' || l.mode === 'flashing-yellow' || l.kind === 'bicycle' || l.kind === 'controller') return null;
+  if (l.kind === 'pedestrian') return lightPhase(l, t) === 'green';
   return lightPhase(l, t) === 'red';
 }
 
@@ -571,6 +627,10 @@ export function actorSpec(a: Actor): { length: number; width: number; mass: numb
   if (a.kind === 'pedestrian') {
     const s = PEDESTRIANS[a.type as PedestrianType];
     return { length: s.size, width: s.size, mass: s.mass };
+  }
+  if (a.type === 'sim') {
+    const p = a.simParameters;
+    return { length: p?.length ?? 0, width: p?.width ?? 0, mass: (p?.deviceMass ?? 0) + (p?.riderMass ?? 0) };
   }
   const s = VEHICLES[a.type as VehicleType];
   return { length: s.length, width: s.width, mass: s.mass };
@@ -606,6 +666,16 @@ export function validateRailwayTrain(a: Actor): void {
       return Number.isFinite(value) && value > 0;
     }) || typeof train.source !== 'string' || !train.source.trim()) {
     throw new Error(`Поезд ${a.id}: нужны положительные масса, длина, ширина, замедление и источник параметров`);
+  }
+}
+
+export function validateSimParameters(a: Actor): void {
+  if (a.kind !== 'vehicle' || a.type !== 'sim') return;
+  const p = a.simParameters;
+  if (!p || !['deviceMass', 'riderMass', 'length', 'width', 'height', 'brakeDecel'].every(key =>
+    Number.isFinite(p[key as keyof SimParameters]) && Number(p[key as keyof SimParameters]) > 0)
+    || !Number.isFinite(p.accel) || p.accel! < 0 || !p.source?.trim()) {
+    throw new Error(`СИМ ${a.id}: введите массу устройства и ездока, габариты, ускорение, замедление и источник параметров`);
   }
 }
 
@@ -710,6 +780,11 @@ export function normalizeScene(raw: unknown): Scene {
       else road[k] = prof.filter((e) => e && Number.isFinite(e.s) && Number.isFinite(e.w)).sort((a, b) => a.s - b.s);
     }
   }
+  for (const corridor of scene.sidewalks) {
+    if (!MOBILITY_SURFACES.includes(corridor.mobilityKind!)) delete corridor.mobilityKind;
+    if (!['forward', 'reverse', 'both'].includes(corridor.travelDirection ?? '')) delete corridor.travelDirection;
+    if (typeof corridor.source !== 'string') delete corridor.source;
+  }
   for (const g of scene.signs) {
     g.kind = LEGACY_SIGN_KIND[g.kind] ?? g.kind;
     if (!Array.isArray(g.plates)) delete g.plates;
@@ -720,7 +795,7 @@ export function normalizeScene(raw: unknown): Scene {
     ? [...new Set(value.filter((x): x is Movement => ['straight', 'right', 'left', 'uturn'].includes(x)))] : undefined;
   for (const light of scene.lights) {
     light.mode = ['cycle', 'flashing-yellow', 'off'].includes(light.mode ?? '') ? light.mode : 'cycle';
-    light.kind = ['vehicle', 'tram', 'reversible', 'controller'].includes(light.kind ?? '') ? light.kind : 'vehicle';
+    light.kind = ['vehicle', 'bicycle', 'pedestrian', 'tram', 'reversible', 'controller'].includes(light.kind ?? '') ? light.kind : 'vehicle';
     light.stopLine = light.stopLine !== false;
     light.mainDirections = movements(light.mainDirections);
     light.tramDirections = movements(light.tramDirections);
@@ -744,6 +819,32 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    if (a.kind !== 'pedestrian' || !['bicycle', 'sim', 'moped', 'motorcycle'].includes(a.leadingDevice ?? '')) delete a.leadingDevice;
+    if (a.kind === 'vehicle' && a.type === 'sim' && a.simParameters && typeof a.simParameters === 'object') {
+      const p: SimParameters = {};
+      for (const key of ['deviceMass', 'riderMass', 'length', 'width', 'height', 'brakeDecel', 'accel'] as const) {
+        const value = a.simParameters[key];
+        if (Number.isFinite(value) && (key === 'accel' ? value! >= 0 : value! > 0)) p[key] = value;
+      }
+      if (typeof a.simParameters.source === 'string') p.source = a.simParameters.source.trim();
+      a.simParameters = p;
+    } else delete a.simParameters;
+    if (a.type === 'sim') delete a.cargo;
+    const rawMobility = a.mobilityContext;
+    if (rawMobility && typeof rawMobility === 'object' && !Array.isArray(rawMobility)) {
+      const context: MobilityContext = {};
+      for (const key of ['cycleInfrastructureUnavailable', 'carriagewayUnavailable', 'shoulderUnavailable',
+        'pedestrianInfrastructureUnavailable', 'accompaniesChildUnder14', 'carriesChildUnder7', 'adultAccompanied',
+        'column', 'roadAllowsCycling', 'roadEquipmentComplete', 'pedestrianObstruction', 'pedestrianDanger',
+        'pedestrianPriorityRespected', 'singleFile', 'leftBypass', 'leftTurnPermittedFromRight', 'causedVehicleObstruction'] as const) {
+        if (typeof rawMobility[key] === 'boolean') context[key] = rawMobility[key];
+      }
+      for (const key of ['roadSpeedLimit', 'pedestrianSpeedKmh'] as const) if (Number.isFinite(rawMobility[key]) && rawMobility[key]! >= 0) context[key] = rawMobility[key];
+      if (['none', 'light', 'medium'].includes(rawMobility.negligentHarm ?? '')) context.negligentHarm = rawMobility.negligentHarm;
+      if (typeof rawMobility.source === 'string') context.source = rawMobility.source;
+      if (typeof rawMobility.consequenceRuleRef === 'string' && /^pdd:\d/.test(rawMobility.consequenceRuleRef)) context.consequenceRuleRef = rawMobility.consequenceRuleRef;
+      a.mobilityContext = context;
+    } else delete a.mobilityContext;
     const rawRoute = a.routeContext;
     if (rawRoute && typeof rawRoute === 'object' && !Array.isArray(rawRoute)) {
       const context: RouteContext = {};
@@ -852,6 +953,7 @@ export function dimsOf(a: Actor): { length: number; width: number; height: numbe
   const vs = VEHICLES[a.type as VehicleType];
   // Высота пока не участвует в отдельной модели поезда. Груз автотранспорта к составу не прибавляется.
   if (a.railwayTrain) return { ...sp, height: vs.height, shift: 0 };
+  if (a.type === 'sim') return { ...sp, height: a.simParameters?.height ?? 0, shift: 0 };
   const c = a.cargo;
   if (!c) return { length: sp.length, width: sp.width, height: vs.height, mass: sp.mass, shift: 0 };
   return {

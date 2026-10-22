@@ -11,6 +11,8 @@ import { SIGNAL_LEAD_METERS, SIGNAL_LEAD_SECONDS, suggestSignals, suggestedSigna
 import {
   type Actor,
   NO_CARGO,
+  MOBILITY_SURFACES,
+  type MobilityContext,
   dimsOf,
   type Road,
   type Scene,
@@ -178,6 +180,9 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       break;
     case 'sidewalks':
       box.append(
+        field('Назначение коридора', select(MOBILITY_SURFACES.map(k => [k, MOBILITY_LABELS[k]]), it.mobilityKind ?? 'sidewalk', (v) => app.edit(() => { it.mobilityKind = v; }, true))),
+        ...(it.mobilityKind === 'cycle-lane' ? [field('Направление велополосы', select([['unknown', 'Не установлено'], ['forward', 'По направлению рисования'], ['reverse', 'Против направления рисования'], ['both', 'Оба направления (по источнику)']], it.travelDirection ?? 'unknown', value => app.edit(() => { if (value === 'unknown') delete it.travelDirection; else it.travelDirection = value; })), 'Направление полосы не наследуется автоматически от соседней проезжей части.')] : []),
+        field('Источник назначения и обмера', h('input', { type: 'text', value: it.source ?? '', onchange: (e: Event) => app.edit(() => { it.source = (e.target as HTMLInputElement).value; }) }), 'Зоны задаются обмеренным коридором. Для велосипедной зоны нужен источник; номер знака автоматически зону не создаёт.'),
         field('Ширина, м', num(it.width, set((v) => (it.width = v)), { min: 1, max: 8, step: 0.5 })),
         field('Радиус скругления, м', num(it.radius ?? 0, set((v) => (it.radius = v)), { min: 0, max: 100 })),
         check('Плавный сплайн (если радиус 0)', it.smooth, set((v) => (it.smooth = v))),
@@ -202,21 +207,21 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         field(
           'Пешеходный светофор',
           select([['', 'Нет — нерегулируемый'], ...lights.map((l, i) => [l.id, `Работает вместе со светофором ${i + 1}`] as [string, string])], it.lightId ?? '', set((v: string) => (v ? (it.lightId = v) : delete it.lightId))),
-          'Пешеходам горит зелёный, пока у ТС красный.',
+          'Для обычного транспортного светофора используется противоположная фаза. У явно заданного силуэта пешехода зелёный и красный берутся непосредственно.',
         ),
       );
       break;
     }
     case 'lights':
       box.append(
-        field('Управление движением', select([['vehicle', 'Транспортный светофор'], ['tram', 'Трамвайный светофор'], ['reversible', 'Реверсивный светофор'], ['controller', 'Регулировщик']], it.kind ?? 'vehicle', (v) => app.edit(() => (it.kind = v), true))),
+        field('Управление движением', select([['vehicle', 'Транспортный светофор'], ['bicycle', 'Силуэт велосипеда'], ['pedestrian', 'Силуэт пешехода'], ['tram', 'Трамвайный светофор'], ['reversible', 'Реверсивный светофор'], ['controller', 'Регулировщик']], it.kind ?? 'vehicle', (v) => app.edit(() => { it.kind = v; if (v === 'bicycle' || v === 'pedestrian') { it.yellow = 0; it.mode = 'cycle'; delete it.mainDirections; delete it.extraSection; } }, true))),
         field(it.kind === 'controller' ? 'Направление взгляда регулировщика, °' : 'Направление движения ТС, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 }), '0° — вправо, 90° — вниз'),
         field('Режим', select([['cycle', 'Работает'], ...(!it.kind || it.kind === 'vehicle' ? [['flashing-yellow', 'Мигающий жёлтый']] : []), ['off', 'Выключен']] as [string, string][], it.mode ?? 'cycle', set((v) => (it.mode = v)))),
         check('Есть стоп-линия / знак 6.16', it.stopLine !== false, set((v) => (it.stopLine = v))),
         field('Длина стоп-линии, м', num(it.lineLength, set((v) => (it.lineLength = v)), { min: 2, max: 30, step: 0.5 })),
-        ...(!it.kind || it.kind === 'vehicle' ? [
+        ...(!it.kind || ['vehicle', 'bicycle', 'pedestrian'].includes(it.kind) ? [
           field('Зелёный, с', num(it.green, set((v) => (it.green = v)), { min: 1, max: 120 })),
-          field('Жёлтый, с', num(it.yellow, set((v) => (it.yellow = v)), { min: 1, max: 10 })),
+          field('Жёлтый, с', num(it.yellow, set((v) => (it.yellow = v)), { min: it.kind === 'bicycle' || it.kind === 'pedestrian' ? 0 : 1, max: 10 })),
           field('Красный, с', num(it.red, set((v) => (it.red = v)), { min: 1, max: 120 })),
           field('Сдвиг цикла, с', num(it.offset, set((v) => (it.offset = v)), { min: 0, max: 240 }), 'Чтобы встречные направления горели по очереди.'),
         ] : []),
@@ -229,7 +234,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         box.append(field('Реверсивный сигнал', select([['green', 'Зелёная стрелка вниз'], ['yellow', 'Жёлтая диагональная стрелка'], ['red', 'Красный крест']], it.reversibleState ?? 'green', set((v) => (it.reversibleState = v)))));
       } else if (it.kind === 'tram') {
         movementFields(box, 'Разрешённые трамвайные направления', it.tramDirections ?? [], (v) => app.edit(() => (it.tramDirections = v)), false);
-      } else {
+      } else if (it.kind !== 'bicycle' && it.kind !== 'pedestrian') {
         box.append(check('Стрелки на основном сигнале', !!it.mainDirections, (v) => app.edit(() => { it.mainDirections = v ? ['straight'] : undefined; }, true)));
         if (it.mainDirections) movementFields(box, 'Основной сигнал', it.mainDirections, (v) => app.edit(() => (it.mainDirections = v)));
         box.append(check('Дополнительная секция', !!it.extraSection, (v) => app.edit(() => { it.extraSection = v ? { directions: ['right'], on: false } : undefined; }, true)));
@@ -752,6 +757,60 @@ function stoppingContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+const MOBILITY_LABELS: Record<typeof MOBILITY_SURFACES[number], string> = {
+  sidewalk: 'Тротуар', footpath: 'Пешеходная дорожка', cyclepath: 'Велосипедная дорожка',
+  sharedpath: 'Совместная велопешеходная дорожка', 'pedestrian-side': 'Пешеходная сторона раздельной дорожки',
+  'cycle-side': 'Велосипедная сторона раздельной дорожки', 'cycle-lane': 'Полоса для велосипедистов',
+  shoulder: 'Обочина', 'pedestrian-zone': 'Пешеходная зона', 'cycle-zone': 'Велосипедная зона (обмер)',
+};
+function mobilityForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  if (a.kind === 'pedestrian') {
+    box.append(field('Ведёт устройство (пешеход по 1.2)', select([['none', 'Нет'], ['bicycle', 'Велосипед'], ['sim', 'СИМ'], ['moped', 'Мопед'], ['motorcycle', 'Мотоцикл']], a.leadingDevice ?? 'none', value => app.edit(() => {
+      if (value === 'none') delete a.leadingDevice; else a.leadingDevice = value;
+    }))));
+    return;
+  }
+  if (!['sim', 'bicycle', 'moped'].includes(a.type)) return;
+  const group = h('div', { class: 'group' }, h('h4', {}, 'Велосипеды, СИМ и мопеды — раздел 24'));
+  group.append(h('p', { class: 'note' }, 'Неизвестные факты оставьте незаданными. Обстоятельства действуют вдоль всей траектории; при их изменении создайте отдельную сцену.'),
+    button('Спешиться: вести устройство как пешеход', () => app.edit(() => {
+      const type = a.type as 'bicycle' | 'sim' | 'moped';
+      a.kind = 'pedestrian'; a.type = 'adult'; a.leadingDevice = type; a.speed = 5;
+      a.path.forEach(w => { w.v = 5; }); delete a.simParameters; delete a.cargo;
+    }, true)));
+  if (a.type === 'sim') {
+    group.append(h('h4', {}, 'Параметры СИМ из источника'), h('p', { class: 'note' }, 'Готового подтверждённого набора нет. Для расчёта нужны все параметры и источник. Масса устройства для 35 кг не включает ездока. Скорость задаётся явно; 25 км/ч — правовой предел, а не техническая характеристика.'));
+    const fields = [['deviceMass', 'Масса устройства, кг'], ['riderMass', 'Масса ездока, кг'], ['length', 'Длина, м'], ['width', 'Ширина, м'], ['height', 'Высота с ездоком, м'], ['accel', 'Ускорение, м/с²'], ['brakeDecel', 'Замедление на сухом покрытии, м/с²']] as const;
+    for (const [key, label] of fields) group.append(field(label, optionalNumber(a.simParameters?.[key], value => app.edit(() => {
+      const parameters = a.simParameters ??= {}; if (value === undefined) delete parameters[key]; else parameters[key] = value;
+    }), { min: key === 'accel' ? 0 : 0.001, step: 0.1 })));
+    group.append(field('Источник параметров СИМ', h('input', { type: 'text', value: a.simParameters?.source ?? '', onchange: (e: Event) => app.edit(() => { (a.simParameters ??= {}).source = (e.target as HTMLInputElement).value; }) }), 'Документ, измерение или явно обозначенные условные параметры учебной сцены. Замедление масштабируется отношением μ/μ сухого покрытия; это упрощение модели.'));
+  }
+  const facts: [keyof MobilityContext, string][] = [
+    ['cycleInfrastructureUnavailable', 'Велодорожки и велополоса отсутствуют или недоступны'],
+    ['carriagewayUnavailable', 'Правая кромка проезжей части недоступна'], ['shoulderUnavailable', 'Обочина отсутствует или недоступна'],
+    ['pedestrianInfrastructureUnavailable', 'Тротуар и пешеходная дорожка отсутствуют или недоступны'],
+    ['accompaniesChildUnder14', 'Сопровождает ребёнка на велосипеде/СИМ до 14 лет'], ['carriesChildUnder7', 'Велосипед: перевозит ребёнка до 7 лет на предназначенном месте'],
+    ['adultAccompanied', 'Ребёнок на СИМ сопровождается взрослым'], ['column', 'Велосипедист движется в колонне'],
+    ['roadAllowsCycling', 'На дороге разрешено движение велосипедов'], ['roadEquipmentComplete', 'СИМ: весь комплект оборудования из 24.2(1) подтверждён'],
+    ['pedestrianObstruction', 'Созданы помехи пешеходам'], ['pedestrianDanger', 'Создана опасность пешеходам'],
+    ['pedestrianPriorityRespected', 'Приоритет пешеходов соблюдён'], ['singleFile', 'Движение по правой кромке в один ряд'],
+    ['leftBypass', 'СИМ: обгон/объезд транспортного средства слева'], ['leftTurnPermittedFromRight', 'Левый поворот разрешён из правой полосы'],
+    ['causedVehicleObstruction', 'Установлено: нарушение причинило помеху транспортным средствам (12.30)'],
+  ];
+  for (const [key, label] of facts) group.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], a.mobilityContext?.[key] === true ? 'yes' : a.mobilityContext?.[key] === false ? 'no' : 'unknown', value => app.edit(() => {
+    const context = a.mobilityContext ??= {}; if (value === 'unknown') delete context[key]; else Object.assign(context, { [key]: value === 'yes' });
+  }))));
+  for (const [key, label] of [['roadSpeedLimit', 'Разрешённая скорость транспорта на дороге, км/ч'], ['pedestrianSpeedKmh', 'Скорость пешеходов, км/ч']] as const) group.append(field(label, optionalNumber(a.mobilityContext?.[key], value => app.edit(() => {
+    const context = a.mobilityContext ??= {}; if (value === undefined) delete context[key]; else context[key] = value;
+  }), { min: 0 })));
+  group.append(field('Пункт причинного нарушения для 12.30 (например pdd:24.8)', h('input', { type: 'text', value: a.mobilityContext?.consequenceRuleRef ?? '', onchange: (e: Event) => app.edit(() => { (a.mobilityContext ??= {}).consequenceRuleRef = (e.target as HTMLInputElement).value; }) })));
+  group.append(field('Установлено: неосторожное причинение вреда нарушением (12.30)', select([['unknown', 'Не установлено'], ['none', 'Нет'], ['light', 'Лёгкий вред'], ['medium', 'Вред средней тяжести']], a.mobilityContext?.negligentHarm ?? 'unknown', value => app.edit(() => {
+    const context = a.mobilityContext ??= {}; if (value === 'unknown') delete context.negligentHarm; else context.negligentHarm = value;
+  }))), field('Источник обстоятельств и причинных последствий', h('input', { type: 'text', value: a.mobilityContext?.source ?? '', onchange: (e: Event) => app.edit(() => { (a.mobilityContext ??= {}).source = (e.target as HTMLInputElement).value; }) }), 'Для 12.30 нужны установленные нарушение, причинная связь и последствия. Расчётная оценка травмы их не заменяет.'));
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -762,13 +821,13 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
   const color = h('input', { type: 'color', value: a.color });
   color.addEventListener('change', () => app.edit(() => (a.color = color.value)));
   box.append(
-    field('Тип', select(types, a.type, (v) => app.edit(() => { a.type = v as Actor['type']; if (v !== 'tram') delete a.railwayTrain; }, true))),
+    field('Тип', select(types, a.type, (v) => app.edit(() => { a.type = v as Actor['type']; if (v === 'sim') { a.speed = 0; a.path.forEach(w => w.v = 0); delete a.cargo; } if (v !== 'sim') delete a.simParameters; if (v !== 'tram') delete a.railwayTrain; }, true))),
     field('Цвет', color),
     field('Скорость в начале, км/ч', num(a.speed, value => app.edit(() => { a.speed = value; ed.syncHeading(a); }, true), { min: isVeh ? -50 : 0, max: 250 }), isVeh ? 'Отрицательная скорость — задний ход. Траектория задаёт направление перемещения, кузов обращён в противоположную сторону.' : undefined),
     field('Появится через, с', num(a.delay, set((v) => (a.delay = v)), { min: 0, max: 60, step: 0.5 })),
     field('Курс кузова, °', num(deg(a.heading), set((v: number) => (a.heading = rad(v))), { step: 5, disabled: a.path.length > 0 }), a.path.length ? 'Курс определяется первой точкой и направлением движения: при заднем ходе кузов обращён против перемещения.' : '0° — вправо, 90° — вниз'),
   );
-  if (!isVeh) {
+  if (!isVeh || ['sim', 'bicycle', 'moped'].includes(a.type)) {
     const age = h('input', { type: 'number', min: 0, max: 120, step: 1, value: a.age ?? '', placeholder: 'Не указан' });
     age.addEventListener('change', () => app.edit(() => { a.age = age.value === '' ? undefined : Math.max(0, Math.floor(Number(age.value))); }));
     box.append(field('Возраст, полных лет', age, 'До 16 лет административная ответственность не наступает.'));
@@ -795,7 +854,8 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     );
     railwayTrainForm(box, a, app);
   }
-  if (isVeh && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
+  mobilityForm(box, a, app);
+  if (isVeh && a.type !== 'sim' && !VEHICLES[a.type as VehicleType].rail) cargoForm(box, a, app);
   if (isVeh && !a.railwayTrain) {
     maneuverContextForm(box, a, app);
     railwayContextForm(box, a, app);

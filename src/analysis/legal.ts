@@ -121,6 +121,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
       }
     }
     legal.push(...consequences);
+    if (a.type === 'sim') legal.push({ refs: [], text: 'TODO(legal-check): квалификация СИМ как иного участника по ст. 12.29/12.30 предварительная; корпус прямо не называет СИМ и исключает водителей ТС. Требуется проверка правового толкования.' });
 
     const { status, text } = rules.actors.find(v => v.actorId === a.id)!;
     const subject = subjectOf(a);
@@ -152,7 +153,7 @@ function buildDuties(scene: Scene, reports: CollisionReport[]): LegalInput[] {
 /** Subject properties belong to qualification, never to the kinematic stage. */
 export function subjectOf(a: Actor) {
   const spec = a.kind === 'vehicle' ? VEHICLES[a.type as VehicleType] : null;
-  const age = a.age ?? (a.kind === 'pedestrian' && a.type === 'child' ? null : 18);
+  const age = a.age ?? ((a.kind === 'pedestrian' && a.type === 'child') || !!a.leadingDevice || ['sim', 'bicycle'].includes(a.type) ? null : 18);
   return { roadSubject: !a.railwayTrain, motorized: !!spec?.motorized, licenseRequired: !a.railwayTrain && !!spec?.licenseRequired, age,
     ageAssumed: a.age === undefined && age !== null,
     administrativeSubject: !a.railwayTrain && age !== null ? age >= 16 : false,
@@ -160,6 +161,7 @@ export function subjectOf(a: Actor) {
 }
 
 const RULE_OFFENCES: Record<string, string> = {
+  'rule:mobility': 'koap:12.29.2',
   'rule:signal': 'koap:12.12.1',
   'rule:intersection-priority': 'koap:12.13.2',
   'rule:intersection-blockage': 'koap:12.13.1',
@@ -231,6 +233,16 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
   if (f.severity !== 'violation') return [...f.refs];
   const subject = subjectOf(a);
   const codes = (f.trace.ruleCodes ?? []) as string[];
+  if (subject.administrativeSubject && (a.kind === 'pedestrian' || ['sim', 'bicycle', 'cart'].includes(a.type))) {
+    const c = a.mobilityContext;
+    // TODO(legal-check): SIM as another road participant under 12.29/12.30; the corpus excludes vehicle drivers.
+    // 12.30 requires independently confirmed causation/consequence, never estimated harmFor.
+    const causalRequirement = c?.source?.trim() && !!c.consequenceRuleRef && f.refs.includes(c.consequenceRuleRef);
+    const consequence = causalRequirement && (c?.negligentHarm === 'light' || c?.negligentHarm === 'medium') ? 'koap:12.30.2'
+      : causalRequirement && c?.causedVehicleObstruction === true ? 'koap:12.30.1' : null;
+    const ref = consequence ?? (a.kind === 'pedestrian' ? 'koap:12.29.1' : a.flags.drunk ? 'koap:12.29.3' : 'koap:12.29.2');
+    return [...new Set([...f.refs.filter(r => !r.startsWith('koap:')), ref])];
+  }
   const refs = codes.flatMap(code => {
     // Respect the exclusions expressly named in 12.14(2) and 12.15(4).
     if (code === 'rule:forbidden-maneuver' && (codes.includes('rule:motorway-maneuver') || codes.includes('rule:turn-sign'))) return [];
@@ -238,6 +250,7 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
     if ((code === 'rule:route-lane' || code === 'rule:route-lane-capital')
       && (codes.includes('rule:opposing-lane') || codes.includes('rule:obstacle-bypass'))) return [];
     if (code === 'rule:maneuver-priority' && (codes.includes('rule:intersection-priority') || codes.includes('rule:route-priority'))) return [];
+    if (code === 'rule:mobility' && a.type === 'moped') return []; // TODO(legal-check): separate 24.7/24.8 moped offences.
     if (code === 'rule:speed') {
       const excess = Number(f.trace.excess);
       return excess > 80 ? ['koap:12.9.5'] : excess > 60 ? ['koap:12.9.4'] : excess > 40 ? ['koap:12.9.3'] : excess > 20 ? ['koap:12.9.2'] : [];
@@ -262,8 +275,8 @@ export function analyzeLegal(scene: Scene, rules: RulesSection): { section: Lega
     const subject = subjectOf(a);
     if (!a.railwayTrain && !subject.administrativeSubject) {
       verdict.legal = verdict.legal.map(l => ({ ...l, refs: l.refs.filter(r => !r.startsWith('koap:')) })).filter(l => l.refs.length);
-      verdict.legal.push({ refs: [], text: a.type === 'child' && a.age === undefined
-        ? 'Возраст ребёнка не задан: административная квалификация не определяется; дети до 16 лет не являются субъектами КоАП.'
+      verdict.legal.push({ refs: [], text: subject.age === null
+        ? `${a.type === 'child' ? 'Возраст ребёнка не задан' : 'Возраст не задан'}: административная квалификация не определяется; лица до 16 лет не являются субъектами КоАП.`
         : 'Лицо младше 16 лет не является субъектом административной ответственности (ст. 2.3 КоАП РФ).', trace: { subject } });
     }
     for (const item of verdict.legal) {

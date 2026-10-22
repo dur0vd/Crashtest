@@ -60,7 +60,7 @@ export function prepare(scene: Scene, tl: Timeline): TechnicalContext {
       k0,
       kEnd,
       trav,
-      brake: a.railwayTrain?.brakeDecel ?? (vs ? Math.min(vs.brakeCap ?? Infinity, mu * 9.81 * vs.brakeFactor) : 3),
+      brake: (a.type === 'sim' ? (a.simParameters?.brakeDecel ?? 0) * mu / SURFACES.dry.mu : undefined) ?? a.railwayTrain?.brakeDecel ?? (vs ? Math.min(vs.brakeCap ?? Infinity, mu * 9.81 * vs.brakeFactor) : 3),
       rail: !!vs?.rail,
     });
   }
@@ -76,7 +76,6 @@ export function prepare(scene: Scene, tl: Timeline): TechnicalContext {
 
 export function collectGates(ctx: TechnicalContext): void {
   for (const i of ctx.infos.values()) {
-    if (!i.isVeh) continue;
     for (let k = Math.max(1, i.k0 + 1); k <= i.kEnd; k++) {
       if (!i.tr.present[k - 1]) continue;
       const p0 = frontAt(i, k - 1);
@@ -307,6 +306,7 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
     `Покрытие: ${SURFACES[scene.env.surface].name.toLowerCase()} (коэффициент сцепления ${tl.mu}).`,
     `Время реакции водителя ${REACT.toFixed(1)} с, запаздывание тормозов ${BRAKE_LAG.toFixed(1)} с.`,
     'Диапазон остановочного пути рассчитан для времени реакции 0,8–1,2 с при прочих неизменных параметрах; это анализ чувствительности, а не доверительный интервал.',
+    ...(scene.actors.some(a => a.type === 'sim') ? ['СИМ: физические параметры введены пользователем; массы устройства и ездока суммируются только для кинетики. Замедление масштабируется по μ/0,7, без натурной валидации.'] : []),
     'Тяжесть вреда здоровью оценена по скорости столкновения ориентировочно; её устанавливает судебно-медицинская экспертиза.',
   ];
   return ctx;

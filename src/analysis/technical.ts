@@ -1,3 +1,4 @@
+import { passengerFacts } from '../passengers';
 import { type Geo, type RoadHit, buildGeo, roadsAt } from '../geo';
 import { type OBB, type Vec, angDiff, angleOf, rightOf, sub, add, mul, fromAngle, dot, segIntersect, toLocal, kmh, obbCorners, pointInObb, distToSegment } from '../geom';
 import { type Timeline, DT } from '../sim';
@@ -294,7 +295,7 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
       const assessment = other ? techFor(ctx, i, other, col.frame) : null;
       if (assessment) tech.push(assessment);
     }
-    const trace = { frame: col.frame, point: col.point, rel: col.rel, dvA: col.dvA, dvB: col.dvB,
+    const trace = { passengerFacts: [col.a, col.b].flatMap(id => { const actor = ctx.infos.get(id)?.a; return actor ? [{ actorId: id, ...passengerFacts(actor) }] : []; }), frame: col.frame, point: col.point, rel: col.rel, dvA: col.dvA, dvB: col.dvB,
       participants: [col.a, col.b].flatMap(id => { const i = ctx.infos.get(id); return i ? [sampleTrace(ctx, i, col.frame)] : []; }) };
     ctx.technical.collisions.push({ collision: { ...col }, harm, tech, trace });
     ctx.technical.events.push({ actorId: col.a, t: col.t, kind: 'collision', text: `Контакт ${col.a} и ${col.b}, скорость сближения ${kmh(col.rel).toFixed(1)} км/ч`, trace });

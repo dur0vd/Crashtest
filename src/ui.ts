@@ -658,6 +658,51 @@ function specialSignalsForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+function passengersForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  if (a.railwayTrain) return;
+  type Context = NonNullable<Actor['passengerContext']>;
+  const group = h('details', { class: 'group', 'data-testid': 'passengers-form' }, h('summary', {}, 'Пассажиры и защита'));
+  group.append(h('p', { class: 'muted' }, 'Факты постоянны на весь прогон. Неизвестное не означает нарушение. Влияние ремней и ДУУ на травмы не рассчитано.'));
+  const set = <K extends keyof Context>(key: K, value: Context[K]) => app.edit(() => {
+    const c = a.passengerContext ??= {};
+    if (value === undefined) delete c[key]; else c[key] = value;
+  });
+  group.append(field('Правовой класс ТС (по документам)', select<NonNullable<Context['vehicleClass']> | 'unknown'>([['unknown', 'Не установлен'], ['passenger-car', 'Легковой автомобиль'], ['truck', 'Грузовой автомобиль'], ['other', 'Иной класс']], a.passengerContext?.vehicleClass ?? 'unknown', value => set('vehicleClass', value === 'unknown' ? undefined : value))));
+  const tri = (label: string, value: boolean | undefined, change: (value: boolean | undefined) => void) => field(label,
+    select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], value === true ? 'yes' : value === false ? 'no' : 'unknown', next => change(next === 'unknown' ? undefined : next === 'yes')));
+  const facts: [keyof Pick<Context, 'beltsProvided' | 'driverBeltUsed' | 'driverHelmetFastened' | 'boardingWhileMoving' | 'doorsClosedWhileMoving' | 'organizedChildren'>, string][] = [
+    ['beltsProvided', 'Ремни предусмотрены конструкцией'], ['driverBeltUsed', 'Водитель пристёгнут'],
+    ['driverHelmetFastened', 'Мотошлем водителя застёгнут'], ['boardingWhileMoving', 'Посадка/высадка при движении'],
+    ['doorsClosedWhileMoving', 'Двери закрыты при движении'], ['organizedChildren', 'Организованная группа детей']];
+  for (const [key, label] of facts) group.append(tri(label, a.passengerContext?.[key], value => set(key, value)));
+  group.append(field('Допустимое число пассажиров (без водителя)', optionalNumber(a.passengerContext?.passengerCapacity, value => set('passengerCapacity', value === undefined ? undefined : Math.floor(value)), { min: 0, step: 1 })),
+    field('Стаж права: A/A1 для мотоцикла, любая категория для мопеда, лет', optionalNumber(a.passengerContext?.qualifyingLicenseYears, value => set('qualifyingLicenseYears', value), { min: 0 })));
+  group.append(h('p', {}, a.passengers === undefined ? 'Состав пассажиров не установлен' : `Пассажиров: ${a.passengers.length}`),
+    button('Добавить пассажира', () => app.edit(() => {
+      const ps = a.passengers ??= [];
+      let id = `passenger-${ps.length + 1}`;
+      while (ps.some(p => p.id === id)) id += '-new';
+      ps.push({ id });
+    }, true)),
+    button('Пассажиров нет', () => app.edit(() => { a.passengers = []; }, true)),
+    button('Состав неизвестен', () => app.edit(() => { delete a.passengers; }, true)));
+  for (const p of a.passengers ?? []) {
+    const row = h('div', { class: 'group', 'data-passenger-id': p.id }, h('h4', {}, `Пассажир ${p.id}`));
+    row.append(field('Возраст, полных лет', optionalNumber(p.age, value => app.edit(() => { p.age = value === undefined ? undefined : Math.floor(value); }), { min: 0, max: 120, step: 1 })),
+      field('Место посадки', select<NonNullable<typeof p.place> | 'unknown'>([['unknown', 'Не установлено'], ['front', 'Переднее сиденье легкового'], ['rear', 'Заднее сиденье легкового'], ['cab', 'Кабина грузового'], ['body', 'Кузов грузового'], ['motorcycle-rear', 'Заднее сиденье мотоцикла'], ['outside', 'Вне предусмотренных мест'], ['other', 'Другое место']], p.place ?? 'unknown', value => app.edit(() => { p.place = value === 'unknown' ? undefined : value; }))));
+    for (const [key, label] of [
+      ['beltUsed', 'Пассажир пристёгнут ремнём'], ['helmetFastened', 'Мотошлем пассажира застёгнут'],
+      ['restraintUsed', 'ДУУ используется'], ['restraintFits', 'ДУУ соответствует весу и росту'],
+      ['restraintInstalledCorrectly', 'ДУУ и ребёнок размещены по руководству'],
+    ] as const) row.append(tri(label, p[key], value => app.edit(() => { p[key] = value; })));
+    row.append(field('Вес, кг (для этапа 09)', optionalNumber(p.weightKg, value => app.edit(() => { p.weightKg = value; }), { min: 0.1 })),
+      field('Рост, см (для этапа 09)', optionalNumber(p.heightCm, value => app.edit(() => { p.heightCm = value; }), { min: 0.1 })),
+      button('Удалить пассажира', () => app.edit(() => { a.passengers = a.passengers?.filter(other => other.id !== p.id); }, true)));
+    group.append(row);
+  }
+  box.append(group);
+}
+
 function routeContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   type Context = NonNullable<Actor['routeContext']>;
   const group = h('details', { class: 'group' }, h('summary', {}, 'Маршрутный транспорт и выделенные полосы'),
@@ -862,6 +907,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     specialSignalsForm(box, a, app);
     routeContextForm(box, a, app);
     stoppingContextForm(box, a, app);
+    passengersForm(box, a, app);
   }
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));

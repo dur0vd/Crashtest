@@ -1,6 +1,8 @@
 import { normalizeStopContext, normalizeWarningContext, normalizeDoorContext, normalizeStopSign, normalizeStopPlaces } from './stopping-model';
 import type { StopContext, WarningContext, DoorContext, StopPlace, StopSignContext } from './stopping-model';
 export type { StopContext, WarningContext, DoorContext, StopPlace, StopSignContext } from './stopping-model';
+import { normalizePassengers, type Passenger, type PassengerContext } from './passengers';
+export type { Passenger, PassengerContext } from './passengers';
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
 
@@ -503,6 +505,8 @@ export interface Actor {
   specialSignals?: SpecialSignals;
   specialInteractions?: SpecialInteraction[];
   routeContext?: RouteContext;
+  passengers?: Passenger[];
+  passengerContext?: PassengerContext;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -845,6 +849,7 @@ export function normalizeScene(raw: unknown): Scene {
       if (typeof rawMobility.consequenceRuleRef === 'string' && /^pdd:\d/.test(rawMobility.consequenceRuleRef)) context.consequenceRuleRef = rawMobility.consequenceRuleRef;
       a.mobilityContext = context;
     } else delete a.mobilityContext;
+    normalizePassengers(a);
     const rawRoute = a.routeContext;
     if (rawRoute && typeof rawRoute === 'object' && !Array.isArray(rawRoute)) {
       const context: RouteContext = {};

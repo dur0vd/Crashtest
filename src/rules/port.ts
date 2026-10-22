@@ -12,6 +12,7 @@ import { describePassengerSupplement, validatePassengerSupplement } from './pass
 import { describeStopping, validateStoppingSupplement } from './stopping';
 import { applyExpertResults, describeExpert, prepareExpertContext, readExpertEvidence } from './expert';
 import { assessEqualShares, assessEuroprotocol, describeInsurance, validateInsurance } from './insurance';
+import { conclusionGuidance, describeConclusion, validateConclusion } from './conclusion';
 import { jsonSafe, object } from './facts';
 
 function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIssue[] {
@@ -33,11 +34,11 @@ function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIs
 export function createRulesPort(): RulesPort {
   return {
     contractVersion: 1,
-    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project), describeStopping(project), describeExpert(project), describeInsurance(project)]; },
+    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project), describeStopping(project), describeExpert(project), describeInsurance(project), describeConclusion(project)]; },
     async evaluate(project: ProjectEnvelope, timeline: Timeline, physical?: PhysicsOutput): Promise<FeatureResult<Report>> {
       if (project.contractVersion !== 1) return { status: 'unsupported', issues: [{ code: 'rules.contract-version', message: 'Поддерживается контракт версии 1.' }] };
       const rulesInput = object(project.extensions.rules);
-      const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...validatePassengerSupplement(rulesInput.passengers), ...validateStoppingSupplement(rulesInput.stopping), ...validateInsurance(rulesInput.insurance), ...timelineIssues(project, timeline)];
+      const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...validatePassengerSupplement(rulesInput.passengers), ...validateStoppingSupplement(rulesInput.stopping), ...validateInsurance(rulesInput.insurance), ...validateConclusion(rulesInput.conclusion), ...timelineIssues(project, timeline)];
       if (!lawDate(project.scene.env.accidentDate)) issues.push({ code: 'rules.accident-date', message: 'Требуется корректная локальная дата ДТП.', path: '/scene/env/accidentDate' });
       if (rulesInput.mode != null && !['expert', 'educational'].includes(String(rulesInput.mode))) issues.push({ code: 'rules.mode', path: '/extensions/rules/mode', message: 'Неизвестный режим правил.' });
       if (issues.length) return { status: 'insufficient-data', issues };
@@ -55,6 +56,10 @@ export function createRulesPort(): RulesPort {
         legal.duties.push({ refs: ['osago:11.1'], text: `Условия европротокола: ${europrotocol.status}. ${europrotocol.reasons.join(' ')} ${europrotocol.hints.join(' ')}`,
           trace: { kind: 'insurance.europrotocol', assessment: europrotocol, accidentDate: scene.env.accidentDate } },
         { refs: ['osago:12#22'], text: equalShares.text, trace: { kind: 'insurance.equal-shares', assessment: equalShares, accidentDate: scene.env.accidentDate } });
+      }
+      if (rulesInput.conclusion != null) {
+        const guidance = conclusionGuidance(project);
+        legal.duties.push({ refs: [], text: `Реквизиты документа: ${guidance.contentState}. ${guidance.limitations.join(' ')}`, trace: { kind: guidance.kind, assessment: guidance } });
       }
       const refs = new Set([...findings.flatMap(f => f.refs), ...legal.verdicts.flatMap(v => v.legal.flatMap(l => l.refs)), ...legal.duties.flatMap(d => d.refs)]);
       const laws = [...refs].map(ref => lawRef(ref, /^(koap|uk):/.test(ref) ? legal.assessmentDate : scene.env.accidentDate));

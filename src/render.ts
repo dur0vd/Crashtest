@@ -226,7 +226,7 @@ export class Renderer {
     for (const sw of geo.sidewalks) {
       if (sw.pts.length < 2) continue;
       tracePath(ctx, sw.pts);
-      ctx.strokeStyle = C.sidewalk;
+      ctx.strokeStyle = ['cyclepath', 'cycle-side', 'cycle-lane', 'cycle-zone'].includes(sw.item.mobilityKind ?? '') ? '#438b71' : C.sidewalk;
       ctx.lineWidth = sw.item.width;
       ctx.stroke();
       // бордюр
@@ -590,6 +590,21 @@ export class Renderer {
     ctx.shadowColor = col;
     ctx.shadowBlur = 8;
     ctx.fill();
+    if (l.kind === 'bicycle' || l.kind === 'pedestrian') {
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#14171c'; ctx.fillStyle = '#14171c'; ctx.lineWidth = 0.055;
+      ctx.beginPath();
+      if (l.kind === 'bicycle') {
+        ctx.arc(-0.23, 0.12, 0.12, 0, Math.PI * 2); ctx.moveTo(0.35, 0.12); ctx.arc(0.23, 0.12, 0.12, 0, Math.PI * 2);
+        ctx.moveTo(-0.23, 0.12); ctx.lineTo(-0.05, -0.12); ctx.lineTo(0.12, 0.12); ctx.closePath();
+        ctx.moveTo(-0.05, -0.12); ctx.lineTo(0.15, -0.12); ctx.lineTo(0.23, 0.12); ctx.moveTo(0.15, -0.12); ctx.lineTo(0.1, -0.25);
+      } else {
+        ctx.arc(0, -0.23, 0.075, 0, Math.PI * 2); ctx.moveTo(0, -0.12); ctx.lineTo(0, 0.12);
+        ctx.lineTo(-0.14, 0.3); ctx.moveTo(0, 0.12); ctx.lineTo(0.14, 0.3); ctx.moveTo(-0.16, 0.02); ctx.lineTo(0, -0.07); ctx.lineTo(0.16, 0.02);
+      }
+      ctx.stroke(); ctx.restore();
+      this.badge(l.kind === 'bicycle' ? 'Сигнал велосипеда' : 'Сигнал пешехода', p.x, p.y + 1.3);
+      return;
+    }
     if (l.mainDirections?.length) this.drawSignalArrows(l.mainDirections, '#111820');
     if (l.extraSection) {
       ctx.translate(0, 1.05);
@@ -1151,6 +1166,9 @@ export class Renderer {
 
   private drawVehicleBody(a: Actor, L: number, W: number): void {
     const { ctx } = this;
+    if (a.type === 'sim' && (!L || !W)) {
+      ctx.fillStyle = a.color; ctx.beginPath(); ctx.arc(0, 0, 0.5, 0, Math.PI * 2); ctx.fill(); return;
+    }
     const type = a.type as VehicleType;
     const rr = Math.min(0.5, W / 3);
     const rect = (x: number, y: number, w: number, h: number, r: number) => {
@@ -1165,6 +1183,7 @@ export class Renderer {
     ctx.stroke();
     ctx.fillStyle = 'rgba(15,25,45,0.75)';
     switch (type) {
+      case 'sim':
       case 'bicycle':
       case 'moped':
       case 'motorcycle':

@@ -35,9 +35,10 @@ const tOf = (k: number): number => k * DT;
 // ---------------------------------------------------------------------------
 // Классы участников и действие табличек
 
-export type VClass = 'car' | 'truck' | 'bus' | 'tram' | 'motorcycle' | 'moped' | 'bicycle' | 'cart';
+export type VClass = 'pedestrian' | 'sim' | 'car' | 'truck' | 'bus' | 'tram' | 'motorcycle' | 'moped' | 'bicycle' | 'cart';
 
 export function classOf(i: Info): VClass {
+  if (!i.isVeh) return 'pedestrian';
   switch (i.a.type as VehicleType) {
     case 'suv':
     case 'van':
@@ -54,6 +55,8 @@ export function classOf(i: Info): VClass {
       return 'motorcycle';
     case 'moped':
       return 'moped';
+    case 'sim':
+      return 'sim';
     case 'bicycle':
       return 'bicycle';
     default:
@@ -62,8 +65,13 @@ export function classOf(i: Info): VClass {
 }
 
 // Таблички 8.4.x: какие из них однозначно привязаны к виду ТС по тексту приложения 1.
-const PLATE_ONLY: Record<string, VClass[]> = { '8.4.1': ['truck'], '8.4.3': ['car'], '8.4.7': ['bicycle'] };
-const PLATE_EXCEPT: Record<string, VClass[]> = { '8.4.9': ['truck'], '8.4.11': ['car'], '8.4.15': ['bicycle'] };
+const PLATE_ONLY: Record<string, VClass[]> = { '8.4.1': ['truck'], '8.4.3': ['car'] };
+const PLATE_EXCEPT: Record<string, VClass[]> = { '8.4.9': ['truck'], '8.4.11': ['car'] };
+
+/** TODO(source-check): corpus/artwork disagree for 8.4.7/15/16; no inferred exemption. */
+export function uncertainMobilityPlate(sign: Sign): boolean {
+  return (sign.plates ?? []).some(p => ['8.4.7', '8.4.7.1', '8.4.15', '8.4.16'].includes(p));
+}
 
 /** Распространяется ли знак на участника с учётом табличек «вид ТС» и «кроме». */
 export function signApplies(sign: Sign, cls: VClass): boolean {
@@ -80,10 +88,12 @@ const BAN: Record<string, (c: VClass) => boolean> = {
   '3.4': (c) => c === 'truck',
   '3.5': (c) => c === 'motorcycle',
   '3.8': (c) => c === 'cart',
-  '3.9': (c) => c === 'bicycle',
+  '3.9': (c) => c === 'bicycle' || c === 'moped',
+  '3.10': (c) => c === 'pedestrian',
+  '3.35': (c) => c === 'sim',
   '3.34': (c) => c === 'bus',
-  '5.1': (c) => ['bicycle', 'cart', 'moped'].includes(c),
-  '5.3': (c) => ['bicycle', 'cart', 'moped'].includes(c),
+  '5.1': (c) => ['bicycle', 'sim', 'cart', 'moped'].includes(c),
+  '5.3': (c) => ['bicycle', 'sim', 'cart', 'moped'].includes(c),
 };
 
 // ---------------------------------------------------------------------------
@@ -206,9 +216,11 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
   for (const g of ctx.gates) {
     if (!g.sign) continue;
     const i = ctx.infos.get(g.actorId)!;
-    if (i.a.railwayTrain) continue;
+    if (i.a.railwayTrain || !i.isVeh && g.sign.kind !== '3.10') continue;
     const cls = classOf(i);
     const s = g.sign;
+    if (uncertainMobilityPlate(s)) kit.add({ actorId: i.a.id, severity: 'contributing', t: tOf(g.frame), title: 'применимость таблички 8.4 не подтверждена',
+      detail: 'TODO(source-check): обозначения и изображения табличек 8.4.7/15/16 противоречивы; исключение из действия знака не предоставлено.', refs: [`sign:${s.kind}`], trace: { plates: s.plates, compliance: 'не определить' } });
     if (!signApplies(s, cls)) continue;
     const label = `знаку ${s.kind} «${signTitle(s.kind)}»`;
     const t = tOf(g.frame);
@@ -216,6 +228,9 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
     const ref = `sign:${s.kind}`;
     const signKit: Kit = { ...kit, add: finding => {
       if (finding.severity !== 'violation') return kit.add(finding);
+      if (uncertainMobilityPlate(s) || s.kind === '3.35') return kit.add({ ...finding, severity: 'contributing', causal: false,
+        detail: finding.detail + ' TODO(source-check): противоречивые таблички 8.4 или склеенный текст 3.35 требуют сверки первоисточника; льгота не предоставлена.',
+        trace: { ...finding.trace, compliance: 'не определить', originalRequirement: finding.refs } });
       const frame = Math.max(i.k0, Math.min(i.kEnd, Math.round((finding.t ?? t) / DT)));
       const exception = routeSignException(ctx, i, s, frame);
       if (exception === false) return kit.add(finding);

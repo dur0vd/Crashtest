@@ -1,3 +1,5 @@
+import { VEHICLES, type VehicleType } from '../scene';
+import { actorAtMobilityPlace, isCycleRider, mobilityPlaceAt } from '../mobility';
 import { classifyIntersectionMovement, intersectionAt, roadsAt, type IntersectionGeo } from '../geo';
 import { angDiff, dist, distToSegment, obbCorners, segIntersect, toLocal, type Vec } from '../geom';
 import { type Movement, type Sign, type TrafficLight } from '../scene';
@@ -141,7 +143,7 @@ function participant(ctx: Ctx, i: Info, j: IntersectionGeo): IntersectionPartici
       && toLocal(l, { cx: j.center.x, cy: j.center.y, a: movement.entryHeading }).x <= 0)
     .sort((a, b) => dist(a, j.center) - dist(b, j.center))[0];
   const gateFrame = gate?.frame ?? entryFrame;
-  const control = light ? movementPermission(light, { ...i.a, heading: movement.entryHeading }, movement.maneuver, tOf(gateFrame))
+  const control = light ? movementPermission(light, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, gateFrame), movement.entryHeading), movement.maneuver, tOf(gateFrame))
     : { regulated: false, allowed: null, yieldToAll: false, refs: [], reason: 'Нерегулируемый подход' };
   if (control.allowed === false) {
     const departure = specialDeparture(i.a, light?.kind === 'controller');
@@ -202,6 +204,11 @@ function compare(ctx: Ctx, j: IntersectionGeo, a: IntersectionParticipant, b: In
   if (special) return special;
   if (specialState === 'both' || specialState === 'unknown') return null;
   const regulated = a.regulated || b.regulated;
+  if (!regulated) for (const [mechanicalPass, cyclePass, mechanical, cycle] of pairs) {
+    if (!isCycleRider(cycle.a) || !VEHICLES[mechanical.a.type as VehicleType]?.motorized) continue;
+    const place = mobilityPlaceAt(ctx.geo, posAt(cycle, cyclePass.entryFrame), cyclePass.entryHeading);
+    if (place.cycleZone) return edge(ctx, mechanicalPass, cyclePass, ['pdd:24.11', 'rule:pedestrian-priority'], `${mechanical.label} уступает велосипедисту или СИМ в подтверждённой велосипедной зоне.`);
+  }
   if (!regulated && (A.a.coveringUnknown || ctx.scene.roads.find(r => r.id === a.roadId)?.surfacePriority === 'unknown') && (B.a.coveringUnknown || ctx.scene.roads.find(r => r.id === b.roadId)?.surfacePriority === 'unknown') && !a.signs.some(s => ['2.1', '2.4', '2.5'].includes(s)) && !b.signs.some(s => ['2.1', '2.4', '2.5'].includes(s))) return null;
   if (regulated) {
     if (a.allowed === false && b.allowed !== false) return edge(ctx, a, b, ['pdd:6.2', 'pdd:13.3', 'rule:signal'], `${A.label} въезжает при запрещающем сигнале.`);
@@ -209,7 +216,7 @@ function compare(ctx: Ctx, j: IntersectionGeo, a: IntersectionParticipant, b: In
     if (a.allowed !== true || b.allowed !== true) return null;
     for (const [y, p, Y, P] of pairs) {
       const light = ctx.scene.lights.find(l => l.id === y.lightId);
-      if (light && p.gateFrame < y.gateFrame && movementPermission(light, { ...Y.a, heading: y.entryHeading }, y.maneuver, tOf(p.gateFrame)).allowed === false) {
+      if (light && p.gateFrame < y.gateFrame && movementPermission(light, actorAtMobilityPlace(ctx.geo, Y.a, posAt(Y, p.gateFrame), y.entryHeading), y.maneuver, tOf(p.gateFrame)).allowed === false) {
         return edge(ctx, y, p, ['pdd:13.8', 'rule:intersection-priority'], `${Y.label} при включении разрешающего сигнала уступает ${P.label}, завершающему проезд перекрёстка.`);
       }
     }
@@ -335,11 +342,11 @@ export function checkIntersectionObservations(ctx: Ctx, add: (f: FindingInput) =
         detail: 'Режим установлен по сигналам данного подхода на момент въезда; мигающий жёлтый и выключенный светофор не задают приоритет.', refs: ['pdd:13.3'], trace: { ...p.trace, compliance: 'выполнено' } });
       const controller = ctx.scene.lights.find(l => l.id === p.lightId && l.kind === 'controller');
       if (controller && p.entered && p.allowed === true) {
-        const permission = movementPermission(controller, { ...i.a, heading: p.entryHeading }, p.maneuver, tOf(p.gateFrame));
+        const permission = movementPermission(controller, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, p.entryFrame), p.entryHeading), p.maneuver, tOf(p.gateFrame));
         add({ actorId: p.actorId, severity: 'info', t: tOf(p.entryFrame), title: 'движение по разрешающему жесту регулировщика', detail: permission.reason, refs: permission.refs, trace: { ...p.trace, compliance: 'выполнено' } });
       }
       if (controller && p.entered && p.allowed === false && !ctx.findings.some(f => f.actorId === p.actorId && f.refs.includes('rule:signal'))) {
-        const permission = movementPermission(controller, { ...i.a, heading: p.entryHeading }, p.maneuver, tOf(p.gateFrame));
+        const permission = movementPermission(controller, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, p.entryFrame), p.entryHeading), p.maneuver, tOf(p.gateFrame));
         add({ actorId: p.actorId, severity: 'violation', t: tOf(p.entryFrame), title: 'не выполнено требование регулировщика', detail: permission.reason,
           refs: [...permission.refs, 'pdd:6.13', 'rule:signal'], trace: { ...p.trace, observation: 'пересечение границы перекрёстка с адресованным запрещающим жестом' } });
         const list = ctx.lightViolations.get(p.actorId) ?? [];
@@ -380,7 +387,7 @@ export function checkIntersectionObservations(ctx: Ctx, add: (f: FindingInput) =
         const ahead = toLocal(posAt(Y, k), { cx: P.tr.x[k], cy: P.tr.y[k], a: P.tr.h[k] });
         const deceleration = (P.tr.v[k - 20] - P.tr.v[k]) / (20 * DT);
         if (deceleration < 1.5 || P.tr.v[k - 20] < 2 || ahead.x <= 0 || ahead.x > 20 || Math.abs(ahead.y) > P.hw + Y.hw + 0.5) continue;
-        const redAhead = ctx.scene.lights.some(l => l.kind !== 'controller' && dist(l, posAt(P, k)) < 25 && Math.abs(angDiff(P.tr.h[k], l.angle)) < 0.5 && movementPermission(l, { ...P.a, heading: P.tr.h[k] }, passP.maneuver, tOf(k)).allowed === false);
+        const redAhead = ctx.scene.lights.some(l => l.kind !== 'controller' && dist(l, posAt(P, k)) < 25 && Math.abs(angDiff(P.tr.h[k], l.angle)) < 0.5 && movementPermission(l, actorAtMobilityPlace(ctx.geo, P.a, posAt(P, k), P.tr.h[k]), passP.maneuver, tOf(k)).allowed === false);
         if (!redAhead) { interferenceFrame = k; break; }
       }
       if (interferenceFrame >= 0) add({ actorId: relation.from, severity: 'violation', t: tOf(interferenceFrame), title: 'создал помеху участнику с преимуществом',

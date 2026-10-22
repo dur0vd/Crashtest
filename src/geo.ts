@@ -578,6 +578,7 @@ export function lateralFor(near: NearestInfo, heading: number): { lat: number; f
 
 export function sidewalkAt(geo: Geo, p: Vec): SidewalkGeo | null {
   for (const sg of geo.sidewalks) {
+    if (sg.item.mobilityKind && !['sidewalk', 'footpath', 'pedestrian-side', 'sharedpath', 'pedestrian-zone'].includes(sg.item.mobilityKind)) continue;
     if (sg.pts.length < 2) continue;
     const near = nearestOnPolyline(sg.pts, p);
     if (near.dist <= sg.item.width / 2) return sg;

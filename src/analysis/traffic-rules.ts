@@ -16,7 +16,7 @@ import {
   toLocal,
 } from '../geom';
 import { type Collision, DT } from '../sim';
-import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from '../restrictions';
+import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies, uncertainMobilityPlate } from '../restrictions';
 import {
   type CenterMarking,
   type Sign,
@@ -27,6 +27,8 @@ import {
   pedestrianGreen,
 } from '../scene';
 
+import { actorAtMobilityPlace, isSmallRider, mobilityPlaceAt } from '../mobility';
+import { checkMobility } from './mobility';
 import type { Ctx, Info } from './context';
 import { checkManeuvers, maneuverPriority } from './maneuvers';
 import { checkRailway, railwayPriority } from './railway';
@@ -67,24 +69,35 @@ function zoneLimit(type: VehicleType, zone: 'city' | 'outside' | 'residential'):
   return { limit: 90, ref: 'pdd:10.3' };
 }
 
-export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; refs: string[] } | null {
+function ordinarySpeedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; refs: string[] } | null {
   if (i.a.railwayTrain) return null;
   const hits = roadsAt(ctx.geo, posAt(i, k), 1);
-  if (!hits.length) return null;
   const active = activeSigns(ctx, i.a.id, k, 100000);
   const sign = active.filter((s) => s.kind === '3.24').pop();
-  if (sign?.value && signApplies(sign, classOf(i))) return { limit: sign.value, refs: ['sign:3.24'] };
+  if (sign?.value && signApplies(sign, classOf(i)) && !uncertainMobilityPlate(sign)) return { limit: sign.value, refs: ['sign:3.24'] };
   // знаки зон: 5.21 (жилая зона), 5.23.1/5.24.1 (начало населённого пункта / выезд), 5.31 (зона с ограничением скорости)
   const zoneSign = active.filter((s) => ['5.21', '5.23.1', '5.24.1', '5.31'].includes(s.kind)).pop();
   if (zoneSign) {
     const type = i.a.type as VehicleType;
-    if (zoneSign.kind === '5.31' && zoneSign.value) return { limit: zoneSign.value, refs: ['sign:5.31'] };
+    if (zoneSign.kind === '5.31' && zoneSign.value && !uncertainMobilityPlate(zoneSign)) return { limit: zoneSign.value, refs: ['sign:5.31'] };
     if (zoneSign.kind === '5.21') return { limit: 20, refs: ['sign:5.21', 'pdd:17.1'] };
     const z = zoneLimit(type, zoneSign.kind === '5.23.1' ? 'city' : 'outside');
     if (z) return { limit: z.limit, refs: [`sign:${zoneSign.kind}`, z.ref] };
   }
+  if (!hits.length) return null;
   const z = zoneLimit(i.a.type as VehicleType, hits[0].rg.road.zone);
   return z ? { limit: z.limit, refs: [z.ref] } : null;
+}
+
+export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; refs: string[] } | null {
+  const ordinary = ordinarySpeedLimitAt(ctx, i, k);
+  if (i.a.type !== 'sim') return ordinary;
+  const candidates = [{ limit: 25, refs: ['pdd:24.6'] }, ...(ordinary ? [ordinary] : [])];
+  if (roadsAt(ctx.geo, posAt(i, k)).some(h => h.rg.road.zone === 'residential')) candidates.push({ limit: 20, refs: ['pdd:10.2'] });
+  const zone = activeSigns(ctx, i.a.id, k, 100000).filter(s => s.kind === '5.31' && s.value && !uncertainMobilityPlate(s) && signApplies(s, 'sim')).at(-1);
+  if (activeSigns(ctx, i.a.id, k, 100000).some(s => s.kind === '5.21' && !uncertainMobilityPlate(s))) candidates.push({ limit: 20, refs: ['sign:5.21', 'pdd:17.1'] });
+  if (zone?.value) candidates.push({ limit: zone.value, refs: ['sign:5.31'] });
+  return candidates.sort((a, b) => a.limit - b.limit)[0];
 }
 
 function checkSpeed(ctx: Ctx, i: Info): void {
@@ -145,7 +158,7 @@ function checkPosition(ctx: Ctx, i: Info): void {
         sidewalk++;
         if (sidewalkK < 0) sidewalkK = k;
       }
-    } else if (hits.length === 1) {
+    } else if (hits.length === 1 && !(isSmallRider(i.a) && ['cyclepath', 'sharedpath', 'cycle-side', 'pedestrian-side', 'sidewalk', 'footpath', 'pedestrian-zone', 'cycle-lane'].includes(mobilityPlaceAt(ctx.geo, p, i.tr.h[k]).surface))) {
       const h = hits[0];
       const fwd = dot(fromAngle(i.tr.h[k]), h.near.tangent) >= 0;
       const lane = routeLaneAt(ctx, i, k);
@@ -174,7 +187,7 @@ function checkPosition(ctx: Ctx, i: Info): void {
       if (tramOncK < 0) tramOncK = k;
     }
   }
-  if (sidewalk >= 20) {
+  if (sidewalk >= 20 && !isSmallRider(i.a)) {
     addFinding(ctx, {
       actorId: i.a.id,
       severity: 'violation',
@@ -218,12 +231,12 @@ function checkLights(ctx: Ctx, i: Info): void {
     const controller = controllerAt(ctx, route.intersection, route.movement?.entryHeading ?? i.tr.h[g.frame]);
     const controlling = controller ?? light;
     const movement = route.movement?.maneuver ?? 'unknown';
-    const permission = movementPermission(controlling, { ...i.a, heading: route.movement?.entryHeading ?? i.tr.h[g.frame] }, movement, t);
+    const permission = movementPermission(controlling, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, g.frame), route.movement?.entryHeading ?? i.tr.h[g.frame]), movement, t);
     if (!permission.regulated && permission.allowed !== false) continue;
     const evidence = ctx.technical.events.find(e => e.actorId === i.a.id && e.kind === 'stop-line' && e.t === t);
     const phase = lightPhase(light, t);
     const prior = ctx.gates.filter(p => p.actorId === i.a.id && p.light && p.frame < g.frame)
-      .find(p => p.light !== light && movementPermission(p.light!, { ...i.a, heading: route.movement?.entryHeading ?? i.tr.h[p.frame] }, movement, tOf(p.frame)).allowed === true);
+      .find(p => p.light !== light && movementPermission(p.light!, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, p.frame), route.movement?.entryHeading ?? i.tr.h[p.frame]), movement, tOf(p.frame)).allowed === true);
     if (!controller && light.stopLine === false && prior && route.intersection) {
       addFinding(ctx, { actorId: i.a.id, severity: 'info', t, title: 'завершение проезда по разрешённому въезду', detail: 'Выходной сигнал без внутренней стоп-линии не запрещает завершить проезд в намеченном направлении (п. 13.7).', refs: ['pdd:13.7'], trace: { lightId: light.id, entryLightId: prior.light!.id, entryFrame: prior.frame, compliance: 'выполнено' } });
       continue;
@@ -233,7 +246,10 @@ function checkLights(ctx: Ctx, i: Info): void {
         refs: permission.refs, trace: { ...evidence?.trace, permission, compliance: 'выполнено' } });
       continue;
     }
-    if (permission.allowed === null) continue;
+    if (permission.allowed === null) {
+      if (isSmallRider(i.a)) addFinding(ctx, { actorId: i.a.id, severity: 'contributing', t, title: 'применимый сигнал не установлен', detail: permission.reason, refs: permission.refs, trace: { permission, compliance: 'не определить' } });
+      continue;
+    }
     let bad = true;
     let note = '';
     // 6.14 concerns the transition to yellow, not a permanently disabled extra section.
@@ -268,7 +284,7 @@ function checkSigns(ctx: Ctx, i: Info): void {
     const t = tOf(g.frame);
     const route = movementFor(ctx, i, g.frame);
     const controller = controllerAt(ctx, route.intersection, route.movement?.entryHeading ?? i.tr.h[g.frame]);
-    if (s.kind === '2.5' && (controller || ctx.scene.lights.some(l => l.kind !== 'reversible' && dist(s, l) <= 30 && Math.abs(angDiff(s.angle, l.angle)) < 0.3 && movementPermission(l, i.a, route.movement?.maneuver ?? 'unknown', t).regulated))) continue;
+    if (s.kind === '2.5' && (controller || ctx.scene.lights.some(l => l.kind !== 'reversible' && dist(s, l) <= 30 && Math.abs(angDiff(s.angle, l.angle)) < 0.3 && movementPermission(l, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, g.frame), i.tr.h[g.frame]), route.movement?.maneuver ?? 'unknown', t).regulated))) continue;
     if (s.kind === '2.5' || s.kind === '3.17.3') {
       let stopped = false;
       for (let k = g.frame; k >= i.k0 && i.trav[g.frame] - i.trav[k] <= 30; k--) {
@@ -332,7 +348,9 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
     const onRoad = roadsAt(geo, p).length > 0;
     if (onRoad && !wasOn && !ctx.pedEntry.has(i.a.id)) {
       const cw = geo.crosswalks.find((c) => pointInObb(p, c.box, 0.6));
-      const green = cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
+      const controller = controllerAt(ctx, intersectionAt(ctx.geo, p) ?? null, i.tr.h[k]);
+      const pedestrianControl = controller ? movementPermission(controller, actorAtMobilityPlace(ctx.geo, i.a, p, i.tr.h[k]), 'straight', tOf(k)) : null;
+      const green = pedestrianControl ? pedestrianControl.allowed : cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
       ctx.pedEntry.set(i.a.id, { frame: k, onCrosswalk: !!cw, pedGreen: green, crosswalkId: cw?.item.id });
       const res = roadsAt(geo, p)[0].rg.road.zone === 'residential' || inLivingZone(ctx, p);
       if (!cw && !res) {
@@ -364,7 +382,7 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
           t: tOf(k),
           title: 'выход на проезжую часть на запрещающий сигнал пешеходного светофора',
           detail: 'Пешеход вступил на переход, когда для него горел красный сигнал.',
-          refs: ['pdd:4.4', 'rule:pedestrian-crossing'],
+          refs: ['pdd:4.4', ...(pedestrianControl?.refs ?? []), 'rule:pedestrian-crossing'],
         });
       }
     }
@@ -493,6 +511,9 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       const turnDuty = turningVulnerablePriority(ctx, veh.a.id, ped.a.id, col.point);
       if (turnDuty) {
         addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true, title: 'не уступил пересекающему дорогу при повороте', detail: turnDuty.explain, refs: turnDuty.refs, trace: turnDuty.trace });
+        driverBlamed = true;
+      } else if (isSmallRider(veh.a) && ['sidewalk', 'footpath', 'pedestrian-side', 'sharedpath', 'pedestrian-zone', 'shoulder'].includes(mobilityPlaceAt(geo, pPos, veh.tr.h[kp]).surface)) {
+        addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true, title: 'не обеспечен приоритет пешехода при совместном движении', detail: 'Контакт с пешеходом при движении по пешеходной поверхности; допустимость самого места оценивается отдельно.', refs: ['pdd:24.6', 'rule:mobility'] });
         driverBlamed = true;
       } else if (onSidewalk) {
         if (!ctx.findings.some((f) => f.actorId === veh.a.id && f.refs.includes('pdd:9.9'))) {
@@ -857,7 +878,7 @@ function reasonToBrake(ctx: Ctx, i: Info, k: number): boolean {
     if (dot(f, fromAngle(lg.light.angle)) > 0.5 && ahead(mid, 45, 8)) {
       const route = movementFor(ctx, i, k, lg.light);
       const controller = controllerAt(ctx, route.intersection, route.movement?.entryHeading ?? i.tr.h[k]);
-      if (movementPermission(controller ?? lg.light, { ...i.a, heading: route.movement?.entryHeading ?? i.tr.h[k] }, route.movement?.maneuver ?? 'unknown', tOf(k)).allowed === false) return true;
+      if (movementPermission(controller ?? lg.light, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, k), route.movement?.entryHeading ?? i.tr.h[k]), route.movement?.maneuver ?? 'unknown', tOf(k)).allowed === false) return true;
     }
   }
   for (const o of ctx.infos.values()) {
@@ -934,7 +955,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
     if (i.isVeh && !i.a.railwayTrain) {
-      checkSpeed(ctx, i);
+      if (i.a.type !== 'sim') checkSpeed(ctx, i);
       checkPosition(ctx, i);
       checkLights(ctx, i);
       checkSigns(ctx, i);
@@ -943,6 +964,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
     }
   }
   ctx.priorityGraphs = buildPriorityGraphs(ctx);
+  checkMobility(ctx, f => addFinding(ctx, f), (i, k) => speedLimitAt(ctx, i, k));
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
   checkSpecialSignals(ctx, f => addFinding(ctx, f));
   checkRouteTransport(ctx, f => addFinding(ctx, f));
@@ -956,7 +978,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
       const route = movementFor(ctx, i, frame);
       const controller = controllerAt(ctx, route.intersection, route.movement?.entryHeading ?? i.tr.h[frame]);
       if (controller && route.movement) {
-        const permission = movementPermission(controller, { ...i.a, heading: route.movement.entryHeading }, route.movement.maneuver, tOf(frame));
+        const permission = movementPermission(controller, actorAtMobilityPlace(ctx.geo, i.a, posAt(i, frame), route.movement.entryHeading), route.movement.maneuver, tOf(frame));
         if (permission.allowed === true) {
           return addFinding(ctx, { actorId: finding.actorId, severity: 'info', t: finding.t, title: 'направление движения определено жестом регулировщика',
             detail: 'Разрешённый жест регулировщика имеет преимущество перед противоречащим ему требованием направления движения (п. 6.15).',

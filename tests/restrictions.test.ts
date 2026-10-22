@@ -39,9 +39,10 @@ const sign = (s: Scene, kind: string, x: number, y: number, plates?: string[], v
   s.signs.push({ id: `g${++n}`, kind, x, y, angle: 0, value, plates });
 
 describe('запрещающие знаки', () => {
-  it('велосипед под знаком 3.9 нарушает, а с табличкой «кроме велосипедов» (8.4.15) — нет', () => {
+  it('велосипед под 3.9 нарушает; спорная 8.4.15 сохраняет неопределённость без льготы', () => {
     const a = base();
     const bike = veh(a, 'bicycle', -20, 1.75, 20, [[60, 1.75]]);
+    bike.age = 30;
     sign(a, '3.9', 0, 5.5);
     const rep = run(a);
     expect(refsOf(rep, bike.id)).toEqual(expect.arrayContaining(['sign:3.9', 'koap:12.29.2']));
@@ -49,7 +50,10 @@ describe('запрещающие знаки', () => {
     const b = base();
     const bike2 = veh(b, 'bicycle', -20, 1.75, 20, [[60, 1.75]]);
     sign(b, '3.9', 0, 5.5, ['8.4.15']);
-    expect(violations(run(b), bike2.id)).toHaveLength(0);
+    bike2.age = 30;
+    const uncertain = run(b).findings.find(f => f.refs.includes('sign:3.9'));
+    expect(uncertain?.severity).toBe('contributing');
+    expect(uncertain?.compliance).toBe('не определить');
   });
 
   it('грузовик под знаком 3.4 — ч. 6 ст. 12.16, легковой автомобиль — нет', () => {

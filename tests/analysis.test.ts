@@ -140,6 +140,7 @@ describe('регрессии правовой оценки', () => {
   it.each(['bicycle', 'cart'] as const)('%s: специальные составы и отсутствие требования прав', (type) => {
     const scene = preset('red-light');
     scene.actors[0].type = type;
+    scene.actors[0].age = 30;
     scene.actors[0].flags.noLicense = true;
     const rep = analyze(scene, simulate(scene));
     const refs = legalRefs(rep, scene.actors[0].id);

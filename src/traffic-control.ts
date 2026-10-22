@@ -1,5 +1,5 @@
 import { angDiff } from './geom';
-import { lightPhase, type Movement, type TrafficLight } from './scene';
+import { lightPhase, type MobilitySurface, type Movement, type TrafficLight } from './scene';
 
 export interface MovementPermission {
   /** Whether this control determines the intersection's traffic order (13.3).
@@ -12,7 +12,7 @@ export interface MovementPermission {
   reason: string;
 }
 
-type DirectedActor = { heading: number; type: string };
+type DirectedActor = { heading: number; type: string; kind?: string; x?: number; y?: number; signalSurface?: MobilitySurface | 'carriageway' | 'unknown' };
 type RequestedMovement = Movement | 'unknown';
 
 const result = (regulated: boolean, allowed: boolean | null, refs: string[], reason: string, yieldToAll = false): MovementPermission =>
@@ -42,6 +42,21 @@ export function movementPermission(
   // An active controller overrides traffic lights, signs and markings (6.15).
   if (light.kind === 'controller') return controllerPermission(light, actor, movement);
 
+  const surface = actor.signalSurface;
+  if (actor.type === 'sim') {
+    const pedestrian = ['sidewalk', 'footpath', 'pedestrian-side'].includes(surface ?? '');
+    const bicycle = ['cyclepath', 'sharedpath', 'cycle-side', 'cycle-lane'].includes(surface ?? '');
+    const expected = pedestrian ? 'pedestrian' : bicycle ? 'bicycle' : surface === 'carriageway' || surface === 'cycle-zone' ? 'vehicle' : null;
+    if (!expected || (light.kind ?? 'vehicle') !== expected) return result(true, null, ['pdd:6.5'],
+      'Для СИМ нужен сигнал, соответствующий установленному месту движения; иной сигнал не подменяет его.');
+  }
+  if ((light.kind === 'pedestrian' || light.kind === 'bicycle') && (light.mode === 'off' || light.mode === 'flashing-yellow')) return result(false, null, ['pdd:6.5'], 'Силуэтный светофор не работает.');
+  if (light.kind === 'pedestrian' || light.kind === 'bicycle') {
+    const applies = light.kind === 'pedestrian' ? actor.kind === 'pedestrian' || actor.type === 'sim'
+      : actor.type === 'bicycle' || actor.type === 'sim' || actor.type === 'moped' && surface === 'cycle-lane';
+    if (!applies) return result(false, null, ['pdd:6.5'], 'Силуэтный сигнал не адресован этому участнику.');
+    return result(true, lightPhase(light, t) === 'green', ['pdd:6.5'], 'Сигнал силуэта пешехода или велосипеда по п. 6.5.');
+  }
   if (light.kind === 'reversible') {
     // 6.7, not 6.9 (the latter is the white lunar railway-crossing signal).
     if (light.mode === 'off') return result(false, null, ['pdd:6.7'],
@@ -109,8 +124,15 @@ function controllerPermission(light: TrafficLight, actor: DirectedActor, movemen
   if (!light.controllerGesture) return result(true, null, refs, 'Жест регулировщика не задан.');
   if (light.controllerGesture === 'arm-up') return result(true, false, [...refs, 'pdd:6.14'],
     'Рука поднята вверх: движение запрещено, кроме случая п. 6.14.');
-  if (actor.type === 'sim' || actor.type === 'scooter') return result(true, null, refs,
-    'Лицо на СИМ руководствуется сигналами для пешеходов; требуется направление перехода проезжей части.');
+  if (actor.type === 'sim' || actor.type === 'scooter' || actor.kind === 'pedestrian') {
+    if (!Number.isFinite(actor.heading) || !Number.isFinite(light.angle)) return result(true, null, refs, 'Направление движения не установлено.');
+    const acrossSides = Math.abs(Math.cos(angDiff(light.angle, actor.heading))) < 0.15;
+    if (light.controllerGesture === 'arms-out') return result(true, acrossSides, refs, 'Пешеходный сигнал: переход со стороны левого и правого бока; СИМ следует ему по 6.10.');
+    if (!acrossSides) return result(true, false, refs, 'Переход не проходит за спиной регулировщика.');
+    if (!Number.isFinite(actor.x) || !Number.isFinite(actor.y)) return result(true, null, refs, 'Для перехода за спиной нужны координаты пути.');
+    const behind = (actor.x! - light.x) * Math.cos(light.angle) + (actor.y! - light.y) * Math.sin(light.angle);
+    return result(true, Math.abs(behind) < 0.1 ? null : behind < 0, refs, 'Пешеходный сигнал: переход только за спиной регулировщика; положение на границе неопределённо.');
+  }
   if (movement === 'unknown' || !Number.isFinite(actor.heading) || !Number.isFinite(light.angle)) return result(true, null, refs,
     'Для сигнала регулировщика не установлены направление подъезда или манёвр.');
 

@@ -1052,7 +1052,7 @@ export class Editor {
         y: pos.y,
         heading: wrapAngle(heading),
         color: idx > 0 && idx < 6 ? ['#3e9bff', '#e5484d', '#2fb36b', '#f5a524', '#8b6fe8', '#35b6c4'][idx] : spec.color,
-        speed: spec.rail ? 30 : 40,
+        speed: this.brush.vehicle === 'sim' ? 0 : spec.rail ? 30 : 40,
         delay: 0,
         path: [],
         flags: { drunk: false, noLicense: false, flees: false },

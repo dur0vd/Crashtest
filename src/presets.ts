@@ -610,6 +610,28 @@ function routeLaneExample(compliant: boolean): Scene {
   return b.done();
 }
 
+/** All SIM dimensions and dynamics below are authored teaching inputs, not device specifications. */
+export const MOBILITY_PRESETS: Preset[] = (['bicycle', 'sim'] as const).flatMap(type => [true, false].map(correct => ({
+  id: `${type}-${correct ? 'correct' : 'violation'}`,
+  title: `${type === 'sim' ? 'СИМ' : 'Велосипед'}: ${correct ? 'правильно — велодорожка' : 'нарушение — переход верхом'}`,
+  hint: correct ? 'Взрослый едет по отдельной велосипедной дорожке. Параметры СИМ условные, введены для учебного примера.' : 'Переход по зебре верхом запрещён пунктом 24.8. СИМ дополнительно превышает 25 км/ч.',
+  build: () => {
+    const b = new Builder().name(`${type}: ${correct ? 'дорожка' : 'переход верхом'}`).duration(8);
+    const speed = type === 'sim' && !correct ? 30 : 15;
+    if (correct) {
+      b.sidewalk([[-100, 0], [100, 0]], 3);
+      Object.assign(b.scene.sidewalks[0], { mobilityKind: 'cyclepath', source: 'Условная учебная велодорожка, 4.4.1' });
+      b.vehicle(type, -20, 0, 0, speed, [[80, 0, speed]], { age: 30 });
+    } else {
+      b.road([[-100, 0], [100, 0]]).crosswalk(0, 0, 90, { length: 8 });
+      b.vehicle(type, 0, -15, 90, speed, [[0, 40, speed]], { age: 30 });
+    }
+    if (type === 'sim') b.scene.actors[0].simParameters = { deviceMass: 20, riderMass: 75, length: 1.2, width: 0.55, height: 1.7, accel: 1, brakeDecel: 3,
+      source: 'Условные параметры учебного примера; не паспорт конкретного СИМ и не натурная валидация' };
+    return b.scene;
+  },
+})));
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -804,6 +826,7 @@ export const PRESETS: Preset[] = [
   ...RAILWAY_PRESETS,
   ...SPECIAL_SIGNAL_PRESETS,
   ...ROUTE_TRANSPORT_PRESETS,
+  ...MOBILITY_PRESETS,
 ];
 
 export function blankScene(): Scene {

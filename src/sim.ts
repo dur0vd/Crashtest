@@ -17,7 +17,7 @@ import {
   sub,
   wrapAngle,
 } from './geom';
-import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf } from './scene';
+import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf, validateSimParameters } from './scene';
 
 export const DT = 0.025;
 const G = 9.81;
@@ -213,6 +213,12 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     accel = (vs.accel * vs.mass) / spec.mass;
     brake = Math.min(vs.brakeCap ?? Infinity, mu * G * vs.brakeFactor);
     plan = Math.min(vs.brakeCap ?? Infinity, SURFACES.dry.mu * G * vs.brakeFactor);
+    if (a.type === 'sim') {
+      accel = a.simParameters!.accel!;
+      // User-entered dry maximum, scaled by the selected surface's friction.
+      plan = a.simParameters!.brakeDecel!;
+      brake = plan * mu / SURFACES.dry.mu;
+    }
     if (a.railwayTrain) {
       // TODO(source-check): каталог составов и тяговая модель. Здесь только
       // явно заданная исходная скорость и постоянное замедление из источника.
@@ -370,6 +376,7 @@ function toFree(r: Rt): void {
 }
 
 export function simulate(scene: Scene): Timeline {
+  scene.actors.forEach(validateSimParameters);
   const geo = buildGeo(scene);
   const mu = SURFACES[scene.env.surface].mu;
   const duration = Math.max(1, scene.env.duration);

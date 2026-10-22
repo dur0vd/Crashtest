@@ -1,4 +1,5 @@
 import { checkStopping } from './stopping';
+import { lawRef } from '../law';
 import { checkPassengers } from './passengers';
 import { checkLighting } from '../rules/lighting';
 import { checkMobilitySupplement } from '../rules/mobility';
@@ -261,6 +262,23 @@ function checkLights(ctx: Ctx, i: Info): void {
     let note = '';
     // 6.14 concerns the transition to yellow, not a permanently disabled extra section.
     if (!controller && phase === 'yellow' && (!light.kind || light.kind === 'vehicle') && !light.extraSection?.directions.includes(movement as 'straight' | 'right' | 'left' | 'uturn')) {
+      if (evidence?.trace.expertRules === true) {
+        const proof = evidence.trace.expertYellow as { canStop: boolean | null } | null;
+        const available = !!lawRef('pdd:6.14', ctx.scene.env.accidentDate).revision;
+        if (!available || !proof || proof.canStop === null) {
+          addFinding(ctx, { actorId: i.a.id, severity: 'contributing', t, causal: false, title: 'Применимость исключения для жёлтого сигнала не установлена',
+            detail: 'Для 6.14 требуется служебный расчёт с t1–t3, диапазоном и подтверждённым моментом включения жёлтого. Упрощённая формула не используется.',
+            refs: ['pdd:6.2', 'pdd:6.13', 'pdd:6.14'], trace: { ...evidence.trace, compliance: 'не определить' } });
+          continue;
+        }
+        if (proof.canStop === false) {
+          addFinding(ctx, { actorId: i.a.id, severity: 'info', t, causal: false, title: 'Продолжение движения по исключению 6.14',
+            detail: 'Во всём переданном диапазоне служебного торможения остановка до установленной границы невозможна. Вывод ограничен предпосылками расчёта.',
+            refs: ['pdd:6.14'], trace: { ...evidence.trace, compliance: 'выполнено' } });
+          continue;
+        }
+        note = ' Переданное научное доказательство устанавливает возможность остановки во всём диапазоне служебного торможения (6.14).';
+      } else {
       const yellow = evidence?.trace.yellow as { frame: number; v0: number; available: number; S: number } | undefined;
       if (yellow) {
         if (yellow.S <= yellow.available) note = ` При включении жёлтого скорость ${Math.round(kmh(yellow.v0))} км/ч, до стоп-линии ${yellow.available.toFixed(0)} м — остановиться служебным торможением было возможно.`;
@@ -269,13 +287,14 @@ function checkLights(ctx: Ctx, i: Info): void {
           addFinding(ctx, { actorId: i.a.id, severity: 'info', t, trace: { ...evidence?.trace, compliance: 'выполнено' }, title: 'проезд на жёлтый сигнал', detail: 'Остановиться без экстренного торможения уже было нельзя, поэтому дальнейшее движение допустимо (п. 6.14).', refs: ['pdd:6.14'] });
         }
       }
+      }
     }
     if (bad) {
       const finding = addFinding(ctx, { actorId: i.a.id, severity: 'violation', t,
         trace: { ...evidence?.trace, permission, light: controlling },
         title: controlling.kind === 'controller' ? 'не выполнено требование регулировщика' : phase === 'red' ? 'проезд на красный сигнал светофора' : 'проезд при запрещённом направлении или сигнале',
         detail: `${permission.reason}. Скорость ${Math.round(kmh(i.tr.v[g.frame]))} км/ч.${note}`,
-        refs: [...permission.refs, 'pdd:6.13', ...(prior && light.stopLine !== false ? ['pdd:13.7'] : []), 'rule:signal'] });
+        refs: [...permission.refs, 'pdd:6.13', ...(evidence?.trace.expertRules === true && phase === 'yellow' ? ['pdd:6.14'] : []), ...(prior && light.stopLine !== false ? ['pdd:13.7'] : []), 'rule:signal'] });
       if (finding.severity === 'violation') {
         const list = ctx.lightViolations.get(i.a.id) ?? [];
         list.push({ light: controlling, frame: g.frame });
@@ -1043,7 +1062,7 @@ export function analyzeRules(technical: TechnicalContext, options: { lighting?: 
     const speedAssessment = f.refs.includes('rule:speed') ? assessments.find(t => t.avoidableAtLimit !== undefined) : undefined;
     const prevention = speedAssessment ? !!speedAssessment.avoidableAtLimit : f.causal && f.refs.includes('pdd:10.1') && assessments.some(t => t.avoidable) ? true : null;
     return { ...f, refs, requirement: `Требование ${refs.map(r => r.startsWith('pdd:') ? `п. ${r.slice(4)}` : r.startsWith('sign:') ? `знак ${r.slice(5)}` : `разметка ${r.slice(8)}`).join(', ')}`,
-      compliance: f.severity === 'violation' ? 'не выполнено' : f.trace?.compliance === 'выполнено' || f.refs.includes('pdd:6.14') ? 'выполнено' : 'не определить',
+      compliance: f.severity === 'violation' ? 'не выполнено' : f.trace?.compliance === 'выполнено' ? 'выполнено' : 'не определить',
       prevention,
       trace: { ...sampleTrace(ctx, i, frame), ...f.trace, ruleCodes: f.refs.filter(r => r.startsWith('rule:')),
         gates: ctx.technical.events.filter(e => e.actorId === i.a.id && e.t <= (f.t ?? Infinity)).map(e => e.trace),

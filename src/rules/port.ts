@@ -10,6 +10,7 @@ import { describeLighting, validateLighting } from './lighting';
 import { describeMobility, validateMobility } from './mobility';
 import { describePassengerSupplement, validatePassengerSupplement } from './passengers';
 import { describeStopping, validateStoppingSupplement } from './stopping';
+import { applyExpertResults, describeExpert, prepareExpertContext, readExpertEvidence } from './expert';
 import { jsonSafe, object } from './facts';
 
 function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIssue[] {
@@ -31,17 +32,22 @@ function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIs
 export function createRulesPort(): RulesPort {
   return {
     contractVersion: 1,
-    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project), describeStopping(project)]; },
-    async evaluate(project: ProjectEnvelope, timeline: Timeline, _physical?: PhysicsOutput): Promise<FeatureResult<Report>> {
+    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project), describeStopping(project), describeExpert(project)]; },
+    async evaluate(project: ProjectEnvelope, timeline: Timeline, physical?: PhysicsOutput): Promise<FeatureResult<Report>> {
       if (project.contractVersion !== 1) return { status: 'unsupported', issues: [{ code: 'rules.contract-version', message: 'Поддерживается контракт версии 1.' }] };
       const rulesInput = object(project.extensions.rules);
       const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...validatePassengerSupplement(rulesInput.passengers), ...validateStoppingSupplement(rulesInput.stopping), ...timelineIssues(project, timeline)];
       if (!lawDate(project.scene.env.accidentDate)) issues.push({ code: 'rules.accident-date', message: 'Требуется корректная локальная дата ДТП.', path: '/scene/env/accidentDate' });
+      if (rulesInput.mode != null && !['expert', 'educational'].includes(String(rulesInput.mode))) issues.push({ code: 'rules.mode', path: '/extensions/rules/mode', message: 'Неизвестный режим правил.' });
       if (issues.length) return { status: 'insufficient-data', issues };
       const scene = project.scene;
       const context = analyzeTechnical(scene, timeline);
+      const expert = rulesInput.mode !== 'educational';
+      const scientific = readExpertEvidence(project, timeline, physical);
+      if (expert) prepareExpertContext(context, scientific, physical);
       // Even missing light observations remain unknown in this public port.
       const { section: rules, events } = analyzeRules(context, { lighting: object(rulesInput.lighting), mobility: object(rulesInput.mobility), passengers: object(rulesInput.passengers), stopping: object(rulesInput.stopping) });
+      if (expert) applyExpertResults(project, rules, scientific);
       const { section: legal, findings } = analyzeLegal(scene, rules);
       const refs = new Set([...findings.flatMap(f => f.refs), ...legal.verdicts.flatMap(v => v.legal.flatMap(l => l.refs)), ...legal.duties.flatMap(d => d.refs)]);
       const laws = [...refs].map(ref => lawRef(ref, /^(koap|uk):/.test(ref) ? legal.assessmentDate : scene.env.accidentDate));
@@ -51,11 +57,11 @@ export function createRulesPort(): RulesPort {
         legal.verdicts.some(v => v.status.endsWith('violation')) ? 'Установлены нарушения отдельных требований; причинная связь оценивается отдельно.'
           : legal.verdicts.some(v => v.status === 'insufficient-data') ? 'Для полной оценки соблюдения требований недостаточно данных.' : 'Нарушений в пределах проверенных требований не выявлено.'];
       const report: Report = { accidentDate: scene.env.accidentDate, laws, legalWarnings, technical: context.technical, rules, legal,
-        hasCollision: rules.collisions.length > 0, summary, events, findings, collisions: rules.collisions, verdicts: legal.verdicts,
+        hasCollision: rules.collisions.length > 0, summary, events: expert ? rules.findings.filter(f => f.t !== undefined).map(f => ({ t: f.t!, text: `${f.actorId}: ${f.title}` })).sort((a, b) => a.t - b.t) : events, findings, collisions: rules.collisions, verdicts: legal.verdicts,
         duties: legal.duties, assumptions: [...context.technical.assumptions,
           'Световые наблюдения заданы на заявленный период; неизвестный прибор не равен выключенному.',
-          'Версия 1: Legacy technical содержит упрощённые расчёты; передача научных доказательств оформляется отдельно.'] };
-      return { status: 'ok', value: jsonSafe(report), issues: legalWarnings.map(message => ({ code: 'rules.legal-source-warning', message })) };
+          expert ? 'Экспертный режим: научные доказательства принимаются через PhysicsOutput; выводы ограничены их источниками и предпосылками.' : 'Учебный режим: прежние упрощённые расчёты; экспертная достоверность не заявлена.'] };
+      return { status: 'ok', value: jsonSafe(report), issues: [...(expert ? scientific.issues : []), ...legalWarnings.map(message => ({ code: 'rules.legal-source-warning', message }))] };
     },
   };
 }

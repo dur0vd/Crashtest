@@ -43,7 +43,8 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
     // последствия для других участников (учитываются, если установлена причинная связь)
     const consequences: LegalInput[] = [];
     let criminal = false;
-    if (isVeh && causal.length) {
+    const consequencesEstablished = !reports.some(report => report.trace.harmStatus === 'unknown');
+    if (isVeh && causal.length && consequencesEstablished) {
       let worst: HarmLevel = 'none';
       let fatalCount = 0;
       for (const [id, lv] of harm) {
@@ -77,6 +78,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
         });
       }
     }
+    if (isVeh && causal.length && !consequencesEstablished) legal.push({ refs: [], text: 'Вред здоровью и его причинная связь не установлены. Квалификация последствий по 12.24 КоАП/264 УК не выводится из симуляционного контакта или расчётной категории вреда.' });
 
     // КС РФ, позиция 2023 г.: недопустима двойная ответственность по ст. 12.24
     // и иной статье гл. 12 КоАП за одно причинное нарушение.
@@ -140,6 +142,10 @@ function buildDuties(scene: Scene, reports: CollisionReport[]): LegalInput[] {
   const out: LegalInput[] = [
     { refs: ['pdd:2.5'], text: 'Немедленно остановить ТС, включить аварийную сигнализацию, выставить знак аварийной остановки, ничего не перемещать на месте ДТП.' },
   ];
+  if (reports.some(report => report.trace.harmStatus === 'unknown')) {
+    out.push({ refs: ['pdd:2.6', 'pdd:2.6.1'], text: 'Наличие пострадавших требуется установить: при пострадавших действуют обязанности 2.6, при вреде только имуществу — 2.6.1. Отсутствие медицинских данных не означает отсутствие вреда.' });
+    return out;
+  }
   if (anyHarm) {
     out.push({ refs: ['pdd:2.6'], text: 'Если есть пострадавшие: оказать первую помощь, вызвать скорую помощь и полицию, записать данные очевидцев, дождаться сотрудников полиции.' });
   } else {

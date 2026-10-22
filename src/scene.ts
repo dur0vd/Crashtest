@@ -1,3 +1,5 @@
+import { normalizePassengers, type Passenger, type PassengerContext } from './passengers';
+export type { Passenger, PassengerContext } from './passengers';
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
 
@@ -439,6 +441,8 @@ export interface Actor {
   specialSignals?: SpecialSignals;
   specialInteractions?: SpecialInteraction[];
   routeContext?: RouteContext;
+  passengers?: Passenger[];
+  passengerContext?: PassengerContext;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -724,6 +728,7 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    normalizePassengers(a);
     const rawRoute = a.routeContext;
     if (rawRoute && typeof rawRoute === 'object' && !Array.isArray(rawRoute)) {
       const context: RouteContext = {};

@@ -155,6 +155,10 @@ export function subjectOf(a: Actor) {
 }
 
 const RULE_OFFENCES: Record<string, string> = {
+  'rule:passenger-belt': 'koap:12.6',
+  'rule:passenger-child': 'koap:12.23#3',
+  'rule:passenger-general': 'koap:12.23#1',
+  'rule:passenger-outside': 'koap:12.23#2',
   'rule:signal': 'koap:12.12.1',
   'rule:intersection-priority': 'koap:12.13.2',
   'rule:intersection-blockage': 'koap:12.13.1',

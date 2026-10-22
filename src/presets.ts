@@ -610,6 +610,21 @@ function routeLaneExample(compliant: boolean): Scene {
   return b.done();
 }
 
+export const PASSENGER_PRESETS: Preset[] = [false, true].map(compliant => ({
+  id: `passengers-child-${compliant ? 'correct' : 'violation'}`,
+  title: compliant ? 'Ребёнок 6 лет: правильное ДУУ' : 'Ребёнок 6 лет: один ремень вместо ДУУ',
+  hint: 'Легковой автомобиль, заднее сиденье, 6 полных лет. До 7 лет одного ремня недостаточно. Факты защиты не меняют расчёт травм.',
+  build: () => {
+    const b = straight(new Builder().name(compliant ? 'Перевозка ребёнка с ДУУ' : 'Перевозка ребёнка без ДУУ').duration(5));
+    b.vehicle('car', -30, 1.75, 0, 30, [[60, 1.75, 30]], {
+      passengerContext: { vehicleClass: 'passenger-car', beltsProvided: true, driverBeltUsed: true, passengerCapacity: 4, doorsClosedWhileMoving: true, boardingWhileMoving: false },
+      passengers: [{ id: 'child-1', age: 6, place: 'rear', beltUsed: true, restraintUsed: compliant,
+        ...(compliant ? { restraintFits: true, restraintInstalledCorrectly: true } : {}) }],
+    });
+    return b.done();
+  },
+}));
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -804,6 +819,7 @@ export const PRESETS: Preset[] = [
   ...RAILWAY_PRESETS,
   ...SPECIAL_SIGNAL_PRESETS,
   ...ROUTE_TRANSPORT_PRESETS,
+  ...PASSENGER_PRESETS,
 ];
 
 export function blankScene(): Scene {

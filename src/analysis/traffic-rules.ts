@@ -1,3 +1,4 @@
+import { checkPassengers } from './passengers';
 import {
   roadsAt,
   intersectionAt,
@@ -946,6 +947,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
   checkSpecialSignals(ctx, f => addFinding(ctx, f));
   checkRouteTransport(ctx, f => addFinding(ctx, f));
+  checkPassengers(ctx, f => addFinding(ctx, f));
   checkManeuvers(ctx, f => addFinding(ctx, f));
   checkRailway(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {

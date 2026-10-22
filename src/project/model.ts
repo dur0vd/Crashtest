@@ -1,6 +1,6 @@
 import type { ProjectEnvelope, JsonValue } from '../parallel/contracts';
 import type { Scene } from '../scene';
-import { canonical, sha256, utf8 } from './canonical';
+import { canonical, sha256, utf8, resultJSON } from './canonical';
 export interface Versions { engine: string; ui: string; corpus: string }
 export interface Attachment { id: string; name: string; type: string; bytes: Uint8Array; metadata: Record<string, JsonValue> }
 export interface JournalEntry { at: string; who: string; action: string; before: ProjectEnvelope; after: ProjectEnvelope }
@@ -10,7 +10,7 @@ export interface ProjectFile {
 }
 export const UI_VERSION = '0.2.0';
 export function envelope(scene: Scene): ProjectEnvelope {
-  return {contractVersion:1, scene:structuredClone(scene), extensions:{physics:{},rules:{},workspace:{}}, evidence:[]};
+  return {contractVersion:1, scene:resultJSON(scene) as Scene, extensions:{physics:{},rules:{},workspace:{}}, evidence:[]};
 }
 export function newProject(scene: Scene): ProjectFile {
   return {project:envelope(scene), versions:{engine:'unavailable',ui:UI_VERSION,corpus:'unrecorded'},attachments:[],journal:[]};

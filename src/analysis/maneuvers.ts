@@ -7,6 +7,7 @@ import type { Ctx, Info } from './context';
 import { boxAt, posAt, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
 import { railwayBox } from './railway';
+import { regularRoute, routePriority } from './route-transport';
 
 /** Observation tolerances, not statutory dimensions or times. */
 const TURN_START_ANGLE = 0.12;
@@ -220,7 +221,7 @@ function positionChecks(ctx: Ctx, i: Info, events: ObservedManeuver[], add: Add)
     // class alone. 8.8 has its own narrow-road U-turn exception.
     const exception = context?.cannotKeepExtreme === true;
     const safe = !hasContact(ctx, i.a.id, undefined, event.frame, event.endFrame + Math.ceil(0.5 / DT));
-    const directedOrder = ctx.scene.signs.some(sign => ['5.15.1', '5.15.2'].includes(sign.kind)
+    const directedOrder = regularRoute(i.a) !== true && ctx.scene.signs.some(sign => ['5.15.1', '5.15.2'].includes(sign.kind)
       && dist(sign, posAt(i, before)) < 40 && Math.abs(angDiff(sign.angle, event.heading)) < 0.5)
       || ctx.scene.markings.some(mark => mark.kind === '1.18' && mark.pts.some(point => dist(point, posAt(i, before)) < 25));
     const tram = !right && !directedOrder ? ctx.geo.tracks.filter(track => track.item.kind !== 'railway').map(track => ({ track, near: nearestOnPolyline(track.pts, posAt(i, before)) }))
@@ -441,6 +442,7 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
 export function maneuverPriority(ctx: Ctx, a: string, b: string, col: Collision): ManeuverPriority | null {
   const A = ctx.infos.get(a), B = ctx.infos.get(b);
   if (!A || !B || !A.isVeh || !B.isVeh || A.a.railwayTrain || B.a.railwayTrain || intersectionAt(ctx.geo, col.point)) return null;
+  if (routePriority(ctx, a, b, col)) return null;
   const k = Math.max(A.k0, B.k0, col.frame - Math.round(1.5 / DT));
   const opposite = Math.abs(angDiff(A.tr.h[k], B.tr.h[k])) > 2.2;
   const pair = (Y: Info, P: Info, refs: string[], explain: string): ManeuverPriority => ({ from: Y.a.id, to: P.a.id, refs,

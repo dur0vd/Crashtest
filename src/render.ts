@@ -21,6 +21,7 @@ import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
 import { DT } from './sim';
 import { vehicleSignalAt } from './maneuver-signals';
+import { effectiveRouteLaneStations } from './analysis/route-transport';
 
 export interface Camera {
   x: number;
@@ -172,9 +173,11 @@ export class Renderer {
     const geo = buildGeo(v.scene);
     this.drawSidewalks(geo);
     this.drawRoads(geo);
+    this.drawRouteLanes(v, geo);
     if (v.mode === 'edit') this.drawIntersectionBoundaries(v, geo);
     this.drawTracks(geo);
     this.drawRailwayCrossings(v);
+    this.drawRouteStops(v);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
@@ -264,6 +267,69 @@ export class Renderer {
         ctx.clip('evenodd');
       }
       this.drawRoadMarkings(rg);
+      ctx.restore();
+    }
+  }
+
+  private drawRouteLanes(v: ViewState, geo: Geo): void {
+    const { ctx } = this;
+    for (const road of geo.roads) {
+      if (road.pts.length < 2) continue;
+      for (const lane of road.road.routeLanes ?? []) {
+        const effective = effectiveRouteLaneStations(v.scene.signs, road, lane);
+        const from = Math.max(0, Math.min(road.total, effective.from));
+        const to = Math.max(from, Math.min(road.total, effective.to));
+        if (to <= from || !Number.isFinite(lane.width) || lane.width <= 0) continue;
+        const stations = [from, ...road.samples.filter(sample => sample.s > from && sample.s < to).map(sample => sample.s), to];
+        const frames = stations.map(station => frameAtStation(road.pts, road.cum, station));
+        const edge = (offset: number) => frames.map(frame => add(frame.p, mul(rightOf(frame.a), offset)));
+        const left = edge(lane.offset - lane.width / 2), right = edge(lane.offset + lane.width / 2);
+        ctx.save();
+        tracePath(ctx, [...left, ...right.reverse()], true);
+        ctx.fillStyle = 'rgba(60,156,215,0.22)';
+        ctx.fill();
+        ctx.strokeStyle = '#80b9d7';
+        ctx.lineWidth = Math.max(0.08, 1 / v.cam.s);
+        ctx.setLineDash(lane.boundary === 'solid' ? [] : lane.boundary === 'dashed' ? [1.5, 1.5] : [0.3, 0.5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const length = to - from;
+        for (let station = from + Math.min(12, length / 2); station < to; station += 24) {
+          const frame = frameAtStation(road.pts, road.cum, station);
+          const at = add(frame.p, mul(rightOf(frame.a), lane.offset));
+          const heading = frame.a + (lane.direction === 'reverse' ? Math.PI : 0);
+          ctx.fillStyle = '#c5e4f5';
+          this.arrow(at, heading, Math.min(1, lane.width * 0.3));
+          if (length >= 8) {
+            ctx.save();
+            ctx.translate(at.x, at.y);
+            ctx.rotate(heading);
+            ctx.font = 'bold 0.9px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('МТС', -2.4, 0);
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  private drawRouteStops(v: ViewState): void {
+    const { ctx } = this;
+    for (const stop of v.scene.routeStops ?? []) {
+      ctx.save();
+      ctx.translate(stop.x, stop.y);
+      ctx.rotate(stop.heading);
+      ctx.fillStyle = '#94d4f0';
+      ctx.strokeStyle = '#284e67';
+      ctx.lineWidth = 1 / v.cam.s;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(0.25, 4 / v.cam.s), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      this.arrow({ x: 1.4, y: 0 }, 0, 0.6);
       ctx.restore();
     }
   }
@@ -1435,6 +1501,15 @@ export class Renderer {
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
+    for (const [index, stop] of (v.scene.routeStops ?? []).entries()) {
+      const point = worldToScreen(v.cam, this.w, this.h, stop);
+      const text = `Остановочное место ${index + 1}`;
+      const width = ctx.measureText(text).width + 10;
+      ctx.fillStyle = 'rgba(12,15,20,0.85)';
+      ctx.fillRect(point.x - width / 2, point.y - 26, width, 18);
+      ctx.fillStyle = '#a5d8ef';
+      ctx.fillText(text, point.x, point.y - 11);
+    }
     for (const [index, crossing] of (v.scene.railwayCrossings ?? []).entries()) {
       const point = worldToScreen(v.cam, this.w, this.h, crossing);
       const barrier = { none: 'без шлагбаума', open: 'шлагбаум открыт', closing: 'шлагбаум закрывается', closed: 'шлагбаум закрыт' };

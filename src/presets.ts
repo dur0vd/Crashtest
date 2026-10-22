@@ -552,6 +552,64 @@ function specialSignalExample(compliant: boolean): Scene {
   return b.done();
 }
 
+export const ROUTE_TRANSPORT_PRESETS: Preset[] = [
+  {
+    id: 'bus-stop-departure-conflict',
+    title: 'Автобус от остановки: обязанности обоих водителей',
+    hint: 'В городе автобус фактически стоит у обозначенной остановки и начинает движение. Легковой не уступает, автобус не проверяет уступание. Сцена содержит реальный конфликт.',
+    build: () => busStopExample(false),
+  },
+  {
+    id: 'bus-stop-departure-yield',
+    title: 'Автобус от остановки: уступить перед выездом',
+    hint: 'Те же участники и начальные позиции. Легковой тормозит перед конфликтным местом, автобус начинает движение после заданной проверки уступания.',
+    build: () => busStopExample(true),
+  },
+  {
+    id: 'route-lane-private-car',
+    title: 'Выделенная полоса: обычный автомобиль',
+    hint: 'Установленные знак и границы выделенной полосы. Автомобиль без заданных оснований допуска едет по ней, маршрутный автобус движется впереди.',
+    build: () => routeLaneExample(false),
+  },
+  {
+    id: 'route-lane-keep-ordinary',
+    title: 'Выделенная полоса: сохранить обычную полосу',
+    hint: 'Те же дорога и участники. Автомобиль движется по общей полосе, автобус — по выделенной; выделенка не используется для сквозного движения автомобиля.',
+    build: () => routeLaneExample(true),
+  },
+];
+
+function busStopExample(compliant: boolean): Scene {
+  const b = straight(new Builder().name(compliant ? 'Уступить автобусу от остановки' : 'Конфликт у остановки автобуса').duration(18), 'dashed', 2);
+  b.scene.env.federalCity = 'other';
+  b.sign('5.16', -15, 8, 0);
+  b.scene.routeStops = [{ id: 'rs1', roadId: b.scene.roads[0].id, x: -15, y: 5.25, heading: 0,
+    signId: b.scene.signs.at(-1)!.id, source: 'Синтетическое обозначенное остановочное место учебного примера' }];
+  b.vehicle('bus', -15, 5.25, 0, 0, [[-15, 5.25, 0], [-2, 1.75, 20], [100, 1.75, 25]],
+    { routeContext: { regularService: true, departureStopId: 'rs1' } });
+  b.vehicle('car', -65, 1.75, 0, 36, compliant ? [[-35, 1.75, 0], [100, 1.75, 36]] : [[100, 1.75, 36]]);
+  const [bus, ordinary] = b.scene.actors;
+  bus.path[0].hold = 2;
+  bus.path[0].signal = 'left';
+  bus.path[0].signalAt = 0;
+  bus.routeContext!.departureChecks = [{ otherId: ordinary.id, yieldingVerified: compliant }];
+  if (compliant) ordinary.path[0].hold = 10;
+  return b.done();
+}
+
+function routeLaneExample(compliant: boolean): Scene {
+  const b = straight(new Builder().name(compliant ? 'Общая и выделенная полосы' : 'Сквозной проезд по выделенной полосе').duration(12), 'dashed', 2);
+  b.scene.env.federalCity = 'other';
+  b.sign('5.14.1', -70, 8, 0);
+  b.scene.roads[0].routeLanes = [{ id: 'rl1', fromS: 50, toS: 240, offset: 5.25, width: 3.5,
+    direction: 'forward', signIds: [b.scene.signs.at(-1)!.id], boundary: 'dashed', rightmost: true,
+    source: 'Синтетическая геометрия учебной выделенной полосы' }];
+  b.vehicle('car', -55, compliant ? 1.75 : 5.25, 0, 25, [[100, compliant ? 1.75 : 5.25, 25]],
+    { routeContext: { regularService: false, schoolBus: false, taxi: false, regionalBusLaneEligible: false, laneUse: 'through' } });
+  b.vehicle('bus', -20, 5.25, 0, 30, [[100, 5.25, 30]], { routeContext: { regularService: true, laneUse: 'through' } });
+  return b.done();
+}
+
 export const PRESETS: Preset[] = [
   {
     id: 'crosswalk',
@@ -745,6 +803,7 @@ export const PRESETS: Preset[] = [
   ...MANEUVER_COMPLIANT_PRESETS,
   ...RAILWAY_PRESETS,
   ...SPECIAL_SIGNAL_PRESETS,
+  ...ROUTE_TRANSPORT_PRESETS,
 ];
 
 export function blankScene(): Scene {

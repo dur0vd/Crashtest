@@ -174,6 +174,9 @@ const RULE_OFFENCES: Record<string, string> = {
   'rule:special-priority-blue-unmarked': 'koap:12.17#1',
   'rule:special-priority-marked': 'koap:12.17#2',
   'rule:special-priority-blue-red-unmarked': 'koap:12.17#3',
+  'rule:route-priority': 'koap:12.17#1',
+  'rule:route-lane': 'koap:12.17#1.1',
+  'rule:route-lane-capital': 'koap:12.17#1.2',
   'rule:spacing': 'koap:12.15.1',
   'rule:sidewalk': 'koap:12.15.2',
   'rule:opposing-lane': 'koap:12.15.4',
@@ -200,7 +203,9 @@ function legalRefs(f: Finding, a: Actor): string[] {
     // Respect the exclusions expressly named in 12.14(2) and 12.15(4).
     if (code === 'rule:forbidden-maneuver' && (codes.includes('rule:motorway-maneuver') || codes.includes('rule:turn-sign'))) return [];
     if (code === 'rule:opposing-lane' && codes.includes('rule:obstacle-bypass')) return [];
-    if (code === 'rule:maneuver-priority' && codes.includes('rule:intersection-priority')) return [];
+    if ((code === 'rule:route-lane' || code === 'rule:route-lane-capital')
+      && (codes.includes('rule:opposing-lane') || codes.includes('rule:obstacle-bypass'))) return [];
+    if (code === 'rule:maneuver-priority' && (codes.includes('rule:intersection-priority') || codes.includes('rule:route-priority'))) return [];
     if (code === 'rule:speed') {
       const excess = Number(f.trace.excess);
       return excess > 80 ? ['koap:12.9.5'] : excess > 60 ? ['koap:12.9.4'] : excess > 40 ? ['koap:12.9.3'] : excess > 20 ? ['koap:12.9.2'] : [];

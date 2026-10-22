@@ -21,6 +21,7 @@ import { ARROW_VARIANTS, MARKING_BY_ID } from './markings';
 import { type Sign, VEHICLES, dimsOf, type VehicleType } from './scene';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { DT } from './sim';
+import { routeSignException } from './analysis/route-transport';
 
 export interface Kit {
   add: (f: FindingInput) => DraftFinding;
@@ -74,12 +75,13 @@ export function signApplies(sign: Sign, cls: VClass): boolean {
 }
 
 const BAN: Record<string, (c: VClass) => boolean> = {
-  '3.2': (c) => c !== 'tram',
-  '3.3': (c) => ['car', 'truck', 'bus', 'motorcycle', 'moped'].includes(c),
+  '3.2': () => true,
+  '3.3': (c) => ['car', 'truck', 'bus', 'tram', 'motorcycle', 'moped'].includes(c),
   '3.4': (c) => c === 'truck',
   '3.5': (c) => c === 'motorcycle',
   '3.8': (c) => c === 'cart',
   '3.9': (c) => c === 'bicycle',
+  '3.34': (c) => c === 'bus',
   '5.1': (c) => ['bicycle', 'cart', 'moped'].includes(c),
   '5.3': (c) => ['bicycle', 'cart', 'moped'].includes(c),
 };
@@ -206,16 +208,30 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
     const i = ctx.infos.get(g.actorId)!;
     if (i.a.railwayTrain) continue;
     const cls = classOf(i);
-    if (cls === 'tram') continue;
     const s = g.sign;
     if (!signApplies(s, cls)) continue;
     const label = `знаку ${s.kind} «${signTitle(s.kind)}»`;
     const t = tOf(g.frame);
     const dims = dimsOf(i.a);
     const ref = `sign:${s.kind}`;
+    const signKit: Kit = { ...kit, add: finding => {
+      if (finding.severity !== 'violation') return kit.add(finding);
+      const frame = Math.max(i.k0, Math.min(i.kEnd, Math.round((finding.t ?? t) / DT)));
+      const exception = routeSignException(ctx, i, s, frame);
+      if (exception === false) return kit.add(finding);
+      return kit.add({ ...finding, severity: exception === true ? 'info' : 'contributing', causal: false,
+        title: exception === true ? 'установлено исключение из действия знака' : 'применимость знака к участнику не установлена полностью',
+        detail: exception === true
+          ? `Для установленных обстоятельств действует исключение из требования ${label}. Сам тип автобуса или такси не заменяет проверку условий исключения.`
+          : `Для проверки исключения из требования ${label} не хватает исходных данных. Регулярность маршрута, назначение ТС и соответствующее место остановки не предполагаются по одному классу ТС.`,
+        refs: [ref], trace: { ...finding.trace, originalRequirement: structuredClone(finding), routeException: exception,
+          routeContext: structuredClone(i.a.routeContext), exceptionFrame: frame, compliance: exception === true ? 'выполнено' : 'не определить' } });
+    } };
 
-    if (BAN[s.kind]?.(cls)) {
-      kit.add({
+    // The catalogue groups buses and trolleybuses for several older checks;
+    // sign 3.34 names buses, so that grouping alone is not a trolleybus ban.
+    if (BAN[s.kind]?.(cls) && (s.kind !== '3.34' || i.a.type === 'bus')) {
+      signKit.add({
         actorId: i.a.id,
         severity: 'violation',
         t,
@@ -230,16 +246,33 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
     const val = s.value ?? lim?.def ?? 0;
     const dimCheck = (over: boolean, what: string, has: string, refs: string[]) => {
       if (!over) return;
-      kit.add({ actorId: i.a.id, severity: 'violation', t, title: `${what} превышает значение на знаке ${s.kind}`, detail: `${has}; на знаке — ${val} ${lim?.unit ?? ''}.`, refs });
+      signKit.add({ actorId: i.a.id, severity: 'violation', t, title: `${what} превышает значение на знаке ${s.kind}`, detail: `${has}; на знаке — ${val} ${lim?.unit ?? ''}.`, refs });
     };
     if (s.kind === '3.11') dimCheck(dims.mass > val * 1000, 'масса ТС', `Фактическая масса ТС с грузом ${(dims.mass / 1000).toFixed(1)} т`, [ref, 'rule:weight']);
     if (s.kind === '3.13') dimCheck(dims.height > val, 'высота ТС', `Высота ТС с грузом ${dims.height.toFixed(1)} м`, [ref, 'rule:sign-requirement']);
     if (s.kind === '3.14') dimCheck(dims.width > val, 'ширина ТС', `Ширина ТС с грузом ${dims.width.toFixed(2)} м`, [ref, 'rule:sign-requirement']);
     if (s.kind === '3.15') dimCheck(dims.length > val, 'длина ТС', `Длина ТС с грузом ${dims.length.toFixed(1)} м`, [ref, 'rule:sign-requirement']);
 
+    if (s.kind === '5.15.1' || s.kind === '5.15.2') {
+      const exception = routeSignException(ctx, i, s, g.frame);
+      // TODO(source-check): directions on this particular installed sign need
+      // an inspection/photo and a per-lane representation; the sign ID alone
+      // does not establish its arrow pattern.
+      kit.add({ actorId: i.a.id, severity: exception === true ? 'info' : 'contributing', t,
+        title: exception === true ? 'установлено исключение из действия знака направлений по полосам'
+          : 'направления на установленном знаке по полосам не заданы',
+        detail: exception === true ? 'Установлено применимое маршрутное исключение из действия знака. Остальные требования движения проверяются отдельно.'
+          : 'Для проверки нужны направления на конкретном знаке и их привязка к полосам. Один номер знака не определяет его стрелы; нарушение и административная часть не назначаются.',
+        refs: [ref], trace: { signId: s.id, routeException: exception, routeContext: structuredClone(i.a.routeContext),
+          missingSignDirections: true, directionsRequired: exception !== true,
+          sourceCheck: 'TODO(source-check): установить направления конкретного знака по осмотру или фото',
+          compliance: exception === true ? 'выполнено' : 'не определить' } });
+      continue;
+    }
+
     // повороты и направления движения
-    if (TURN_BAN[s.kind]) turnViolation(kit, i, g.frame, ref, null, TURN_BAN[s.kind], label);
-    if (TURN_ALLOW[s.kind]) turnViolation(kit, i, g.frame, ref, TURN_ALLOW[s.kind], null, label);
+    if (TURN_BAN[s.kind]) turnViolation(signKit, i, g.frame, ref, null, TURN_BAN[s.kind], label);
+    if (TURN_ALLOW[s.kind]) turnViolation(signKit, i, g.frame, ref, TURN_ALLOW[s.kind], null, label);
 
     // минимальная скорость (4.6)
     if (s.kind === '4.6') {
@@ -248,7 +281,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
         if (kmh(i.tr.v[k]) < val - 0.5 && i.tr.v[k] > 0.3) run++;
         else run = 0;
         if (run >= 80) {
-          kit.add({ actorId: i.a.id, severity: 'violation', t: tOf(k), title: `скорость ниже минимальной по знаку 4.6 (${val} км/ч)`, detail: `Скорость ${Math.round(kmh(i.tr.v[k]))} км/ч.`, refs: [ref, 'rule:sign-requirement'] });
+          signKit.add({ actorId: i.a.id, severity: 'violation', t: tOf(k), title: `скорость ниже минимальной по знаку 4.6 (${val} км/ч)`, detail: `Скорость ${Math.round(kmh(i.tr.v[k]))} км/ч.`, refs: [ref, 'rule:sign-requirement'] });
           break;
         }
       }
@@ -264,7 +297,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
           const needed = s.kind === '3.27' ? 4 : Math.min(i.kEnd * DT, 10);
           if ((k - from) * DT >= needed - 1e-9) {
             if (kit.reasonToBrake(ctx, i, from)) break; // остановка по требованиям ПДД (светофор, пешеход, затор)
-            kit.add({
+            signKit.add({
               actorId: i.a.id,
               severity: 'violation',
               t: tOf(from),
@@ -297,7 +330,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
     const dense = spec.form === 'symbol' ? m.pts : densify(m.pts, !!m.smooth, m.radius ?? 0);
 
     for (const i of ctx.infos.values()) {
-      if (!i.isVeh || i.a.railwayTrain || classOf(i) === 'tram') continue;
+      if (!i.isVeh || i.a.railwayTrain) continue;
 
       // пересечение сплошных линий
       if (spec.form === 'line' && (spec.noCross || spec.oneSide) && dense.length >= 2) {

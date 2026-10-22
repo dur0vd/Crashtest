@@ -31,6 +31,7 @@ import type { Ctx, Info } from './context';
 import { checkManeuvers, maneuverPriority } from './maneuvers';
 import { checkRailway, railwayPriority } from './railway';
 import { applySpecialDeparture, blueBeacon, checkSpecialSignals, specialPairState, specialPriority } from './special-signals';
+import { admittedRouteDirection, checkRouteTransport, routeLaneAt, routeLaneDirectionMatches, routePriority, routeSignException } from './route-transport';
 import { movementPermission } from '../traffic-control';
 import { buildPriorityGraphs, checkIntersectionObservations, controllerAt, graphPriority, turningVulnerablePriority, movementFor } from './intersections';
 import type { FindingInput, DraftFinding, TechAssessment, CollisionReport, Finding, RulesSection, ActorVerdict } from './types';
@@ -147,8 +148,17 @@ function checkPosition(ctx: Ctx, i: Info): void {
     } else if (hits.length === 1) {
       const h = hits[0];
       const fwd = dot(fromAngle(i.tr.h[k]), h.near.tangent) >= 0;
+      const lane = routeLaneAt(ctx, i, k);
+      const routeAdmission = admittedRouteDirection(ctx, i, k);
+      if (lane && routeLaneDirectionMatches(lane) && routeAdmission !== false) continue;
       if (h.rg.road.oneWay) {
         if (!fwd && i.tr.v[k] > 0.5) {
+          if (lane && lane.lane.direction === 'reverse') {
+            oncFrames.push(k);
+            center = h.rg.road.center;
+            lanes = h.rg.road.lanes;
+            continue;
+          }
           wrongWay++;
           if (wrongWayK < 0) wrongWayK = k;
         }
@@ -283,6 +293,16 @@ function checkSigns(ctx: Ctx, i: Info): void {
         }
       }
     } else if (s.kind === '3.1') {
+      const routeException = routeSignException(ctx, i, s, g.frame);
+      if (routeException !== false) {
+        addFinding(ctx, { actorId: i.a.id, severity: routeException === true ? 'info' : 'contributing', t,
+          title: routeException === true ? 'исключение для маршрутного транспортного средства' : 'применимость запрета к маршрутному ТС не установлена',
+          detail: routeException === true ? 'По примечанию группы 3 знак 3.1 не распространяется на установленное маршрутное ТС.'
+            : 'Тип автобуса или троллейбуса не доказывает регулярный маршрут по определению 1.2; выполнение регулярной перевозки не задано.',
+          refs: ['sign:3.1'], trace: { regularService: i.a.routeContext?.regularService,
+            compliance: routeException === true ? 'выполнено' : 'не определить' } });
+        continue;
+      }
       const onOneWay = roadsAt(ctx.geo, posAt(i, g.frame), 2).some((h) => h.rg.road.oneWay);
       addFinding(ctx, {
         actorId: i.a.id,
@@ -567,6 +587,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
     const special = specialPriority(ctx, A.a.id, B.a.id, kp);
     const movingSpecial = blueBeacon(A.a) && A.tr.v[kp] > 0.1 || blueBeacon(B.a) && B.tr.v[kp] > 0.1;
     const specialState = movingSpecial ? specialPairState(A.a, B.a) : 'none';
+    const routeTransport = routePriority(ctx, A.a.id, B.a.id, col);
     const turnDuty = turningVulnerablePriority(ctx, A.a.id, B.a.id, col.point);
     const maneuverDuty = maneuverPriority(ctx, A.a.id, B.a.id, col);
     if (!railway && (special || specialState === 'both' || specialState === 'unknown') && dh < 0.7
@@ -613,6 +634,15 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       description = specialState === 'both' ? 'Специальные сигналы обоих участников не определяют преимущество одного перед другим.'
         : 'Включение специального звукового сигнала не установлено; очередность с учётом п. 3.2 определить нельзя.';
       notes.push(description);
+    } else if (routeTransport) {
+      title = routeTransport.refs.includes('pdd:18.3') ? 'Столкновение при выезде автобуса или троллейбуса от остановки' : 'Столкновение с трамваем вне перекрёстка';
+      description = routeTransport.explain;
+      notes.push(routeTransport.explain);
+      addFinding(ctx, { actorId: routeTransport.from, severity: routeTransport.failureEstablished ? 'violation' : 'contributing',
+        t, causal: routeTransport.failureEstablished, title: routeTransport.failureEstablished ? 'не предоставлено установленное преимущество по разделу 18' : 'данных об установленном преимуществе недостаточно',
+        detail: routeTransport.explain, refs: routeTransport.failureEstablished ? routeTransport.refs : routeTransport.refs.filter(ref => !ref.startsWith('rule:')),
+        trace: { ...routeTransport.trace, compliance: 'не определить' } });
+      for (const [i, assessment] of [[A, trA], [B, trB]] as const) if (assessment) notes.push(techText(assessment, i.label, i === A ? B.label : A.label));
     } else if (turnDuty) {
       title = 'Столкновение при повороте с пересекающим дорогу велосипедистом';
       description = turnDuty.explain;
@@ -915,6 +945,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   ctx.priorityGraphs = buildPriorityGraphs(ctx);
   checkIntersectionObservations(ctx, f => addFinding(ctx, f));
   checkSpecialSignals(ctx, f => addFinding(ctx, f));
+  checkRouteTransport(ctx, f => addFinding(ctx, f));
   checkManeuvers(ctx, f => addFinding(ctx, f));
   checkRailway(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {

@@ -45,8 +45,9 @@ export const MARKINGS: MarkingSpec[] = [
   { id: '1.16.1', form: 'area', name: 'Островок', color: '#f2f4f8', width: 0.15, noEnter: true },
   { id: '1.16.2', form: 'area', name: 'Островок на перекрёстке', color: '#f2f4f8', width: 0.15, noEnter: true },
   { id: '1.16.3', form: 'area', name: 'Островок разделения', color: '#f2f4f8', width: 0.15, noEnter: true },
-  { id: '1.17.1', form: 'line', name: 'Остановка маршрутных ТС', color: '#ffcf3d', width: 0.2, zigzag: true, noStop: true },
-  { id: '1.17.2', form: 'line', name: 'Стоянка такси', color: '#ffcf3d', width: 0.2, zigzag: true, noStop: true },
+  // These lines designate stops; section 12 determines prohibitions and exceptions.
+  { id: '1.17.1', form: 'line', name: 'Остановка маршрутных ТС и стоянка такси', color: '#ffcf3d', width: 0.2, zigzag: true },
+  { id: '1.17.2', form: 'line', name: 'Место остановки трамвая', color: '#ffcf3d', width: 0.2, zigzag: true },
   { id: '1.18', form: 'symbol', name: 'Стрелы направлений', color: '#f2f4f8', width: 0.4, arrows: true },
   { id: '1.19', form: 'symbol', name: 'Сужение полосы', color: '#f2f4f8', width: 0.4 },
   { id: '1.20', form: 'symbol', name: 'Приближение к 1.13', color: '#f2f4f8', width: 0.4 },

@@ -66,6 +66,7 @@ function num(value: number, onChange: (v: number) => void, o: { min?: number; ma
     if (!Number.isFinite(v)) v = value;
     if (o.min !== undefined) v = Math.max(o.min, v);
     if (o.max !== undefined) v = Math.min(o.max, v);
+    i.value = String(v);
     onChange(v);
   });
   return i;
@@ -171,6 +172,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       );
       narrowingForm(box, it as unknown as Road, app);
       roadManeuverForm(box, it as unknown as Road, app);
+      routeLanesForm(box, it as unknown as Road, app, rebuild);
       break;
     case 'sidewalks':
       box.append(
@@ -391,6 +393,91 @@ function roadManeuverForm(box: HTMLElement, road: Road, app: AppApi): void {
   box.append(group);
 }
 
+function routeLanesForm(box: HTMLElement, road: Road, app: AppApi, rebuild: () => void): void {
+  type Lane = NonNullable<Road['routeLanes']>[number];
+  const geometry = buildGeo(app.scene()).roads.find(item => item.road.id === road.id);
+  const total = geometry?.total ?? 0;
+  const signs = app.scene().signs.filter(sign => ['5.14', '5.14.1', '5.14.3', '5.11.1', '5.13.1', '5.13.2'].includes(sign.kind));
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Полосы для маршрутных ТС'),
+    h('p', { class: 'note' }, 'Задайте измеренные границы полосы и свяжите её со знаками. Одна разметка 1.23.1 не подтверждает все условия выделенной полосы.'),
+    h('small', {}, `Длина оси дороги: ${total.toFixed(1)} м. Смещение вправо от направления рисования положительное, влево — отрицательное.`));
+  const signFields = (host: HTMLElement, ids: string[], update: (next: string[]) => void): void => {
+    let current = [...ids];
+    host.append(h('h4', {}, 'Связанные знаки начала и конца выделенной полосы'));
+    host.append(h('small', {}, 'Привяжите обозначение начала или направления полосы; при наличии добавьте знак конца 5.14.3. Один знак конца не подтверждает наличие выделенной полосы.'));
+    if (!signs.length) host.append(h('small', {}, 'На карте пока нет подходящих знаков. Добавьте знак 5.14/5.14.1, 5.14.3, 5.11.1 или 5.13.1/5.13.2.'));
+    for (const sign of signs) host.append(check(`${sign.kind} · ${signTitle(sign.kind)} (${sign.id})`, current.includes(sign.id), enabled => {
+      current = enabled ? [...new Set([...current, sign.id])] : current.filter(id => id !== sign.id);
+      update([...current]);
+    }));
+    if (ids.some(id => !signs.some(sign => sign.id === id))) host.append(h('small', {}, 'Часть связанных знаков отсутствует или имеет другой вид; проверьте исходные данные.'));
+  };
+  for (const [index, lane] of (road.routeLanes ?? []).entries()) {
+    const panel = h('details', { class: 'group' }, h('summary', {}, `Выделенная полоса ${index + 1} (${lane.id})`));
+    const note = h('p', { class: 'note', role: 'status' });
+    let fromInput: HTMLInputElement;
+    let toInput: HTMLInputElement;
+    const position = (key: 'fromS' | 'toS', value: number): void => {
+      const from = key === 'fromS' ? value : lane.fromS, to = key === 'toS' ? value : lane.toS;
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to <= from || to > total + 0.05) {
+        fromInput.value = String(lane.fromS);
+        toInput.value = String(lane.toS);
+        note.textContent = 'Начало и конец должны находиться на оси дороги; конец должен быть дальше начала.';
+        return;
+      }
+      app.edit(() => { lane[key] = value; });
+      note.textContent = '';
+    };
+    fromInput = num(lane.fromS, value => position('fromS', value), { min: 0, max: total, step: 0.1 });
+    toInput = num(lane.toS, value => position('toS', value), { min: 0, max: total, step: 0.1 });
+    panel.append(
+      field('Начало выделенной полосы от начала оси, м', fromInput),
+      field('Конец выделенной полосы от начала оси, м', toInput),
+      field('Смещение центра выделенной полосы от оси, м', num(lane.offset, value => app.edit(() => { lane.offset = value; }), { step: 0.1 })),
+      field('Измеренная ширина выделенной полосы, м', num(lane.width, value => app.edit(() => { lane.width = value; }), { min: 0.01, step: 0.1 })),
+      field('Направление на выделенной полосе', select([['forward', 'По направлению рисования дороги'], ['reverse', 'Против направления рисования дороги']], lane.direction, value => app.edit(() => { lane.direction = value; }))),
+      field('Граница выделенной полосы', select([['unknown', 'Не установлена'], ['dashed', 'Прерывистая'], ['solid', 'Сплошная']], lane.boundary ?? 'unknown', value => app.edit(() => { if (value === 'unknown') delete lane.boundary; else lane.boundary = value; }))),
+      field('Выделенная полоса является крайней правой', select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], lane.rightmost === true ? 'yes' : lane.rightmost === false ? 'no' : 'unknown', value => app.edit(() => { if (value === 'unknown') delete lane.rightmost; else lane.rightmost = value === 'yes'; }))),
+      field('Источник геометрии и обозначения выделенной полосы', h('textarea', { rows: 2, value: lane.source ?? '', onchange: (event: Event) => app.edit(() => { lane.source = (event.target as HTMLTextAreaElement).value.trim() || undefined; }) })),
+      note,
+    );
+    signFields(panel, lane.signIds, ids => app.edit(() => { lane.signIds = ids; }));
+    panel.append(button('Удалить выделенную полосу', () => { app.edit(() => { road.routeLanes = (road.routeLanes ?? []).filter(item => item.id !== lane.id); }); rebuild(); }));
+    group.append(panel);
+  }
+  let fromS: number | undefined, toS: number | undefined, offset: number | undefined, width: number | undefined;
+  let direction: Lane['direction'] = 'forward';
+  let signIds: string[] = [];
+  const source = h('textarea', { rows: 2, placeholder: 'Схема, измерения, установленные знаки; для учебных данных укажите условность' });
+  const note = h('p', { class: 'note', role: 'status' });
+  const draft = h('details', { class: 'group' }, h('summary', {}, 'Добавить выделенную полосу'),
+    field('Начало новой выделенной полосы, м', optionalNumber(undefined, value => { fromS = value; }, { min: 0, max: total, step: 0.1 })),
+    field('Конец новой выделенной полосы, м', optionalNumber(undefined, value => { toS = value; }, { min: 0, max: total, step: 0.1 })),
+    field('Смещение центра новой выделенной полосы, м', optionalNumber(undefined, value => { offset = value; }, { step: 0.1 })),
+    field('Ширина новой выделенной полосы, м', optionalNumber(undefined, value => { width = value; }, { min: 0.01, step: 0.1 })),
+    field('Направление новой выделенной полосы', select([['forward', 'По направлению рисования дороги'], ['reverse', 'Против направления рисования дороги']], direction, value => { direction = value; })),
+    field('Источник новой выделенной полосы', source),
+  );
+  signFields(draft, signIds, ids => { signIds = ids; });
+  draft.append(note, button('Добавить выделенную полосу', () => {
+    if (![fromS, toS, offset, width].every(value => typeof value === 'number' && Number.isFinite(value))
+      || fromS! < 0 || toS! <= fromS! || toS! > total + 0.05 || width! <= 0 || !source.value.trim()) {
+      note.textContent = 'Укажите начало, конец, смещение, положительную ширину и источник. Конец должен быть дальше начала и в пределах оси дороги.';
+      return;
+    }
+    app.edit(() => {
+      const lanes = road.routeLanes ??= [];
+      const ids = new Set(lanes.map(lane => lane.id));
+      let number = lanes.length + 1;
+      while (ids.has(`${road.id}-route-lane-${number}`)) number++;
+      lanes.push({ id: `${road.id}-route-lane-${number}`, fromS: fromS!, toS: toS!, offset: offset!, width: width!, direction, signIds: [...signIds], source: source.value.trim() });
+    });
+    rebuild();
+  }));
+  group.append(draft);
+  box.append(group);
+}
+
 function maneuverContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   type Context = NonNullable<Actor['maneuverContext']>;
   const group = h('details', { class: 'group' }, h('summary', {}, 'Установленные обстоятельства манёвра'),
@@ -563,6 +650,51 @@ function specialSignalsForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+function routeContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  type Context = NonNullable<Actor['routeContext']>;
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Маршрутный транспорт и выделенные полосы'),
+    h('p', { class: 'note' }, 'Тип «Автобус» сам по себе не подтверждает регулярный маршрут. Отмечайте известные обстоятельства по исходным материалам; «Не установлено» не означает «Нет».'));
+  const set = <K extends keyof Context>(key: K, value: Context[K]): void => app.edit(() => {
+    if (value === undefined) { if (a.routeContext) delete a.routeContext[key]; }
+    else (a.routeContext ??= {})[key] = value;
+    if (a.routeContext && !Object.keys(a.routeContext).length) delete a.routeContext;
+  });
+  const facts: [keyof Pick<Context, 'regularService' | 'schoolBus' | 'taxi' | 'regionalBusLaneEligible' | 'depotExit' | 'routeVehiclesUnimpeded'>, string][] = [
+    ['regularService', 'Выполняет регулярный маршрут с обозначенными остановками'],
+    ['schoolBus', 'Школьный автобус'],
+    ['taxi', 'Легковое такси'],
+    ['regionalBusLaneEligible', 'Региональный допуск на выделенную полосу подтверждён полностью'],
+    ['routeVehiclesUnimpeded', 'При въезде на выделенную полосу помех маршрутным ТС не создаётся'],
+  ];
+  if (a.type === 'tram') facts.push(['depotExit', 'Трамвай выезжает из депо']);
+  for (const [key, label] of facts) group.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], a.routeContext?.[key] === true ? 'yes' : a.routeContext?.[key] === false ? 'no' : 'unknown', value => set(key, value === 'unknown' ? undefined : value === 'yes'))));
+  group.append(h('small', {}, 'Региональный допуск означает подтверждённые условия п. 18.2: назначение перевозки, места, допустимую максимальную массу и включение в перечень. Большая масса в модели сама по себе этого не доказывает.'),
+    field('Цель использования выделенной полосы', select<NonNullable<Context['laneUse']> | 'unknown'>([['unknown', 'Не установлена'], ['through', 'Движение вдоль полосы'], ['turn', 'Перестроение перед поворотом'], ['enter-road', 'Въезд на дорогу'], ['passenger-stop', 'Посадка или высадка пассажиров у правого края']], a.routeContext?.laneUse ?? 'unknown', value => set('laneUse', value === 'unknown' ? undefined : value))));
+  if (a.type === 'bus' || a.type === 'trolleybus') {
+    group.append(field('Остановочное место, от которого начинается движение', select([['', 'Не установлено'], ...(app.scene().routeStops ?? []).map((stop, index) => [stop.id, `Остановочное место ${index + 1} (${stop.id})`] as [string, string])], a.routeContext?.departureStopId ?? '', value => set('departureStopId', value || undefined))),
+      h('small', {}, 'Для п. 18.3 нужны обозначенное место в населённом пункте и фактическое начало движения от него. Перед отъездом водитель автобуса или троллейбуса должен убедиться, что ему уступают.'));
+    const labels = actorLabels(app.scene());
+    for (const other of app.scene().actors.filter(actor => actor.id !== a.id && actor.kind === 'vehicle' && !actor.railwayTrain)) {
+      const known = a.routeContext?.departureChecks?.find(pair => pair.otherId === other.id)?.yieldingVerified;
+      group.append(h('details', { class: 'group' }, h('summary', {}, `Перед отъездом: ${actorTitle(other, labels)}`),
+        field('Убедился в уступании этого участника перед отъездом', select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], known === true ? 'yes' : known === false ? 'no' : 'unknown', value => app.edit(() => {
+          if (value === 'unknown' && !a.routeContext) return;
+          const context = a.routeContext ??= {};
+          const checks = context.departureChecks ??= [];
+          let pair = checks.find(item => item.otherId === other.id);
+          if (value === 'unknown') context.departureChecks = checks.filter(item => item !== pair);
+          else {
+            if (!pair) { pair = { otherId: other.id }; checks.push(pair); }
+            pair.yieldingVerified = value === 'yes';
+          }
+          if (!context.departureChecks?.length) delete context.departureChecks;
+          if (!Object.keys(context).length) delete a.routeContext;
+        })))));
+    }
+  }
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -611,6 +743,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     maneuverContextForm(box, a, app);
     railwayContextForm(box, a, app);
     specialSignalsForm(box, a, app);
+    routeContextForm(box, a, app);
   }
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
@@ -684,6 +817,7 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
         },
       }), 'Местное время места ДТП. По этой дате выбираются редакции норм.'),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
+      field('Город для специальных составов КоАП', select<NonNullable<Scene['env']['federalCity']> | 'unknown'>([['unknown', 'Не установлен'], ['moscow', 'Москва'], ['saint-petersburg', 'Санкт-Петербург'], ['sevastopol', 'Севастополь'], ['other', 'Другое место']], s.env.federalCity ?? 'unknown', value => app.edit(() => { if (value === 'unknown') delete s.env.federalCity; else s.env.federalCity = value; })), 'Укажите место по исходным материалам; повышенная часть для выделенной полосы относится к Москве и Санкт-Петербургу.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
       button('Добавить кольцевой перекрёсток', () => app.editor.addRoundabout()),
@@ -700,6 +834,64 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
   ));
   intersectionBoundariesForm(root, app, () => buildEnv(root, app, extra));
   railwayCrossingsForm(root, app, () => buildEnv(root, app, extra));
+  routeStopsForm(root, app, () => buildEnv(root, app, extra));
+}
+
+function routeStopsForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {
+  type Stop = NonNullable<Scene['routeStops']>[number];
+  const scene = app.scene();
+  const roads = scene.roads.map((road, index) => [road.id, `Дорога ${index + 1} (${road.id})`] as [string, string]);
+  const signs = scene.signs.filter(sign => ['5.16', '5.17', '5.18'].includes(sign.kind))
+    .map(sign => [sign.id, `${sign.kind} · ${signTitle(sign.kind)} (${sign.id})`] as [string, string]);
+  const markings = scene.markings.filter(mark => ['1.17.1', '1.17.2'].includes(mark.kind))
+    .map(mark => [mark.id, `${mark.kind} · ${mark.kind === '1.17.2' ? 'Место остановки трамвая' : 'Остановка маршрутных ТС или стоянка такси'} (${mark.id})`] as [string, string]);
+  const group = h('details', { class: 'form' }, h('summary', {}, 'Остановочные места маршрутного транспорта'),
+    h('p', { class: 'note' }, 'Свяжите место с дорогой и установленным знаком или разметкой. Без подтверждённого обозначения место не считается обозначенной остановкой только по этой точке на карте. Разметка 1.17.2 обозначает остановку трамвая.'));
+  for (const [index, stop] of (scene.routeStops ?? []).entries()) {
+    const panel = h('details', { class: 'group' }, h('summary', {}, `Остановочное место ${index + 1} (${stop.id})`));
+    const set = <K extends keyof Stop>(key: K, value: Stop[K]): void => app.edit(() => { if (value === undefined) delete stop[key]; else stop[key] = value; });
+    panel.append(
+      field('Дорога остановочного места', select(roads, stop.roadId, value => set('roadId', value))),
+      field('X остановочного места, м', num(stop.x, value => set('x', value), { step: 0.1 })),
+      field('Y остановочного места, м', num(stop.y, value => set('y', value), { step: 0.1 })),
+      field('Курс отправления от остановочного места, °', num(deg(stop.heading), value => set('heading', rad(value)), { step: 1 })),
+      field('Знак остановочного места', select([['', 'Не установлен'], ...signs], stop.signId ?? '', value => set('signId', value || undefined))),
+      field('Разметка остановочного места', select([['', 'Не установлена'], ...markings], stop.markingId ?? '', value => set('markingId', value || undefined))),
+      field('Источник остановочного места', h('textarea', { rows: 2, value: stop.source ?? '', onchange: (event: Event) => set('source', (event.target as HTMLTextAreaElement).value.trim() || undefined) })),
+      button('Показать остановочное место', () => { app.editor.cam.x = stop.x; app.editor.cam.y = stop.y; app.editor.onView(); }),
+      button('Удалить остановочное место', () => {
+        app.edit(() => {
+          scene.routeStops = (scene.routeStops ?? []).filter(item => item.id !== stop.id);
+          for (const actor of scene.actors) if (actor.routeContext?.departureStopId === stop.id) delete actor.routeContext.departureStopId;
+        });
+        rebuild();
+      }),
+    );
+    group.append(panel);
+  }
+  let roadId = roads[0]?.[0] ?? '', signId = '', markingId = '', heading = 0;
+  const source = h('textarea', { rows: 2, placeholder: 'Схема, измерение, знак или разметка; для учебных данных укажите условность' });
+  const note = h('p', { class: 'note', role: 'status' });
+  group.append(h('details', { class: 'group' }, h('summary', {}, 'Добавить остановочное место в центре карты'),
+    field('Дорога нового остановочного места', select([['', 'Выберите дорогу'], ...roads], roadId, value => { roadId = value; })),
+    field('Курс нового остановочного места, °', num(0, value => { heading = rad(value); }, { step: 1 })),
+    field('Знак нового остановочного места', select([['', 'Не установлен'], ...signs], '', value => { signId = value; })),
+    field('Разметка нового остановочного места', select([['', 'Не установлена'], ...markings], '', value => { markingId = value; })),
+    field('Источник нового остановочного места', source),
+    note,
+    button('Добавить остановочное место', () => {
+      if (!scene.roads.some(road => road.id === roadId) || !source.value.trim()) { note.textContent = 'Выберите существующую дорогу и укажите источник. Место будет добавлено в центре видимой карты.'; return; }
+      app.edit(() => {
+        const stops = scene.routeStops ??= [], ids = new Set(stops.map(stop => stop.id));
+        let number = stops.length + 1;
+        while (ids.has(`route-stop-${number}`)) number++;
+        stops.push({ id: `route-stop-${number}`, roadId, x: app.editor.cam.x, y: app.editor.cam.y, heading,
+          ...(signId ? { signId } : {}), ...(markingId ? { markingId } : {}), source: source.value.trim() });
+      });
+      rebuild();
+    }),
+  ));
+  root.append(group);
 }
 
 function railwayCrossingsForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {

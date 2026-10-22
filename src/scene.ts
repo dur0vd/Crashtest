@@ -106,8 +106,47 @@ export interface EdgePt {
 /** Установленные особенности участка, используемые при проверке манёвров. */
 export type RoadFeature = 'bridge' | 'tunnel' | 'railway-crossing' | 'limited-visibility' | 'stop-area' | 'motorway';
 
+/** Измеренная полоса: расстояния вдоль оси, смещение вправо от авторского направления. */
+export interface RouteLane {
+  id: string;
+  fromS: number;
+  toS: number;
+  offset: number;
+  width: number;
+  direction: 'forward' | 'reverse';
+  signIds: string[];
+  boundary?: 'dashed' | 'solid' | 'unknown';
+  rightmost?: boolean;
+  source?: string;
+}
+
+export interface RouteStop {
+  id: string;
+  roadId: string;
+  x: number;
+  y: number;
+  heading: number;
+  signId?: string;
+  markingId?: string;
+  source?: string;
+}
+
+export interface RouteContext {
+  regularService?: boolean;
+  schoolBus?: boolean;
+  taxi?: boolean;
+  /** Подтверждён весь набор условий регионального исключения 18.2. */
+  regionalBusLaneEligible?: boolean;
+  depotExit?: boolean;
+  departureStopId?: string;
+  laneUse?: 'through' | 'turn' | 'enter-road' | 'passenger-stop';
+  routeVehiclesUnimpeded?: boolean;
+  departureChecks?: { otherId: string; yieldingVerified?: boolean }[];
+}
+
 export interface Road {
   id: string;
+  routeLanes?: RouteLane[];
   /** Выезд с прилегающей территории не образует перекрёсток (п. 1.2). */
   role?: 'road' | 'adjacent' | 'roundabout';
   /** Для определения главной по покрытию; неизвестное покрытие не предполагается твёрдым. */
@@ -399,6 +438,7 @@ export interface Actor {
   railwayContext?: RailwayContext;
   specialSignals?: SpecialSignals;
   specialInteractions?: SpecialInteraction[];
+  routeContext?: RouteContext;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -413,6 +453,7 @@ export function defaultAccidentDate(): string {
 
 export interface Env {
   accidentDate: string;
+  federalCity?: 'moscow' | 'saint-petersburg' | 'sevastopol' | 'other';
   /** Параметры модели заблаговременности сигнала; ПДД не задают эти числа. */
   signalLeadSeconds?: number;
   signalLeadMeters?: number;
@@ -421,6 +462,7 @@ export interface Env {
 }
 
 export interface Scene {
+  routeStops?: RouteStop[];
   railwayCrossings?: RailwayCrossing[];
   /** Обмеренные границы по началам закруглений (п. 1.2), заменяют автоматическую оценку. */
   intersectionBounds?: { id: string; roadIds: string[]; boundary: Vec[] }[];
@@ -449,6 +491,7 @@ export function emptyScene(): Scene {
     sidewalks: [],
     tracks: [],
     railwayCrossings: [],
+    routeStops: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -577,10 +620,22 @@ export function normalizeScene(raw: unknown): Scene {
   for (const field of ['signalLeadSeconds', 'signalLeadMeters'] as const) {
     if (!Number.isFinite(scene.env[field]) || scene.env[field]! <= 0) delete scene.env[field];
   }
+  if (!['moscow', 'saint-petersburg', 'sevastopol', 'other'].includes(scene.env.federalCity ?? '')) delete scene.env.federalCity;
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
     if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
   }
+  if (Array.isArray(r.routeStops)) {
+    scene.routeStops = r.routeStops.map(stop => {
+      if (!stop || typeof stop.id !== 'string' || typeof stop.roadId !== 'string'
+        || !scene.roads.some(road => road.id === stop.roadId) || ![stop.x, stop.y, stop.heading].every(Number.isFinite)) {
+        throw new Error('Остановочное место: нужны координаты, курс и ссылка на существующую дорогу');
+      }
+      const result: RouteStop = { id: stop.id, roadId: stop.roadId, x: stop.x, y: stop.y, heading: stop.heading };
+      for (const key of ['signId', 'markingId', 'source'] as const) if (typeof stop[key] === 'string') result[key] = stop[key];
+      return result;
+    });
+  } else delete scene.routeStops;
   for (const track of scene.tracks) track.kind = track.kind === 'railway' ? 'railway' : 'tram';
   if (Array.isArray(r.railwayCrossings)) {
     scene.railwayCrossings = r.railwayCrossings.map(crossing => {
@@ -602,6 +657,20 @@ export function normalizeScene(raw: unknown): Scene {
     });
   } else delete scene.railwayCrossings;
   for (const road of scene.roads) {
+    if (Array.isArray(road.routeLanes)) {
+      road.routeLanes = road.routeLanes.map(lane => {
+        if (!lane || typeof lane.id !== 'string' || ![lane.fromS, lane.toS, lane.offset, lane.width].every(Number.isFinite)
+          || lane.fromS < 0 || lane.toS <= lane.fromS || lane.width <= 0 || !['forward', 'reverse'].includes(lane.direction)) {
+          throw new Error(`Маршрутная полоса дороги ${road.id}: нужны корректные расстояния, смещение, ширина и направление`);
+        }
+        const result: RouteLane = { id: lane.id, fromS: lane.fromS, toS: lane.toS, offset: lane.offset,
+          width: lane.width, direction: lane.direction, signIds: Array.isArray(lane.signIds) ? [...new Set(lane.signIds.filter(id => typeof id === 'string'))] : [] };
+        if (['dashed', 'solid', 'unknown'].includes(lane.boundary ?? '')) result.boundary = lane.boundary;
+        if (typeof lane.rightmost === 'boolean') result.rightmost = lane.rightmost;
+        if (typeof lane.source === 'string') result.source = lane.source;
+        return result;
+      });
+    } else delete road.routeLanes;
     road.role = ['road', 'adjacent', 'roundabout'].includes(road.role ?? '') ? road.role : 'road';
     road.surfacePriority = ['hard', 'unpaved', 'unknown'].includes(road.surfacePriority ?? '') ? road.surfacePriority : 'hard';
     const features: RoadFeature[] = ['bridge', 'tunnel', 'railway-crossing', 'limited-visibility', 'stop-area', 'motorway'];
@@ -655,6 +724,26 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
+    const rawRoute = a.routeContext;
+    if (rawRoute && typeof rawRoute === 'object' && !Array.isArray(rawRoute)) {
+      const context: RouteContext = {};
+      for (const fact of ['regularService', 'schoolBus', 'taxi', 'regionalBusLaneEligible', 'depotExit', 'routeVehiclesUnimpeded'] as const) {
+        if (typeof rawRoute[fact] === 'boolean') context[fact] = rawRoute[fact];
+      }
+      if (typeof rawRoute.departureStopId === 'string') context.departureStopId = rawRoute.departureStopId;
+      if (['through', 'turn', 'enter-road', 'passenger-stop'].includes(rawRoute.laneUse ?? '')) context.laneUse = rawRoute.laneUse;
+      if (Array.isArray(rawRoute.departureChecks)) {
+        const seen = new Set<string>();
+        context.departureChecks = rawRoute.departureChecks.filter(check => {
+          if (!check || typeof check.otherId !== 'string' || check.otherId === a.id || seen.has(check.otherId)
+            || !scene.actors.some(other => other.id === check.otherId)) return false;
+          seen.add(check.otherId);
+          return true;
+        }).map(check => ({ otherId: check.otherId, ...(typeof check.yieldingVerified === 'boolean' ? { yieldingVerified: check.yieldingVerified } : {}) }));
+      }
+      if (Object.keys(context).length) a.routeContext = context;
+      else delete a.routeContext;
+    } else delete a.routeContext;
     const rawSignals = a.specialSignals;
     if (rawSignals && typeof rawSignals === 'object' && !Array.isArray(rawSignals)) {
       const signals: SpecialSignals = { beacon: ['unknown', 'none', 'blue', 'blue-red', 'yellow', 'orange', 'white'].includes(rawSignals.beacon)

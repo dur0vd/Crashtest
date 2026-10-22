@@ -295,6 +295,32 @@ export class Editor {
     const i = arr.findIndex((x) => x.id === id);
     if (i >= 0) arr.splice(i, 1);
     if (col === 'lights') for (const c of this.scene.crosswalks) if (c.lightId === id) delete c.lightId;
+    if (col === 'roads' && this.scene.routeStops) {
+      const removedStops = new Set(this.scene.routeStops.filter(stop => stop.roadId === id).map(stop => stop.id));
+      this.scene.routeStops = this.scene.routeStops.filter(stop => !removedStops.has(stop.id));
+      for (const actor of this.scene.actors) {
+        if (actor.routeContext?.departureStopId && removedStops.has(actor.routeContext.departureStopId)) delete actor.routeContext.departureStopId;
+      }
+    }
+    if (col === 'actors') {
+      // Keep cleanup in the same undo entry; a reused ID must not inherit another participant's facts.
+      for (const actor of this.scene.actors) {
+        if (actor.routeContext?.departureChecks) {
+          actor.routeContext.departureChecks = actor.routeContext.departureChecks.filter(pair => pair.otherId !== id);
+          if (!actor.routeContext.departureChecks.length) delete actor.routeContext.departureChecks;
+          if (!Object.keys(actor.routeContext).length) delete actor.routeContext;
+        }
+        if (actor.specialInteractions) {
+          actor.specialInteractions = actor.specialInteractions.filter(pair => pair.otherId !== id);
+          if (!actor.specialInteractions.length) delete actor.specialInteractions;
+        }
+      }
+    }
+    if (col === 'signs') {
+      for (const road of this.scene.roads) for (const lane of road.routeLanes ?? []) lane.signIds = lane.signIds.filter(signId => signId !== id);
+      for (const stop of this.scene.routeStops ?? []) if (stop.signId === id) delete stop.signId;
+    }
+    if (col === 'markings') for (const stop of this.scene.routeStops ?? []) if (stop.markingId === id) delete stop.markingId;
     this.sel = null;
     this.selWp = null;
     if (this.tool === 'path') this.setTool('select');
@@ -396,7 +422,7 @@ export class Editor {
       pts.push({ x: a.x, y: a.y });
       for (const w of a.path) pts.push(w);
     }
-    for (const it of [...s.lights, ...s.signs, ...s.crosswalks, ...s.obstacles]) pts.push({ x: it.x, y: it.y });
+    for (const it of [...s.lights, ...s.signs, ...s.crosswalks, ...s.obstacles, ...(s.routeStops ?? [])]) pts.push({ x: it.x, y: it.y });
     for (const crossing of s.railwayCrossings ?? []) {
       const radius = Math.hypot(crossing.length, crossing.width) / 2;
       pts.push({ x: crossing.x - radius, y: crossing.y - radius }, { x: crossing.x + radius, y: crossing.y + radius });
@@ -418,10 +444,11 @@ export class Editor {
     let by0 = minY;
     let by1 = maxY;
     if (actorPts.length) {
-      bx0 = Math.min(...actorPts.map((p) => p.x)) - 15;
-      bx1 = Math.max(...actorPts.map((p) => p.x)) + 15;
-      by0 = Math.min(...actorPts.map((p) => p.y)) - 15;
-      by1 = Math.max(...actorPts.map((p) => p.y)) + 15;
+      const focusPts = [...actorPts, ...(s.routeStops ?? [])];
+      bx0 = Math.min(...focusPts.map((p) => p.x)) - 15;
+      bx1 = Math.max(...focusPts.map((p) => p.x)) + 15;
+      by0 = Math.min(...focusPts.map((p) => p.y)) - 15;
+      by1 = Math.max(...focusPts.map((p) => p.y)) + 15;
     }
     const w = Math.max(30, bx1 - bx0);
     const h = Math.max(30, by1 - by0);

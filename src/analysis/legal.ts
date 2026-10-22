@@ -1,7 +1,7 @@
 import { corpus } from '../corpus';
 import { lawRef } from '../law';
 import { type Scene, type Actor, type VehicleType, VEHICLES } from '../scene';
-import { HARM_LABEL, harmRank, type HarmLevel, type CollisionReport, type ActorVerdict, type LegalInput, type LegalSection, type Finding, type RulesSection } from './types';
+import { HARM_LABEL, harmRank, type HarmLevel, type CollisionReport, type ActorVerdict, type LegalInput, type LegalItem, type LegalSection, type Finding, type RulesSection } from './types';
 
 function harmToAll(reports: CollisionReport[]): Map<string, HarmLevel> {
   const m = new Map<string, HarmLevel>();
@@ -31,7 +31,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
       continue;
     }
     const isVeh = a.kind === 'vehicle';
-    const mine = findings.filter((f) => f.actorId === a.id);
+    const mine = findings.filter((f) => f.actorId === a.id && !['passenger', 'organizer'].includes(String(f.trace.legalSubject)));
     const viol = mine.filter((f) => f.severity === 'violation');
     const causal = viol.filter((f) => f.causal);
     const legal: LegalInput[] = [];
@@ -163,6 +163,8 @@ export function subjectOf(a: Actor) {
 const RULE_OFFENCES: Record<string, string> = {
   'rule:lighting': 'koap:12.20',
   'rule:mobility-towing': 'koap:12.21#1',
+  'rule:organized-bus': 'koap:12.23#4',
+  'rule:organized-night': 'koap:12.23#5',
   'rule:mobility': 'koap:12.29.2',
   'rule:passenger-belt': 'koap:12.6',
   'rule:passenger-child': 'koap:12.23#3',
@@ -239,6 +241,11 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
   if (f.severity !== 'violation') return [...f.refs];
   const subject = subjectOf(a);
   const codes = (f.trace.ruleCodes ?? []) as string[];
+  // Observing a passenger's act does not make the driver its offender.
+  // Keep the passenger ID and age in trace; ActorVerdict is vehicle-centric.
+  if (codes.includes('rule:passenger-personal') || f.trace.legalSubject === 'organizer') {
+    return [...f.refs]; // separate personal item in duties, never the driver's offence
+  }
   if (subject.administrativeSubject && (a.kind === 'pedestrian' || ['sim', 'bicycle', 'cart'].includes(a.type))) {
     const c = a.mobilityContext;
     // PDD's broad vehicle definition is not the special Chapter 12 definition:
@@ -251,6 +258,9 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
     return [...new Set([...f.refs.filter(r => !r.startsWith('koap:')), ref])];
   }
   const refs = codes.flatMap(code => {
+    // 12.23(1) expressly excludes parts 2–6. Select the special composition
+    // for the same act/person; separate acts remain separately assessable.
+    if (code === 'rule:passenger-general' && codes.some(c => ['rule:passenger-child', 'rule:passenger-outside', 'rule:organized-bus', 'rule:organized-night'].includes(c))) return [];
     // Respect the exclusions expressly named in 12.14(2) and 12.15(4).
     if (code === 'rule:forbidden-maneuver' && (codes.includes('rule:motorway-maneuver') || codes.includes('rule:turn-sign'))) return [];
     if (code === 'rule:opposing-lane' && codes.includes('rule:obstacle-bypass')) return [];
@@ -291,10 +301,21 @@ export function analyzeLegal(scene: Scene, rules: RulesSection): { section: Lega
       item.trace = { ...item.trace, assessmentDate, editionDate: LEGAL_EDITION_DATE };
     }
   }
-  const duties = buildDuties(scene, rules.collisions).map(l => ({ ...l,
+  const duties: LegalItem[] = buildDuties(scene, rules.collisions).map(l => ({ ...l,
     trace: { collisions: rules.collisions.map(c => c.trace), assessmentDate, editionDate: LEGAL_EDITION_DATE },
     sanctions: sanctionsFor(l.refs, assessmentDate),
   }));
+  for (const f of findings.filter(f => f.trace.legalSubject === 'passenger')) {
+    const passenger = scene.actors.find(a => a.id === f.actorId)?.passengers?.find(p => p.id === f.trace.passengerId);
+    const qualified = f.severity === 'violation' && passenger?.age !== undefined && passenger.age >= 16;
+    const refs = [...f.refs, ...(qualified ? ['koap:12.29.1'] : [])];
+    duties.push({ refs, text: `Личная обязанность пассажира ${f.trace.passengerId ?? '(не установлен)'}: ${f.title}. ${qualified ? 'Предварительная квалификация: ч.1 ст.12.29 КоАП.' : 'Административный состав не установлен.'} Водителю это действие не вменяется.`,
+      trace: { ...f.trace, subject: { kind: 'passenger', passengerId: passenger?.id ?? null, age: passenger?.age ?? null }, assessmentDate, editionDate: LEGAL_EDITION_DATE, collisions: [] },
+      sanctions: sanctionsFor(refs, assessmentDate) });
+  }
+  for (const f of findings.filter(f => f.trace.legalSubject === 'organizer')) duties.push({ refs: f.refs,
+    text: `Обязанность организатора: ${f.title}. TODO(legal-check): требуется установить ответственное должностное/юридическое лицо и состав; водителю часть 6 ст.12.23 не назначается.`,
+    trace: { ...f.trace, subject: { kind: 'organizer', identityEstablished: false }, assessmentDate, editionDate: LEGAL_EDITION_DATE }, sanctions: [] });
   return { section: { assessmentDate, editionDate: LEGAL_EDITION_DATE, verdicts, duties }, findings };
 }
 

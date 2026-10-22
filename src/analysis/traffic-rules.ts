@@ -2,6 +2,7 @@ import { checkStopping } from './stopping';
 import { checkPassengers } from './passengers';
 import { checkLighting } from '../rules/lighting';
 import { checkMobilitySupplement } from '../rules/mobility';
+import { checkPassengerSupplement } from '../rules/passengers';
 import type { JsonObject } from '../parallel/contracts';
 import {
   roadsAt,
@@ -955,7 +956,7 @@ function missedWrongSide(ctx: Ctx): void {
 // Правовая оценка
 
 
-export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject; mobility?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
+export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject; mobility?: JsonObject; passengers?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
   const ctx: Ctx = { ...technical, gates: technical.gates.map(g => ({ ...g })), findings: [], events: [], priorityGraphs: [], onc: new Map(), lightViolations: new Map(), stopSkipped: new Map(), pedEntry: new Map() };
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
@@ -1031,6 +1032,7 @@ export function analyzeRules(technical: TechnicalContext, options: { lighting?: 
   // collision heuristic so a contact cannot turn a lamp violation into one.
   if (options.lighting) checkLighting(ctx, options.lighting, finding => addFinding(ctx, finding));
   if (options.mobility) checkMobilitySupplement(ctx, options.mobility, options.lighting ?? {}, finding => addFinding(ctx, finding));
+  if (options.passengers) checkPassengerSupplement(ctx, options.passengers, finding => addFinding(ctx, finding));
   const findings: Finding[] = ctx.findings.map(f => {
     const i = ctx.infos.get(f.actorId)!;
     const frame = Math.round((f.t ?? tOf(i.k0)) / DT);
@@ -1053,7 +1055,7 @@ export function analyzeRules(technical: TechnicalContext, options: { lighting?: 
     };
   });
   const actors = ctx.scene.actors.map(a => {
-    const mine = findings.filter(f => f.actorId === a.id);
+    const mine = findings.filter(f => f.actorId === a.id && !['passenger', 'organizer'].includes(String(f.trace.legalSubject)));
     const viol = mine.filter(f => f.severity === 'violation');
     const causal = viol.filter(f => f.causal);
     const i = ctx.infos.get(a.id)!;

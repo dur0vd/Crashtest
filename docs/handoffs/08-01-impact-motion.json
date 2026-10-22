@@ -1,0 +1,65 @@
+{
+  "task": "08.1",
+  "branch": "codex/08-01-impact-motion",
+  "baseSha": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+  "dependencies": [
+    {
+      "task": "07.2",
+      "branch": "codex/07-02-controller-road-zones",
+      "sha": null,
+      "status": "missing-remote-ref",
+      "merged": false
+    }
+  ],
+  "implementationStatus": "partial",
+  "blocking": true,
+  "implemented": [
+    "Подготовлен отдельный worktree и назначенная ветка от общей базы; требуемый предок подтверждён.",
+    "В docs/research/IMPACT-MOTION-DESIGN.md описаны текущие ограничения, требования к интеграции и план независимой верификации.",
+    "README явно отражает отсутствие реализации 08.1. Исполняемый код не изменён."
+  ],
+  "limitations": [
+    "2026-10-22: origin/codex/07-02-controller-road-zones отсутствует. Fetch точного ref завершился exit 128: couldn't find remote ref. Повторный ls-remote также не вернул ветку.",
+    "SHA зависимости неизвестен (null), handoff и необходимый контракт недоступны; merge не выполнялся.",
+    "Импульс с вращением и трением, повторные контакты, послеударное качение/скольжение, расширения technical/trace и визуализации не реализованы.",
+    "Test/build проверяют только исходную базу с документацией, без обязательной зависимости 07.2. Это не готовность этапа 08.1 и не натурная валидация.",
+    "Потребитель 08.2 не должен использовать эту ветку как готовую зависимость."
+  ],
+  "contracts": [
+    "Новых экспортируемых типов, миграций сцен или изменений API нет.",
+    "IMPACT-MOTION-DESIGN.md содержит только проект требований; будущий контракт согласуется с фактическими экспортами 07.2."
+  ],
+  "todos": [
+    "Получить 07.2, проверить task/branch/baseSha, blocking=false, implementationStatus, достаточность контракта и test/build exitCode=0; зафиксировать SHA и merge --no-ff именно этого SHA.",
+    "Реализовать 08.1 и независимые физические проверки из проектного документа после подключения зависимости.",
+    "TODO(source-check): сверить закон контакта, восстановление, трение и разделение энергетических потерь с первичным источником; не использовать название Kudlich–Slibar без подтверждённого соответствия.",
+    "Проверить изменённый UI в Chromium и повторить полный test/build с подключённой зависимостью; обновить этот handoff."
+  ],
+  "checks": {
+    "test": {
+      "command": "npm test",
+      "exitCode": 0,
+      "summary": "710 tests passed, 30 files; исходная база без 07.2, новых физических тестов нет."
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0,
+      "summary": "tsc --noEmit и vite build прошли; предупреждение Vite о chunk >500 kB. Проверена база без 07.2."
+    },
+    "browser": {
+      "command": null,
+      "exitCode": null,
+      "summary": "Не запускался: UI не менялся; визуализация 08.1 заблокирована зависимостью."
+    },
+    "dependency": {
+      "command": "git fetch origin refs/heads/codex/07-02-controller-road-zones:refs/remotes/origin/codex/07-02-controller-road-zones",
+      "exitCode": 128,
+      "summary": "fatal: couldn't find remote ref refs/heads/codex/07-02-controller-road-zones"
+    },
+    "baseAncestor": {
+      "command": "git merge-base --is-ancestor af0cdccb2488be7ec0e7d6e3aaba1ff97a939df5 origin/codex/full-simulator-base-v1",
+      "exitCode": 0,
+      "summary": "Требуемый предок общей базы подтверждён."
+    }
+  }
+}

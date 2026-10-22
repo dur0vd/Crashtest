@@ -1,5 +1,7 @@
 import { checkStopping } from './stopping';
 import { checkPassengers } from './passengers';
+import { checkLighting } from '../rules/lighting';
+import type { JsonObject } from '../parallel/contracts';
 import {
   roadsAt,
   intersectionAt,
@@ -952,7 +954,7 @@ function missedWrongSide(ctx: Ctx): void {
 // Правовая оценка
 
 
-export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
+export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
   const ctx: Ctx = { ...technical, gates: technical.gates.map(g => ({ ...g })), findings: [], events: [], priorityGraphs: [], onc: new Map(), lightViolations: new Map(), stopSkipped: new Map(), pedEntry: new Map() };
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
@@ -1024,6 +1026,9 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   }
 
 
+  // These observations do not establish a cause. Evaluate after the legacy
+  // collision heuristic so a contact cannot turn a lamp violation into one.
+  if (options.lighting) checkLighting(ctx, options.lighting, finding => addFinding(ctx, finding));
   const findings: Finding[] = ctx.findings.map(f => {
     const i = ctx.infos.get(f.actorId)!;
     const frame = Math.round((f.t ?? tOf(i.k0)) / DT);

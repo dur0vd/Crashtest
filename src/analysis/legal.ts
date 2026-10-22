@@ -161,6 +161,7 @@ export function subjectOf(a: Actor) {
 }
 
 const RULE_OFFENCES: Record<string, string> = {
+  'rule:lighting': 'koap:12.20',
   'rule:mobility': 'koap:12.29.2',
   'rule:passenger-belt': 'koap:12.6',
   'rule:passenger-child': 'koap:12.23#3',

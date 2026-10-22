@@ -1,0 +1,106 @@
+{
+  "task": "07.2",
+  "branch": "codex/07-02-controller-road-zones",
+  "baseSha": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+  "dependencies": [
+    {
+      "task": "06.4",
+      "branch": "codex/06-04-parking",
+      "sha": "90c942f4bb279ca84248ffd18dfe9a218dc1d359"
+    },
+    {
+      "task": "06.5",
+      "branch": "codex/06-05-cyclists-sim",
+      "sha": "56cd9e9ba4d5ae34c4f5ecb11fd4ee5411b55611"
+    },
+    {
+      "task": "06.7",
+      "branch": "codex/06-07-passengers",
+      "sha": "9801c0d51083e6ee49ef8a9866eaad1ac0f9f5c3"
+    }
+  ],
+  "missingDependencies": [
+    {
+      "task": "06.6",
+      "branch": "codex/06-06-lights",
+      "sha": null,
+      "reason": "Remote branch absent; handoff and lighting/visibility contract unavailable."
+    },
+    {
+      "task": "07.1",
+      "branch": "codex/07-01-dynamics",
+      "sha": null,
+      "reason": "Remote branch absent; handoff, dynamic state/force integrator and vehicle parameter contracts unavailable."
+    }
+  ],
+  "dependencyVerification": {
+    "checkedOn": "2026-10-22",
+    "command": "git ls-remote --heads origin 'codex/06-06-lights' 'codex/07-01-dynamics'",
+    "exitCode": 0,
+    "summary": "Two successful remote queries returned no matching refs, before integration and after compatibility checks. Each available handoff has the expected task/branch/base, implementationStatus=partial, blocking=false, and test/build exitCode=0. All three exact SHAs merged with --no-ff."
+  },
+  "implementationStatus": "partial",
+  "blocking": true,
+  "implemented": [
+    "Created the assigned branch and isolated worktree from the required base; verified the required af0cdcc ancestor.",
+    "Merged available dependencies 06.4, 06.5 and 06.7 at verified SHAs using ordinary merge commits; preserved parking, mobility and passenger forms, normalization, presets and rules/legal checks when resolving conflicts.",
+    "Verified compatibility of the three merged dependencies with the full existing test suite, production build and their Chromium browser checks.",
+    "Documented the proposed controller, brake timing, measured zone semantics, migration, trace and acceptance checks in docs/CONTROLLER-ROAD-ZONES.md; added the blocking limitation to README."
+  ],
+  "limitations": [
+    "Stage 07.2 is NOT implemented or ready for consumers. Missing dependencies 06.6 and 07.1 prevent dependent implementation under rule 5; blocking=true must be respected.",
+    "No runtime env.physics selector, dynamic simulation integration, controller, brake timing parameters, road zone editor or dynamic trace has been added. Proposed interfaces in the design document are not exported APIs.",
+    "Tests and browser checks cover only the available merged dependencies in the existing kinematic mode. Presets have not been verified in dynamic mode and changed dynamic outcomes have not been measured.",
+    "Retained dependency limitations: no door contact or automatic parking causality, no confirmed SIM dynamic catalogue, static passenger facts without injury/mass effects; source/legal uncertainties remain in original handoffs.",
+    "Existing REACT/BRAKE_LAG and global Timeline.mu remain unchanged; no empirical parameters, roughness multipliers, natural validation or fabricated dynamics substituted for missing contracts.",
+    "Production build succeeds with the existing Vite warning about JavaScript chunks larger than 500 kB."
+  ],
+  "contracts": [
+    "No new runtime types, exports or scene migrations are provided by 07.2. Scene.version remains 1 and Env has no physics field.",
+    "Preserved dependency contracts: Actor.stopContext/warningContext/doorContext and Scene.stopPlaces (06.4); SimParameters/MobilityContext and mobility helpers (06.5); Passenger/PassengerContext/passengerFacts (06.7). See their unchanged handoffs for definitions and limits.",
+    "docs/CONTROLLER-ROAD-ZONES.md contains proposed integration boundaries only; reconcile names and units with the actual 07.1 and 06.6 exports before implementing."
+  ],
+  "todos": [
+    "Obtain codex/06-06-lights and codex/07-01-dynamics; verify task/branch/base, blocking=false, complete/partial status, test/build exitCode=0 and sufficient contracts; merge exact SHAs with --no-ff into this existing branch.",
+    "Implement and verify the full 07.2 request after both dependency gates pass: physics selection, vehicle parameters, pure pursuit, speed/brake controller, measured zones, UI and technical trace.",
+    "Verify all presets in both modes with explicit unsupported-class outcomes and recorded differences; independently test friction-limited path deviation, zone boundaries, brake timing, reverse and rail/vulnerable behavior.",
+    "TODO(source-check): measured zone sources/applicability and supported conversion of roughness observations into forces; no invented friction reduction.",
+    "Replace this blocking handoff with actual implementation contracts, limitations and checks only after dependencies and runtime work are verified."
+  ],
+  "checks": {
+    "test": {
+      "command": "npm test",
+      "exitCode": 0,
+      "summary": "1005 tests passed in 33 files on the merged 06.4/06.5/06.7 tree. Existing tests only; this is compatibility evidence, not validation of 07.2 or dynamic mode."
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0,
+      "summary": "tsc --noEmit and Vite production build passed on the merged tree; existing >500 kB chunk warning."
+    },
+    "browser": {
+      "command": "With npm run dev -- --host 127.0.0.1: run tools/check-parking-browser.cjs, tools/check-cyclists-browser.cjs, tools/check-passengers-browser.cjs with installed Playwright from /opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules and /usr/bin/chromium.",
+      "exitCode": 0,
+      "summary": "All three existing checks passed against the merged tree. Parking: desktop/mobile editor, geometry, sign fields and 8 presets. Mobility: 32 checks for presets, explicit SIM parameters, tri-state fields, corridors and signals. Passengers: 8 checks at each of 1440x1000 and 390x844. No page errors; screenshots /tmp/parking-mobile-actor.png and /tmp/cyclists-browser-parameters.png visually inspected. No 07.2 UI exists to test.",
+      "runs": [
+        {
+          "command": "CRASHTEST_PLAYWRIGHT_MODULE=/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright node tools/check-parking-browser.cjs",
+          "exitCode": 0
+        },
+        {
+          "command": "PLAYWRIGHT_MODULE=/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright node tools/check-cyclists-browser.cjs",
+          "exitCode": 0
+        },
+        {
+          "command": "NODE_PATH=/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules node tools/check-passengers-browser.cjs",
+          "exitCode": 0
+        }
+      ]
+    },
+    "git": {
+      "command": "git diff --check; git merge-base --is-ancestor af0cdccb2488be7ec0e7d6e3aaba1ff97a939df5 5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+      "exitCode": 0,
+      "summary": "Whitespace and required base ancestry passed. No reset/rebase/cherry-pick, changes to main/base/neighbour branches, deployments or package publication."
+    }
+  }
+}

@@ -11,20 +11,15 @@ import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, 
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
+import { newProject, ProjectHistory, type ProjectFile } from './project/model';
+import { resultJSON } from './project/canonical';
+import { loadLocal, saveLocal } from './project/storage';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
 
 // ---------------------------------------------------------------------------
 // Загрузка и сохранение
-
-function encodeShare(scene: Scene): string {
-  const json = JSON.stringify(scene);
-  const bytes = new TextEncoder().encode(json);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
 
 function decodeShare(s: string): Scene {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
@@ -58,6 +53,9 @@ function loadInitial(): Scene {
 const canvas = $<HTMLCanvasElement>('cv');
 const renderer = new Renderer(canvas);
 const editor = new Editor(loadInitial(), canvas, renderer);
+let currentFile:ProjectFile=newProject(editor.scene);
+let hostHistory=new ProjectHistory(currentFile);
+let workbenchInstance:{destroy():void}|undefined;
 
 let mode: 'edit' | 'play' = 'edit';
 let t = 0;
@@ -498,16 +496,24 @@ function openFile(): void {
 }
 
 async function copyLink(): Promise<void> {
-  const url = `${location.origin}${location.pathname}#s=${encodeShare(editor.scene)}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    toast('Ссылка скопирована');
-  } catch {
-    window.prompt('Скопируйте ссылку:', url);
-  }
+  toast('Ссылки с данными проекта отключены. Используйте экспорт без ПДн в разделе материалов.');
 }
 
+async function openWorkbench():Promise<void>{
+  const { mountWorkbench }=await import('./workbench/mount');
+  const project=structuredClone(currentFile.project);project.scene=resultJSON(editor.scene) as Scene;
+  hostHistory.change(project,'Правка сцены');
+  const container=h('div',{});showModal(container);$('modal').classList.add('ct-wide');
+  workbenchInstance=mountWorkbench(container,{project,ports:{},file:currentFile,
+    onProjectChange(next){currentFile.project=next;loadScene(next.scene);},
+    onFileChange(next){currentFile=next;hostHistory=new ProjectHistory(currentFile);},
+  });
+}
+
+function closeModal():void{workbenchInstance?.destroy();workbenchInstance=undefined;$('modal').classList.add('hidden');$('modal').classList.remove('ct-wide');}
+
 function showModal(body: HTMLElement): void {
+  workbenchInstance?.destroy();workbenchInstance=undefined;$('modal').classList.remove('ct-wide');
   $('modalBody').replaceChildren(body);
   $('modal').classList.remove('hidden');
 }
@@ -539,6 +545,7 @@ function buildMenus(): void {
   const main = $('menuMain');
   main.replaceChildren(
     menuItem('Новая ситуация', () => loadScene(emptyScene())),
+    menuItem('Материалы, проекты и мобильный комиссар', () => {void openWorkbench().catch(e=>toast(String(e)));}),
     menuItem('Сохранить в файл', () => download(`${editor.scene.name || 'crashtest'}.json`, JSON.stringify(editor.scene, null, 2), 'application/json')),
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
@@ -548,13 +555,11 @@ function buildMenus(): void {
 
 function save(): void {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(editor.scene));
-    } catch {
-      /* хранилище недоступно */
-    }
-  }, 400);
+  saveTimer=window.setTimeout(()=>{
+    const project=structuredClone(currentFile.project);project.scene=resultJSON(editor.scene) as Scene;
+    hostHistory.change(project,'Правка сцены');
+    void saveLocal('current',currentFile).then(()=>localStorage.removeItem(STORE)).catch(()=>toast('Автосохранение недоступно. Экспортируйте проект.'));
+  },400);
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +572,7 @@ function init(): void {
   $<HTMLInputElement>('sceneName').addEventListener('change', (e) => {
     editor.checkpoint();
     editor.scene.name = (e.target as HTMLInputElement).value;
-    save();
+    editor.changed(true);
   });
 
   renderer.onImage = () => (dirty = true);
@@ -661,8 +666,9 @@ function init(): void {
   toggle('btnExamples', 'menuExamples');
   toggle('btnMenu', 'menuMain');
   document.addEventListener('click', closeMenus);
-  $('modalClose').addEventListener('click', () => $('modal').classList.add('hidden'));
-  $('modal').addEventListener('click', (e) => e.target === $('modal') && $('modal').classList.add('hidden'));
+  $('modalClose').addEventListener('click', closeModal);
+  $('modal').addEventListener('click', (e) => {if(e.target === $('modal'))closeModal();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
   const resize = () => {
     renderer.resize();
@@ -678,8 +684,12 @@ function init(): void {
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(()=>toast('Приложение готово к работе без сети')).catch(()=>toast('Офлайн-кэш не готов. Сохраните проект в файл.'));
   }
 }
 
-init();
+async function start():Promise<void>{
+  try{const stored=location.hash.startsWith('#s=')?undefined:await loadLocal('current');if(stored){currentFile=stored;hostHistory=new ProjectHistory(currentFile);editor.setScene(stored.project.scene,true);}}catch{/* Legacy local storage fallback remains readable. */}
+  init();
+}
+void start();

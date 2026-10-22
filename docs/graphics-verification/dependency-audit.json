@@ -1,0 +1,57 @@
+{
+  "runtime": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "full": {
+    "info": 0,
+    "low": 0,
+    "moderate": 3,
+    "high": 0,
+    "critical": 0,
+    "total": 3
+  },
+  "devAdvisories": [
+    {
+      "name": "@capacitor/cli",
+      "severity": "moderate",
+      "via": [
+        "xcode"
+      ]
+    },
+    {
+      "name": "uuid",
+      "severity": "moderate",
+      "via": [
+        {
+          "source": 1119441,
+          "name": "uuid",
+          "dependency": "uuid",
+          "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+          "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-787",
+            "CWE-1285"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": "<11.1.1"
+        }
+      ]
+    },
+    {
+      "name": "xcode",
+      "severity": "moderate",
+      "via": [
+        "uuid"
+      ]
+    }
+  ]
+}

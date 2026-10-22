@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Сохранение оригинальных фото ДТП на этом устройстве.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Локальная аудиозапись пояснений без облачного распознавания.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Запись места осмотра и точности координат в локальный проект.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Выбор исходных фото для локальных материалов ДТП.</string>
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

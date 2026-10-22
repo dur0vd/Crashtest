@@ -382,10 +382,10 @@ function personalChecks(i: Info, parked: Known, frame: number, add: Add): void {
   const emit = (ref: string, title: string, complied: Known, trace: Trace) => add({ actorId: i.a.id, severity: complied === true ? 'info' : complied === false ? 'violation' : 'contributing', t: tOf(frame), causal: false,
     title, detail: 'Оцениваются явно установленные обстоятельства. Отдельная геометрия двери и контакт с ней не моделируются. Субъект и состав ответственности требуют юридической проверки.', refs: [`pdd:${ref}`],
     trace: { stopping: true, personalDuty: true, ...trace, compliance: complied === true ? 'выполнено' : complied === false ? 'не выполнено' : 'не определить', legalCheck: 'TODO(legal-check): субъект и состав за дверь/уход водителя/оставление ребёнка; водительская 12.19 автоматически не назначается', doorGeometryModeled: false } });
-  if (d?.opened === true) emit('12.7', 'открывание двери с учётом помехи другим участникам', not(known(d.createsObstruction)), { doorContext: structuredClone(d), contactProven: false });
+  if (d?.opened === true) emit('12.7', 'открывание двери с учётом помехи другим участникам', not(known(d.createsObstruction)), { personalDutyKind: 'door', doorContext: structuredClone(d), contactProven: false });
   if (c?.driverLeft === true) {
-    emit('12.8', 'меры против самопроизвольного движения и использования без водителя', and(known(c.rollawaySecured), known(c.unauthorizedUsePrevented)), { stopContext: structuredClone(c) });
-    if (c.childUnder7Present === true) emit('12.8', 'ребёнок младше 7 лет при стоянке остаётся со взрослым', parked === true ? known(c.adultPresent) : parked === null ? null : true, { parked, stopContext: structuredClone(c) });
+    emit('12.8', 'меры против самопроизвольного движения и использования без водителя', and(known(c.rollawaySecured), known(c.unauthorizedUsePrevented)), { personalDutyKind: 'driver-left', stopContext: structuredClone(c) });
+    if (c.childUnder7Present === true) emit('12.8', 'ребёнок младше 7 лет при стоянке остаётся со взрослым', parked === true ? known(c.adultPresent) : parked === null ? null : true, { personalDutyKind: 'child-left', parked, stopContext: structuredClone(c) });
   }
 }
 

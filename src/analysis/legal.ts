@@ -31,7 +31,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
       continue;
     }
     const isVeh = a.kind === 'vehicle';
-    const mine = findings.filter((f) => f.actorId === a.id && !['passenger', 'organizer'].includes(String(f.trace.legalSubject)));
+    const mine = findings.filter((f) => f.actorId === a.id && (!f.trace.legalSubject || f.trace.legalSubject === 'driver'));
     const viol = mine.filter((f) => f.severity === 'violation');
     const causal = viol.filter((f) => f.causal);
     const legal: LegalInput[] = [];
@@ -100,7 +100,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
     if (!scene.env.federalCity && viol.some(f => f.trace.stoppingBasis && f.trace.stoppingBasis !== 'disabled')) {
       legal.push({ refs: [], text: 'Город не установлен: часть 12.19/12.16 с учётом Москвы/Санкт-Петербурга не выбирается. Требуется установить место события.' });
     }
-    if (mine.some(f => f.trace.personalDuty || f.refs.includes('pdd:12.6'))) legal.push({ refs: [], text: 'TODO(legal-check): субъект и точный состав за открывание двери, уход водителя, оставление ребёнка и невыполнение мер отвода; 12.19 автоматически не назначается.' });
+    if (mine.some(f => f.trace.personalDuty && !f.trace.personalQualificationBasis || f.refs.includes('pdd:12.6'))) legal.push({ refs: [], text: 'TODO(legal-check): установить субъект/применимость отдельного действия двери либо точный состав невыполнения мер отвода по 12.6. Геометрическое нарушение стоянки и контакт не подменяют эту проверку.' });
 
     // водитель-нарушитель: опьянение, права, оставление места
     if (isVeh) {
@@ -223,8 +223,16 @@ function stoppingOffence(scene: Scene, basis: string): string | null {
 
 function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): string[] {
   if (f.trace.stopping && f.severity === 'violation') {
+    if (f.trace.legalSubject === 'passenger' || f.trace.legalSubject === 'unknown-operator') return [...f.refs];
     const subject = subjectOf(a);
     if (!subject.administrativeSubject) return [...f.refs];
+    if (f.trace.personalQualificationBasis && subject.motorized) {
+      const city = scene.env.federalCity;
+      if (!city) return [...f.refs];
+      const capital = city === 'moscow' || city === 'saint-petersburg';
+      const part = f.trace.personalQualificationBasis === 'door-vehicle-obstruction' ? capital ? '6' : '4' : capital ? '5' : '1';
+      return [...f.refs, `koap:12.19#${part}`];
+    }
     if (f.trace.warningOffence) return [...f.refs, subject.motorized ? 'koap:12.20' : a.flags.drunk ? 'koap:12.29.3' : 'koap:12.29.2'];
     if (!f.trace.stoppingBasis) return [...f.refs];
     const interval = f.trace.stopInterval as { from: number } | undefined;

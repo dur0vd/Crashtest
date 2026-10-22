@@ -9,6 +9,7 @@ import type { FeatureIssue, FeatureResult, PhysicsOutput, ProjectEnvelope, Rules
 import { describeLighting, validateLighting } from './lighting';
 import { describeMobility, validateMobility } from './mobility';
 import { describePassengerSupplement, validatePassengerSupplement } from './passengers';
+import { describeStopping, validateStoppingSupplement } from './stopping';
 import { jsonSafe, object } from './facts';
 
 function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIssue[] {
@@ -30,17 +31,17 @@ function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIs
 export function createRulesPort(): RulesPort {
   return {
     contractVersion: 1,
-    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project)]; },
+    describe(project) { return [describeLighting(project), describeMobility(project), describePassengerSupplement(project), describeStopping(project)]; },
     async evaluate(project: ProjectEnvelope, timeline: Timeline, _physical?: PhysicsOutput): Promise<FeatureResult<Report>> {
       if (project.contractVersion !== 1) return { status: 'unsupported', issues: [{ code: 'rules.contract-version', message: 'Поддерживается контракт версии 1.' }] };
       const rulesInput = object(project.extensions.rules);
-      const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...validatePassengerSupplement(rulesInput.passengers), ...timelineIssues(project, timeline)];
+      const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...validatePassengerSupplement(rulesInput.passengers), ...validateStoppingSupplement(rulesInput.stopping), ...timelineIssues(project, timeline)];
       if (!lawDate(project.scene.env.accidentDate)) issues.push({ code: 'rules.accident-date', message: 'Требуется корректная локальная дата ДТП.', path: '/scene/env/accidentDate' });
       if (issues.length) return { status: 'insufficient-data', issues };
       const scene = project.scene;
       const context = analyzeTechnical(scene, timeline);
       // Even missing light observations remain unknown in this public port.
-      const { section: rules, events } = analyzeRules(context, { lighting: object(rulesInput.lighting), mobility: object(rulesInput.mobility), passengers: object(rulesInput.passengers) });
+      const { section: rules, events } = analyzeRules(context, { lighting: object(rulesInput.lighting), mobility: object(rulesInput.mobility), passengers: object(rulesInput.passengers), stopping: object(rulesInput.stopping) });
       const { section: legal, findings } = analyzeLegal(scene, rules);
       const refs = new Set([...findings.flatMap(f => f.refs), ...legal.verdicts.flatMap(v => v.legal.flatMap(l => l.refs)), ...legal.duties.flatMap(d => d.refs)]);
       const laws = [...refs].map(ref => lawRef(ref, /^(koap|uk):/.test(ref) ? legal.assessmentDate : scene.env.accidentDate));

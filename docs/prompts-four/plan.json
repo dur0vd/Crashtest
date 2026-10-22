@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "baseBranch": "codex/full-simulator-base-v2",
+  "verifiedCodeAncestor": "7b1c32bb140ae0b1b32f04ecbec61664a71898eb",
+  "parallelTasks": [
+    "physics",
+    "graphics",
+    "rules"
+  ],
+  "tasks": [
+    {
+      "id": "physics",
+      "file": "01-physics.txt",
+      "title": "Физика и численные методы",
+      "branch": "codex/parallel-physics",
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6.1 Sol high",
+      "handoff": "docs/handoffs/parallel-physics.md",
+      "worktree": "../Crashtest-parallel/physics",
+      "dependsOn": []
+    },
+    {
+      "id": "graphics",
+      "file": "02-graphics.txt",
+      "title": "Графика, интерфейс и материалы",
+      "branch": "codex/parallel-graphics",
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high",
+      "handoff": "docs/handoffs/parallel-graphics.md",
+      "worktree": "../Crashtest-parallel/graphics",
+      "dependsOn": []
+    },
+    {
+      "id": "rules",
+      "file": "03-rules.txt",
+      "title": "Правила и правовая интерпретация",
+      "branch": "codex/parallel-rules",
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6 Astra high",
+      "handoff": "docs/handoffs/parallel-rules.md",
+      "worktree": "../Crashtest-parallel/rules",
+      "dependsOn": []
+    },
+    {
+      "id": "integration",
+      "file": "04-check-and-merge.txt",
+      "title": "Проверка и объединение",
+      "branch": "codex/parallel-integration",
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5",
+      "handoff": "docs/handoffs/parallel-integration.md",
+      "worktree": "../Crashtest-parallel/integration",
+      "dependsOn": [
+        "physics",
+        "graphics",
+        "rules"
+      ]
+    }
+  ],
+  "replaces": "docs/prompts/README.md (legacy 23-task plan)",
+  "contract": "src/parallel/contracts.ts",
+  "ownership": "docs/PARALLEL-CONTRACT.md"
+}

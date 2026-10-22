@@ -1,0 +1,97 @@
+{
+  "checkedAt": "2026-10-22T20:10:16+03:00",
+  "timezone": "Europe/Moscow",
+  "scope": "Published GitHub refs and current workspace; unpushed changes on other machines are not observable.",
+  "remoteSnapshot": {
+    "claude/road-situation-simulator-2mz27z": "32c29ad355c977603b7630e4eacbe3dad6dca4cf",
+    "claude/stoic-albattani-d53rln": "270b0b709b9fd2ebc773f00f41f9868fa4ae972d",
+    "claude/zen-dijkstra-rdbwb1": "5f3ac6e6332d77d52cb6fb174a186a8470898a67",
+    "codex/01-fix-known-bugs": "6f9dd081461bd9987657794eb44409646c87dcf7",
+    "codex/02-law-versions": "f6919cc277fd6fe2fcf7725e0b33c94a740ee935",
+    "codex/03-qualification": "978fdcda9b606a73fc3c38630d3899bcaf53951d",
+    "codex/04-full-simulator": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+    "codex/06-04-parking": "90c942f4bb279ca84248ffd18dfe9a218dc1d359",
+    "codex/06-05-cyclists-sim": "56cd9e9ba4d5ae34c4f5ecb11fd4ee5411b55611",
+    "codex/06-07-passengers": "9801c0d51083e6ee49ef8a9866eaad1ac0f9f5c3",
+    "codex/07-01-dynamics": "27cf511a5b3dcc3916910f69a0ea7d7918bcffa9",
+    "codex/07-02-controller-road-zones": "e78ac7859287082334bc7a5dfadc02b9f4f13e7a",
+    "codex/08-01-impact-motion": "5f7fb907ed93a808beb0a0a4534f0a98b2d26e30",
+    "codex/full-simulator-base-v1": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+    "main": "42e14685a4417ed9a82e68aa25e87bc6524d313d"
+  },
+  "verifiedCodeBase": "7b1c32bb140ae0b1b32f04ecbec61664a71898eb",
+  "verifiedChecks": {
+    "test": {
+      "command": "npm test",
+      "exitCode": 0,
+      "files": 35,
+      "tests": 1115
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0
+    },
+    "browser": {
+      "rerun": false,
+      "evidence": "Existing handoffs report Chromium checks; not repeated in this audit."
+    }
+  },
+  "incorporatedImplementations": [
+    {
+      "stage": "06.4",
+      "sha": "90c942f4bb279ca84248ffd18dfe9a218dc1d359",
+      "status": "implemented-with-limitations",
+      "evidence": "Source, tests, original handoff and combined test/build; not a legal certification or natural validation."
+    },
+    {
+      "stage": "06.5",
+      "sha": "56cd9e9ba4d5ae34c4f5ecb11fd4ee5411b55611",
+      "status": "implemented-with-limitations",
+      "evidence": "Source, tests, original handoff and combined test/build; not a legal certification or natural validation."
+    },
+    {
+      "stage": "06.7",
+      "sha": "9801c0d51083e6ee49ef8a9866eaad1ac0f9f5c3",
+      "status": "implemented-with-limitations",
+      "evidence": "Source, tests, original handoff and combined test/build; not a legal certification or natural validation."
+    },
+    {
+      "stage": "07.1",
+      "sha": "27cf511a5b3dcc3916910f69a0ea7d7918bcffa9",
+      "status": "kernel-implemented-with-limitations",
+      "evidence": "Inspected force/slip/integrator/actor code and tests, then merged; plain npm test and build passed in the combined tree. No route controller/physics selector is implied."
+    }
+  ],
+  "notImplemented": [
+    {
+      "stage": "06.6",
+      "evidence": "No lighting module or published codex/06-06-lights ref at snapshot."
+    },
+    {
+      "stage": "07.2",
+      "sha": "e78ac7859287082334bc7a5dfadc02b9f4f13e7a",
+      "evidence": "Standalone 07.1 is now merged into audited code. env.physics, route/speed controller, zones, slopes and scene integration remain absent. Earlier dependency-blocking handoff does not indicate runtime completion."
+    },
+    {
+      "stage": "08.1",
+      "sha": "5f7fb907ed93a808beb0a0a4534f0a98b2d26e30",
+      "evidence": "blocking=true; diff contains README/design/handoff only, no executable implementation."
+    },
+    {
+      "stage": "08.2-18",
+      "evidence": "Requested reconstruction/model/evidence/video/report/project/security/validation modules absent in inspected trees."
+    }
+  ],
+  "partialReference": {
+    "branch": "claude/stoic-albattani-d53rln",
+    "sha": "270b0b709b9fd2ebc773f00f41f9868fa4ae972d",
+    "evidence": "Wheel loads/limits and visualization prototype on old main; not merged. Heuristic source-free coefficients do not fulfill nonlinear dynamics/validation."
+  },
+  "priorCheck": {
+    "codeSha": "e78ac7859287082334bc7a5dfadc02b9f4f13e7a",
+    "tests": 1005,
+    "files": 33,
+    "buildExitCode": 0
+  },
+  "mergeResolution": "Only conflict: additive Actor fields in scene.ts; preserved stop/warning/door/SIM/mobility fields and added dynamics. Existing passenger normalization/trace and dynamic mass/geometry preserved. BSD license blob identical to source; upstream trailing spaces retained."
+}

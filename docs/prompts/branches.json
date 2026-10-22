@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 1,
+  "baseBranch": "codex/full-simulator-base-v1",
+  "baseRef": "origin/codex/full-simulator-base-v1",
+  "requiredAncestor": "af0cdccb2488be7ec0e7d6e3aaba1ff97a939df5",
+  "tasks": [
+    {
+      "number": 1,
+      "stage": "06.4",
+      "title": "Этап 06.4 — остановка и стоянка",
+      "branch": "codex/06-04-parking",
+      "worktree": "../Crashtest-worktrees/06-04-parking",
+      "handoff": "docs/handoffs/06-04-parking.json",
+      "file": "01-06.4-parking.txt",
+      "dependencies": [],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 2,
+      "stage": "06.5",
+      "title": "Этап 06.5 — велосипедисты и СИМ",
+      "branch": "codex/06-05-cyclists-sim",
+      "worktree": "../Crashtest-worktrees/06-05-cyclists-sim",
+      "handoff": "docs/handoffs/06-05-cyclists-sim.json",
+      "file": "02-06.5-cyclists-sim.txt",
+      "dependencies": [],
+      "optional": false,
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6 Astra high"
+    },
+    {
+      "number": 3,
+      "stage": "06.6",
+      "title": "Этап 06.6 — световые приборы",
+      "branch": "codex/06-06-lights",
+      "worktree": "../Crashtest-worktrees/06-06-lights",
+      "handoff": "docs/handoffs/06-06-lights.json",
+      "file": "03-06.6-lights.txt",
+      "dependencies": [
+        1
+      ],
+      "optional": false,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 4,
+      "stage": "06.7",
+      "title": "Этап 06.7 — пассажиры и дети",
+      "branch": "codex/06-07-passengers",
+      "worktree": "../Crashtest-worktrees/06-07-passengers",
+      "handoff": "docs/handoffs/06-07-passengers.json",
+      "file": "04-06.7-passengers.txt",
+      "dependencies": [],
+      "optional": false,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 5,
+      "stage": "07.1",
+      "title": "Этап 07.1 — динамическое ядро",
+      "branch": "codex/07-01-dynamics",
+      "worktree": "../Crashtest-worktrees/07-01-dynamics",
+      "handoff": "docs/handoffs/07-01-dynamics.json",
+      "file": "05-07.1-dynamics.txt",
+      "dependencies": [],
+      "optional": false,
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6 Astra high"
+    },
+    {
+      "number": 6,
+      "stage": "07.2",
+      "title": "Этап 07.2 — регулятор и дорожные зоны",
+      "branch": "codex/07-02-controller-road-zones",
+      "worktree": "../Crashtest-worktrees/07-02-controller-road-zones",
+      "handoff": "docs/handoffs/07-02-controller-road-zones.json",
+      "file": "06-07.2-controller-road-zones.txt",
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 7,
+      "stage": "08.1",
+      "title": "Этап 08.1 — импульс и послеударное движение",
+      "branch": "codex/08-01-impact-motion",
+      "worktree": "../Crashtest-worktrees/08-01-impact-motion",
+      "handoff": "docs/handoffs/08-01-impact-motion.json",
+      "file": "07-08.1-impact-motion.txt",
+      "dependencies": [
+        6
+      ],
+      "optional": false,
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6 Astra high"
+    },
+    {
+      "number": 8,
+      "stage": "08.2",
+      "title": "Этап 08.2 — деформации и риск травм",
+      "branch": "codex/08-02-crush-injury-risk",
+      "worktree": "../Crashtest-worktrees/08-02-crush-injury-risk",
+      "handoff": "docs/handoffs/08-02-crush-injury-risk.json",
+      "file": "08-08.2-crush-injury-risk.txt",
+      "dependencies": [
+        7
+      ],
+      "optional": false,
+      "model": "GPT-6 Astra high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 9,
+      "stage": "09",
+      "title": "Этап 09 — уязвимые участники",
+      "branch": "codex/09-vulnerable-participants",
+      "worktree": "../Crashtest-worktrees/09-vulnerable-participants",
+      "handoff": "docs/handoffs/09-vulnerable-participants.json",
+      "file": "09-09-vulnerable-participants.txt",
+      "dependencies": [
+        2,
+        8
+      ],
+      "optional": false,
+      "model": "GPT-6 Astra high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 10,
+      "stage": "10",
+      "title": "Этап 10 — экспертные параметры и видимость",
+      "branch": "codex/10-expert-visibility",
+      "worktree": "../Crashtest-worktrees/10-expert-visibility",
+      "handoff": "docs/handoffs/10-expert-visibility.json",
+      "file": "10-10-expert-visibility.txt",
+      "dependencies": [
+        3,
+        6
+      ],
+      "optional": false,
+      "model": "GPT-6 Astra high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 11,
+      "stage": "11",
+      "title": "Этап 11 — доказательства и схема",
+      "branch": "codex/11-evidence-scene",
+      "worktree": "../Crashtest-worktrees/11-evidence-scene",
+      "handoff": "docs/handoffs/11-evidence-scene.json",
+      "file": "11-11-evidence-scene.txt",
+      "dependencies": [
+        9,
+        10
+      ],
+      "optional": false,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 12,
+      "stage": "12.1",
+      "title": "Этап 12.1 — формулы и обратная задача",
+      "branch": "codex/12-01-calculators-inverse",
+      "worktree": "../Crashtest-worktrees/12-01-calculators-inverse",
+      "handoff": "docs/handoffs/12-01-calculators-inverse.json",
+      "file": "12-12.1-calculators-inverse.txt",
+      "dependencies": [
+        11
+      ],
+      "optional": false,
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6 Astra high"
+    },
+    {
+      "number": 13,
+      "stage": "12.2",
+      "title": "Этап 12.2 — Монте-Карло и чувствительность",
+      "branch": "codex/12-02-monte-carlo",
+      "worktree": "../Crashtest-worktrees/12-02-monte-carlo",
+      "handoff": "docs/handoffs/12-02-monte-carlo.json",
+      "file": "13-12.2-monte-carlo.txt",
+      "dependencies": [
+        12
+      ],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 14,
+      "stage": "13",
+      "title": "Этап 13 — анализ видео",
+      "branch": "codex/13-video",
+      "worktree": "../Crashtest-worktrees/13-video",
+      "handoff": "docs/handoffs/13-video.json",
+      "file": "14-13-video.txt",
+      "dependencies": [
+        11
+      ],
+      "optional": false,
+      "model": "Claude Opus 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 15,
+      "stage": "14",
+      "title": "Этап 14 — отчёты PDF/DOCX",
+      "branch": "codex/14-reports",
+      "worktree": "../Crashtest-worktrees/14-reports",
+      "handoff": "docs/handoffs/14-reports.json",
+      "file": "15-14-reports.txt",
+      "dependencies": [
+        13,
+        14
+      ],
+      "optional": false,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 16,
+      "stage": "15.1",
+      "title": "Этап 15.1 — версии и формат проекта",
+      "branch": "codex/15-01-project-format",
+      "worktree": "../Crashtest-worktrees/15-01-project-format",
+      "handoff": "docs/handoffs/15-01-project-format.json",
+      "file": "16-15.1-project-format.txt",
+      "dependencies": [
+        15
+      ],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 17,
+      "stage": "15.2",
+      "title": "Этап 15.2 — журнал и воспроизводимость",
+      "branch": "codex/15-02-audit-cli",
+      "worktree": "../Crashtest-worktrees/15-02-audit-cli",
+      "handoff": "docs/handoffs/15-02-audit-cli.json",
+      "file": "17-15.2-audit-cli.txt",
+      "dependencies": [
+        16
+      ],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 18,
+      "stage": "16",
+      "title": "Этап 16 — мобильный комиссар",
+      "branch": "codex/16-commissioner",
+      "worktree": "../Crashtest-worktrees/16-commissioner",
+      "handoff": "docs/handoffs/16-commissioner.json",
+      "file": "18-16-commissioner.txt",
+      "dependencies": [
+        17
+      ],
+      "optional": false,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    },
+    {
+      "number": 19,
+      "stage": "17",
+      "title": "Этап 17 — верификация и валидация",
+      "branch": "codex/17-validation-ci",
+      "worktree": "../Crashtest-worktrees/17-validation-ci",
+      "handoff": "docs/handoffs/17-validation-ci.json",
+      "file": "19-17-validation-ci.txt",
+      "dependencies": [
+        13,
+        14,
+        17
+      ],
+      "optional": false,
+      "model": "GPT-6 Astra high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 20,
+      "stage": "18",
+      "title": "Этап 18 — данные и безопасность",
+      "branch": "codex/18-privacy-security",
+      "worktree": "../Crashtest-worktrees/18-privacy-security",
+      "handoff": "docs/handoffs/18-privacy-security.json",
+      "file": "20-18-privacy-security.txt",
+      "dependencies": [
+        18,
+        19
+      ],
+      "optional": false,
+      "model": "GPT-6.1 Sol high",
+      "alternative": "Claude Opus 5.5"
+    },
+    {
+      "number": 21,
+      "stage": "19",
+      "title": "Этап 19 — учебный режим, необязательно",
+      "branch": "codex/19-teaching",
+      "worktree": "../Crashtest-worktrees/19-teaching",
+      "handoff": "docs/handoffs/19-teaching.json",
+      "file": "21-19-teaching-optional.txt",
+      "dependencies": [
+        20
+      ],
+      "optional": true,
+      "model": "Claude Sonnet 5.5",
+      "alternative": "GPT-6.1 Sol high"
+    }
+  ],
+  "integration": {
+    "branch": "codex/full-simulator-integration",
+    "file": "23-final-integration.txt",
+    "dependencies": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20
+    ],
+    "optionalDependencies": [
+      21
+    ],
+    "model": "GPT-6.1 Sol high",
+    "handoff": "docs/INTEGRATION.md"
+  },
+  "review": {
+    "branch": "codex/full-simulator-review",
+    "file": "22-independent-review.txt",
+    "after": "codex/full-simulator-integration",
+    "model": "GPT-6 Astra high",
+    "report": "docs/reviews/full-simulator-review.md"
+  }
+}

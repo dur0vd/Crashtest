@@ -1,3 +1,4 @@
+import { checkStopping } from '../src/analysis/stopping';
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../src/analysis/context';
 import { boxAt, posAt, prepare } from '../src/analysis/technical';
@@ -108,7 +109,10 @@ describe('3.27: соответствующий вид обозначенного
       ctx.scene.markings.push({ id: 'stop-marker', kind: marker, pts: [{ x: 10, y: 3 }, { x: 30, y: 3 }] });
       ctx.scene.routeStops = [{ ...stop, markingId: 'stop-marker' }];
     }
-    return signs(ctx, '3.27');
+    ctx.scene.actors[0].stopContext = { reason: 'other-voluntary', intentional: true, durationBeforeStart: 0 };
+    signs(ctx, '3.27');
+    checkStopping(ctx, kit(ctx).add);
+    return ctx;
   }
   it.each([
     ['bus', { regularService: true }, '5.16'],

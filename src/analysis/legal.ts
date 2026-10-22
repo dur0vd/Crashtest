@@ -97,6 +97,11 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
       }
     }
 
+    if (!scene.env.federalCity && viol.some(f => f.trace.stoppingBasis && f.trace.stoppingBasis !== 'disabled')) {
+      legal.push({ refs: [], text: 'Город не установлен: часть 12.19/12.16 с учётом Москвы/Санкт-Петербурга не выбирается. Требуется установить место события.' });
+    }
+    if (mine.some(f => f.trace.personalDuty || f.refs.includes('pdd:12.6'))) legal.push({ refs: [], text: 'TODO(legal-check): субъект и точный состав за открывание двери, уход водителя, оставление ребёнка и невыполнение мер отвода; 12.19 автоматически не назначается.' });
+
     // водитель-нарушитель: опьянение, права, оставление места
     if (isVeh) {
       if (a.flags.drunk && mechanical) {
@@ -193,7 +198,34 @@ const RULE_OFFENCES: Record<string, string> = {
   'rule:dangerous-cargo': 'koap:12.21.2#2',
 };
 
-function legalRefs(f: Finding, a: Actor): string[] {
+/** Select one special parking basis per rest interval. Unknown city gives no
+ * presumptive base part. Personal/forced-stop duties are deliberately separate. */
+function stoppingOffence(scene: Scene, basis: string): string | null {
+  const city = scene.env.federalCity;
+  if (basis === 'disabled') return 'koap:12.19#2';
+  if (basis === 'railway') return 'koap:12.10#1';
+  if (!city) return null;
+  const capital = city === 'moscow' || city === 'saint-petersburg';
+  if (basis === 'sign') return `koap:12.16#${capital ? '5' : '4'}`;
+  const part = basis === 'tunnel' || basis === 'obstruction' ? '4' : basis === 'crosswalk' || basis === 'sidewalk' ? '3' : basis === 'route-stop' ? '3.1' : basis === 'tram' || basis === 'row' ? '3.2' : '1';
+  return `koap:12.19#${capital ? part === '1' ? '5' : '6' : part}`;
+}
+
+function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): string[] {
+  if (f.trace.stopping && f.severity === 'violation') {
+    const subject = subjectOf(a);
+    if (!subject.administrativeSubject) return [...f.refs];
+    if (f.trace.warningOffence) return [...f.refs, subject.motorized ? 'koap:12.20' : a.flags.drunk ? 'koap:12.29.3' : 'koap:12.29.2'];
+    if (!f.trace.stoppingBasis) return [...f.refs];
+    const interval = f.trace.stopInterval as { from: number } | undefined;
+    const candidates = rules.findings.filter(other => other.actorId === f.actorId && other.severity === 'violation'
+      && other.trace.stoppingBasis && (other.trace.stopInterval as { from: number } | undefined)?.from === interval?.from);
+    const rank: Record<string, number> = { disabled: 10, tunnel: 9, obstruction: 9, crosswalk: 8, sidewalk: 8, 'route-stop': 7, tram: 6, row: 6, sign: 5, general: 1, 'railway-near': 1 };
+    const basisOf = (finding: Finding) => finding.trace.stoppingBasis === 'route-stop' && a.stopContext?.reason === 'passengers' ? 'general' : String(finding.trace.stoppingBasis);
+    const selected = [...candidates].sort((left, right) => (rank[basisOf(right)] ?? 0) - (rank[basisOf(left)] ?? 0))[0];
+    const offence = selected === f ? stoppingOffence(scene, basisOf(f)) : null;
+    return offence ? [...f.refs, subject.motorized ? offence : a.flags.drunk ? 'koap:12.29.3' : 'koap:12.29.2'] : [...f.refs];
+  }
   // A rule observed as complied with or not established is not an offence.
   // Keep explicit references, but never infer an administrative part from its code.
   if (f.severity !== 'violation') return [...f.refs];
@@ -222,7 +254,7 @@ export const LEGAL_EDITION_DATE = corpus.koap.fetched;
 export const DEFAULT_ASSESSMENT_DATE = LEGAL_EDITION_DATE;
 
 export function analyzeLegal(scene: Scene, rules: RulesSection): { section: LegalSection; findings: Finding[] } {
-  const findings = rules.findings.map(f => ({ ...f, refs: legalRefs(f, scene.actors.find(a => a.id === f.actorId)!) }));
+  const findings = rules.findings.map(f => ({ ...f, refs: legalRefs(f, scene.actors.find(a => a.id === f.actorId)!, scene, rules) }));
   const assessmentDate = scene.analysisDate ?? scene.env.accidentDate;
   const verdicts = buildVerdicts(scene, rules, findings);
   for (const verdict of verdicts) {

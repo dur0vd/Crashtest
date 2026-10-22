@@ -1,0 +1,91 @@
+{
+  "task": "06.4",
+  "branch": "codex/06-04-parking",
+  "baseSha": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+  "dependencies": [],
+  "implementationStatus": "partial",
+  "blocking": false,
+  "implemented": [
+    "Общий классификатор неподвижных интервалов: причина + преднамеренность + установленное время до начала; ровно 300 с не стоянка, traffic/forced не становятся добровольной парковкой.",
+    "Раздел 12: локальные места 12.4/12.5, 5/15/50 м от габарита, 3 м зазора, опасный поворот/перелом и 100 м видимости, мост по числу полос; условия тротуара, второго ряда, левой стороны/обочины и отдыха.",
+    "3.27–3.30: пространственная зона без обязательного пересечения знака, сторона, местные дата/время, чётность, противоположная пара 21–24, окончания/перекрёстки/непрерывающие примыкания, 8.2/8.4/8.5/8.18/8.24, маршрутные и иные установленные льготы.",
+    "Удалены прежние парковочные ветки 4/10 секунд; 1.4 отделена от 1.10, назначение 1.17.1/2 из 06.3 сохранено.",
+    "12.7 по установленной помехе и оператору двери; 12.8 по мерам ухода/взрослому при ребёнке младше семи; 12.6 отдельно от добровольной остановки.",
+    "7.1–7.2: обстоятельства аварийного обозначения, активность из vehicleSignalAt, треугольник при отсутствии/неисправности hazard, 15/30 м и своевременность отдельными фактами.",
+    "Правовой слой выбирает одно специальное парковочное основание за интервал, учитывает субъект и известный город; 12.19, 12.16, ненумерованная 12.20; специальная 12.10 остаётся в железнодорожном модуле.",
+    "Причинность парковки не включается фактом контакта: trace сохраняет неопределённый механизм и отдельные технические оценки другого участника.",
+    "UI участника, знака и измеренных мест; валидация/сохранение полигонов; отрисовка мест и координатного треугольника; четыре плохих/правильных пары пресетов.",
+    "Документация PARKING.md, ограничения README, пояснения railway/qualification и воспроизводимый браузерный smoke-check."
+  ],
+  "limitations": [
+    "Частичная готовность относится к правовой/доказательственной полноте: исторические сроки редакций корпуса не подтверждены, самостоятельные составы для двери/ухода/ребёнка/12.6 не назначаются без legal-check. Рабочие типы и проверки доступны для последующих задач; blocking=false.",
+    "Отдельная дверь физически не моделируется; установленная помеха не доказывает дверной контакт. Автоматической причинности парковки и контрфактического прогона без стоящего ТС нет.",
+    "Контексты обстоятельств постоянны в пределах прогона; разные причины разных остановок и смену этих фактов надо разбирать отдельными реконструкциями. Не переносить добровольный контекст на остановку после удара.",
+    "Изображённая применимость 8.4 устанавливается отдельно для каждого участника; составные 8.5.5–7 требуют установленного вида дней, рабочий/праздничный календарь не генерируется. UI календаря задаёт дату ДТП, дополнительные даты задаются в сцене.",
+    "Локальные места и край пересекаемой проезжей части требуют измерений. Автоматический контур перекрёстка не заменяет границу для 5 м. Сложный разделитель/непараллельная постановка требуют обмера зазора.",
+    "Привязки к знаку/краевой разметке и неподвижные интервалы имеют явно описанные допуски модели. Они не являются правовыми расстояниями или сроками.",
+    "Синтетические тесты подтверждают реализацию; натурная валидация не выполнялась. Production build сохраняет предупреждение о размере JS-бандла."
+  ],
+  "contracts": [
+    {
+      "export": "src/scene.ts → StopContext, WarningContext, DoorContext, StopPlace, StopSignContext",
+      "definition": "Полные экспортируемые интерфейсы в src/stopping-model.ts. Actor.stopContext / warningContext / doorContext, Scene.stopPlaces, Sign.stopRule и Env.dayStatus необязательны; bool отсутствует = неизвестно, SI: м/с/кг, время в с, календарь местный."
+    },
+    {
+      "export": "StopContext",
+      "definition": "reason: passengers|cargo|rest|other-voluntary|traffic|forced; intentional?:boolean; durationBeforeStart?:number. Остальные установленные обстоятельства постановки/помех/льгот/ухода — optional booleans/scalars, source?:string. signApplicability?:{signId:string,applies:boolean}[] задаётся ПО УЧАСТНИКУ. РММ permissibleMaxMass отдельно от actorSpec.mass."
+    },
+    {
+      "export": "WarningContext",
+      "definition": "Активность hazard не дублируется: vehicleSignalAt(actor,t,track.waypointTimes??[]). warningContext хранит hazardAvailable, обстоятельства обязательности, trianglePlaced, triangleDistance или triangle:{x,y,source}, trianglePromptly, timelyWarningEnsured, timelyVisibleToOthers, source. Нет команды → неизвестная активность. Нет signal/triangle нормы с произвольным сроком в секундах."
+    },
+    {
+      "export": "Scene.stopPlaces / StopPlace",
+      "definition": "id,kind,boundary:Vec[],source обязательны; roadId и signIds optional. Полный список STOP_PLACE_KINDS в stopping-model.ts. Использовать существующие crosswalks/railwayCrossings/tracks/sidewalks/routeStops, не дублировать их. Связанные 6.4/8.6/8.17 задаются signIds в измеренном месте."
+    },
+    {
+      "export": "Sign.stopRule / StopSignContext; Road.stopZoneJunction",
+      "definition": "roadId?, fromS?/toS? в координатах авторской оси дороги; weekdays?:number[] ISO1–7; scheduleDays?:working|nonworking|weekdays для составных табличек; hours?:{from,to} локальные HH:mm. Env.dayStatus[YYYY-MM-DD]=working|nonworking — подтверждённый календарь. Road.stopZoneJunction?:ordinary|nonterminating-minor — установленное непрерывающее зону второстепенное примыкание без соответствующих знаков."
+    },
+    {
+      "export": "analysis/stopping.ts",
+      "definition": "checkStopping(ctx,add); stopIntervals(info):StopInterval[]; classifyStop(actor,interval,frame,firstFrame):StopClassification; parkingSignZone/parkingSignApplies: boolean|null; bodyDistance(info,frame,points,closed?):number; stoppingLocalTime(date,seconds):Date|null. REST_* — параметры наблюдения, не нормы."
+    },
+    {
+      "export": "trace и legal",
+      "definition": "rules.findings содержат только ПДД/знаки/разметку, stoppingBasis, stopInterval, classification, источники/единицы/формулу и causalAssessment.status=unknown. Правовые ссылки добавляются только в compatibility report.findings/legal. Одна специальная часть за интервал; неизвестный город блокирует выбор региональной части. Warning offence отдельно 12.20; personalDuty/12.6 с TODO."
+    },
+    {
+      "migration": "Scene.version остаётся 1",
+      "definition": "normalizeScene сохраняет новые известные поля, отбрасывает invalid bool/числа, проверяет полигоны. Старые сцены не получают фиктивных фактов. Неподвижное положение на тротуаре не считается движением по 9.9. После ДТП статус прежней сцены может стать insufficient-data по аварийному обозначению. railwayContext.forcedStop=false не заменяет reason+intentional."
+    }
+  ],
+  "todos": [
+    "TODO(legal-check): подтвердить интервалы исторических редакций ПДД/знаков/разметки/КоАП в имеющемся корпусе; сохранены его URL, revision и warnings.",
+    "TODO(legal-check): установить субъект и точный самостоятельный состав за 12.7, 12.8 и невыполнение мер 12.6; не назначать водительскую 12.19 пассажиру.",
+    "TODO(source-check): для конкретного дела подтвердить контуры мест, края проезжих частей, принадлежность/параметры табличек, календарь и источники исходных фактов. Не восстанавливать утраченный перечень сокращения зон group3.notes по памяти.",
+    "При отдельном расширении модели: временная смена причин остановок, геометрия дверей и доказательная/контрфактическая оценка причинности; это не готовый валидированный экспертный расчёт."
+  ],
+  "checks": {
+    "test": {
+      "command": "npm test",
+      "exitCode": 0,
+      "summary": "859 тестов в 31 файле: 710 исходных + 149 новых в tests/stopping.test.ts; адаптированы регрессии неизвестного аварийного обозначения, причины остановки на переезде и переноса parking-проверки из restrictions."
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0,
+      "summary": "tsc --noEmit и Vite production build прошли; предупреждение о JS chunk >500 kB, ошибка отсутствует."
+    },
+    "browser": {
+      "command": "CRASHTEST_PLAYWRIGHT_MODULE=/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright node tools/check-parking-browser.cjs",
+      "exitCode": 0,
+      "summary": "Chromium 154.0.8037.57, 1440×1000 и 390×844: реальные поля/tri-state сохранены, 1.10 short stop показан, неправильный draft отклонён, полигон сохранён/перезагружен, 8 пресетов вычислены в Chromium, актор и Среда без горизонтального overflow, 8.2.2 и часы 8.5 изменены/сохранены; pageerror=[]; снимки desktop/mobile/geometry/sign осмотрены. Требуется локальный Vite и установленный Playwright, зависимости приложения не изменены."
+    },
+    "git": {
+      "command": "git diff --check; git merge-base --is-ancestor af0cdccb2488be7ec0e7d6e3aaba1ff97a939df5 5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513; git merge-base --is-ancestor 73db13f 5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+      "exitCode": 0,
+      "summary": "Назначенная общая база и наличие готового 06.3 подтверждены. Работа в отдельном /workspace/Crashtest-worktrees/06-04-parking; main и общая база не менялись."
+    }
+  }
+}

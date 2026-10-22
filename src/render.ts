@@ -178,6 +178,7 @@ export class Renderer {
     this.drawTracks(geo);
     this.drawRailwayCrossings(v);
     this.drawRouteStops(v);
+    this.drawStopPlaces(v);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
@@ -314,6 +315,32 @@ export class Renderer {
         ctx.restore();
       }
     }
+  }
+
+  private drawStopPlaces(v: ViewState): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.lineWidth = 1.5 / v.cam.s;
+    for (const place of v.scene.stopPlaces ?? []) {
+      if (!place.boundary.length) continue;
+      ctx.strokeStyle = '#dcac5c'; ctx.fillStyle = '#dcac5c22';
+      ctx.setLineDash([4 / v.cam.s, 3 / v.cam.s]);
+      tracePath(ctx, place.boundary); ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (v.mode === 'edit') {
+        ctx.setLineDash([]); ctx.fillStyle = '#f6dca7'; ctx.font = `${11 / v.cam.s}px system-ui`;
+        ctx.fillText(place.id, place.boundary[0].x, place.boundary[0].y - 3 / v.cam.s);
+      }
+    }
+    ctx.setLineDash([]);
+    for (const actor of v.scene.actors) {
+      const triangle = actor.warningContext?.triangle;
+      if (!triangle || actor.warningContext?.trianglePlaced !== true) continue;
+      const size = Math.max(0.4, 6 / v.cam.s);
+      ctx.strokeStyle = '#f95545'; ctx.fillStyle = '#ffe8b0';
+      tracePath(ctx, [{ x: triangle.x, y: triangle.y - size }, { x: triangle.x + size, y: triangle.y + size }, { x: triangle.x - size, y: triangle.y + size }]);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawRouteStops(v: ViewState): void {

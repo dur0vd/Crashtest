@@ -5,6 +5,8 @@ import { normalizePassengers, type Passenger, type PassengerContext } from './pa
 export type { Passenger, PassengerContext } from './passengers';
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
+import type { DynamicVehicleParameters } from './physics/types';
+import { validateActorDynamics } from './physics/actor';
 
 // ---------------------------------------------------------------------------
 // Каталог участников движения
@@ -482,6 +484,8 @@ export interface Actor {
   mobilityContext?: MobilityContext;
   /** Walking is represented by kind=pedestrian; this records the led device. */
   leadingDevice?: 'bicycle' | 'sim' | 'moped' | 'motorcycle';
+  /** Optional 07.1 parameters. No automatic migration/default; routing belongs to 07.2. */
+  dynamics?: DynamicVehicleParameters;
   /** Водитель не может определить наличие покрытия: п. 13.13. */
   coveringUnknown?: boolean;
   /** Возраст в полных годах; для ребёнка без возраста правовой субъект не установлен. */
@@ -623,6 +627,11 @@ export function pedestrianGreen(scene: Scene, c: Crosswalk, t: number): boolean 
 }
 
 export function actorSpec(a: Actor): { length: number; width: number; mass: number } {
+  validateActorDynamics(a);
+  if (a.dynamics) {
+    const { length, width, mass } = a.dynamics.body;
+    return { length, width, mass };
+  }
   if (a.railwayTrain) {
     validateRailwayTrain(a);
     const { length, width, mass } = a.railwayTrain;
@@ -900,6 +909,7 @@ export function normalizeScene(raw: unknown): Scene {
       if (!a.specialInteractions.length) delete a.specialInteractions;
     } else delete a.specialInteractions;
     validateRailwayTrain(a);
+    validateActorDynamics(a);
     if (a.railwayTrain) {
       a.railwayTrain.source = a.railwayTrain.source.trim();
       if (typeof a.railwayTrain.trackId !== 'string') delete a.railwayTrain.trackId;
@@ -960,12 +970,13 @@ export function dimsOf(a: Actor): { length: number; width: number; height: numbe
   if (a.railwayTrain) return { ...sp, height: vs.height, shift: 0 };
   if (a.type === 'sim') return { ...sp, height: a.simParameters?.height ?? 0, shift: 0 };
   const c = a.cargo;
-  if (!c) return { length: sp.length, width: sp.width, height: vs.height, mass: sp.mass, shift: 0 };
+  const bodyOffset = a.dynamics?.body.bodyCenterOffset ?? 0;
+  if (!c) return { length: sp.length, width: sp.width, height: vs.height, mass: sp.mass, shift: bodyOffset };
   return {
     length: sp.length + c.front + c.rear,
     width: sp.width + c.left + c.right,
     height: Math.max(vs.height, c.height),
     mass: sp.mass + c.mass,
-    shift: (c.front - c.rear) / 2,
+    shift: bodyOffset + (c.front - c.rear) / 2,
   };
 }

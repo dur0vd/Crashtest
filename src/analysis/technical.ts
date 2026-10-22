@@ -319,6 +319,13 @@ export function sampleTrace(ctx: TechnicalContext, i: Info, frame: number): Trac
   return { actorId: i.a.id, actor: structuredClone(i.a), frame: k, t: tOf(k), present: !!i.tr.present[k],
     x: point.x, y: point.y, heading: i.tr.h[k], v0: i.tr.v[k], speedKmh: kmh(i.tr.v[k]), distance: i.trav[k],
     j: i.brake, mu: ctx.tl.mu,
+    ...(i.a.dynamics ? { physicalParameters: {
+      massKg: i.mass, lengthM: i.hl * 2, widthM: i.hw * 2, bodyCenterOffsetM: i.shift,
+      source: structuredClone(i.a.dynamics.body.source),
+      dynamics: structuredClone(i.a.dynamics),
+      motionMethod: 'legacy-kinematic',
+      limitation: '07.1 supplies shared mass/geometry and a separate dynamics kernel. The scene simulator and stopping assessment remain kinematic until 07.2 integration.',
+    } } : {}),
     roads: roadsAt(ctx.geo, point).map(h => ({ road: structuredClone(h.rg.road), near: h.near })),
   };
 }

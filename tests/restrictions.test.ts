@@ -39,7 +39,7 @@ const sign = (s: Scene, kind: string, x: number, y: number, plates?: string[], v
   s.signs.push({ id: `g${++n}`, kind, x, y, angle: 0, value, plates });
 
 describe('запрещающие знаки', () => {
-  it('велосипед под 3.9 нарушает; спорная 8.4.15 сохраняет неопределённость без льготы', () => {
+  it('велосипед под 3.9 нарушает; 8.4.15 с электромобилем не даёт льготу велосипеду', () => {
     const a = base();
     const bike = veh(a, 'bicycle', -20, 1.75, 20, [[60, 1.75]]);
     bike.age = 30;
@@ -52,8 +52,8 @@ describe('запрещающие знаки', () => {
     sign(b, '3.9', 0, 5.5, ['8.4.15']);
     bike2.age = 30;
     const uncertain = run(b).findings.find(f => f.refs.includes('sign:3.9'));
-    expect(uncertain?.severity).toBe('contributing');
-    expect(uncertain?.compliance).toBe('не определить');
+    expect(uncertain?.severity).toBe('violation');
+    expect(uncertain?.compliance).toBe('не выполнено');
   });
 
   it('грузовик под знаком 3.4 — ч. 6 ст. 12.16, легковой автомобиль — нет', () => {

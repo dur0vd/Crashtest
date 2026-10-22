@@ -7,6 +7,7 @@ import { lawDate } from '../law-version';
 import { DT, type Timeline } from '../sim';
 import type { FeatureIssue, FeatureResult, PhysicsOutput, ProjectEnvelope, RulesPort } from '../parallel/contracts';
 import { describeLighting, validateLighting } from './lighting';
+import { describeMobility, validateMobility } from './mobility';
 import { jsonSafe, object } from './facts';
 
 function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIssue[] {
@@ -28,17 +29,17 @@ function timelineIssues(project: ProjectEnvelope, timeline: Timeline): FeatureIs
 export function createRulesPort(): RulesPort {
   return {
     contractVersion: 1,
-    describe(project) { return [describeLighting(project)]; },
+    describe(project) { return [describeLighting(project), describeMobility(project)]; },
     async evaluate(project: ProjectEnvelope, timeline: Timeline, _physical?: PhysicsOutput): Promise<FeatureResult<Report>> {
       if (project.contractVersion !== 1) return { status: 'unsupported', issues: [{ code: 'rules.contract-version', message: 'Поддерживается контракт версии 1.' }] };
       const rulesInput = object(project.extensions.rules);
-      const issues = [...validateLighting(rulesInput.lighting), ...timelineIssues(project, timeline)];
+      const issues = [...validateLighting(rulesInput.lighting), ...validateMobility(rulesInput.mobility), ...timelineIssues(project, timeline)];
       if (!lawDate(project.scene.env.accidentDate)) issues.push({ code: 'rules.accident-date', message: 'Требуется корректная локальная дата ДТП.', path: '/scene/env/accidentDate' });
       if (issues.length) return { status: 'insufficient-data', issues };
       const scene = project.scene;
       const context = analyzeTechnical(scene, timeline);
       // Even missing light observations remain unknown in this public port.
-      const { section: rules, events } = analyzeRules(context, { lighting: object(rulesInput.lighting) });
+      const { section: rules, events } = analyzeRules(context, { lighting: object(rulesInput.lighting), mobility: object(rulesInput.mobility) });
       const { section: legal, findings } = analyzeLegal(scene, rules);
       const refs = new Set([...findings.flatMap(f => f.refs), ...legal.verdicts.flatMap(v => v.legal.flatMap(l => l.refs)), ...legal.duties.flatMap(d => d.refs)]);
       const laws = [...refs].map(ref => lawRef(ref, /^(koap|uk):/.test(ref) ? legal.assessmentDate : scene.env.accidentDate));

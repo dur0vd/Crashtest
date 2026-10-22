@@ -100,7 +100,7 @@ describe('возраст и допустимые места по тексту р
     expect(permission(make(13), 'cyclepath')).toBe(true);
     expect(permission(make(13), 'cycle-lane')).toBe(false);
     expect(permission(make(14), 'cyclepath')).toBe(true);
-    expect(permission(make(14), 'cycle-lane')).toBeNull();
+    expect(permission(make(14), 'cycle-lane')).toBe(true);
     expect(permission(make(15), 'cycle-lane')).toBe(true);
   });
   it.each([undefined, false, true])('СИМ до 7: сопровождение взрослого %s', adultAccompanied => {
@@ -292,24 +292,24 @@ describe('правовая квалификация, знаки и пресет�
     a.mobilityContext.source = '';
     expect(run(s).findings.flatMap(f => f.refs)).not.toContain('koap:12.30.2');
   });
-  it.each(['8.4.7', '8.4.15', '8.4.16'])('спорная %s не предоставляет льготу СИМ/велосипеду', plate => {
+  it.each([['8.4.7', 'не определить'], ['8.4.15', 'не выполнено'], ['8.4.16', 'не выполнено']])('%s не предоставляет льготу велосипеду: %s', (plate, expected) => {
     expect(signApplies({ id: 'sign', x: 0, y: 0, angle: 0, kind: '3.9', plates: [plate] }, 'bicycle')).toBe(true);
     const a = actor({ type: 'bicycle' }); const s = sceneFor(a);
     s.signs = [{ id: 'sign', x: 0, y: 0, angle: 0, kind: '3.9', plates: [plate] }];
     const finding = run(s).findings.find(f => f.refs.includes('sign:3.9'))!;
-    expect(finding.compliance).toBe('не определить');
+    expect(finding.compliance).toBe(expected);
   });
-  it('3.9 запрещает велосипед и мопед, не СИМ; 3.35 оставляет source-check', () => {
+  it('3.9 запрещает велосипед и мопед, не СИМ; 3.35 проверен по первоисточнику', () => {
     for (const type of ['bicycle', 'moped', 'sim'] as const) {
       const s = sceneFor(actor({ type })); s.signs = [{ id: 'ban', x: 0, y: 0, angle: 0, kind: '3.9' }];
       expect(violations(s).some(f => f.refs.includes('sign:3.9'))).toBe(type !== 'sim');
     }
     const s = sceneFor(); s.signs = [{ id: 'ban', x: 0, y: 0, angle: 0, kind: '3.35' }];
-    expect(run(s).findings.find(f => f.refs.includes('sign:3.35'))?.compliance).toBe('не определить');
+    expect(run(s).findings.find(f => f.refs.includes('sign:3.35'))?.compliance).toBe('не выполнено');
   });
-  it('3.10 адресован ведущему устройство пешеходу, не едущему СИМ', () => {
+  it('3.10 адресован пешеходу и едущему СИМ по редакции 1769', () => {
     const s = sceneFor(); s.signs = [{ id: 'ban', x: 0, y: 0, angle: 0, kind: '3.10' }];
-    expect(violations(s).some(f => f.refs.includes('sign:3.10'))).toBe(false);
+    expect(violations(s).some(f => f.refs.includes('sign:3.10'))).toBe(true);
     s.actors[0] = actor({ kind: 'pedestrian', type: 'adult', leadingDevice: 'sim' });
     expect(violations(s).some(f => f.refs.includes('sign:3.10') && f.refs.includes('koap:12.29.1'))).toBe(true);
   });

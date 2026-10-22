@@ -121,7 +121,7 @@ function buildVerdicts(scene: Scene, rules: RulesSection, findings: Finding[]): 
       }
     }
     legal.push(...consequences);
-    if (a.type === 'sim') legal.push({ refs: [], text: 'TODO(legal-check): квалификация СИМ как иного участника по ст. 12.29/12.30 предварительная; корпус прямо не называет СИМ и исключает водителей ТС. Требуется проверка правового толкования.' });
+    if (a.type === 'sim') legal.push({ refs: [], text: 'СИМ оценивается как иной участник по 12.29/12.30 при установленном возрасте и обстоятельствах. Основания: Пленум ВС РФ 25.06.2019 №20, п.2 (специальное понятие ТС главы 12), разъяснение прокуратуры 10.08.2026 https://epp.genproc.gov.ru/ru/proc_76/activity/legal-education/explain/e8614563/. Мощное устройство не переквалифицируется в мопед по одному названию.' });
 
     const { status, text } = rules.actors.find(v => v.actorId === a.id)!;
     const subject = subjectOf(a);
@@ -162,6 +162,7 @@ export function subjectOf(a: Actor) {
 
 const RULE_OFFENCES: Record<string, string> = {
   'rule:lighting': 'koap:12.20',
+  'rule:mobility-towing': 'koap:12.21#1',
   'rule:mobility': 'koap:12.29.2',
   'rule:passenger-belt': 'koap:12.6',
   'rule:passenger-child': 'koap:12.23#3',
@@ -240,7 +241,8 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
   const codes = (f.trace.ruleCodes ?? []) as string[];
   if (subject.administrativeSubject && (a.kind === 'pedestrian' || ['sim', 'bicycle', 'cart'].includes(a.type))) {
     const c = a.mobilityContext;
-    // TODO(legal-check): SIM as another road participant under 12.29/12.30; the corpus excludes vehicle drivers.
+    // PDD's broad vehicle definition is not the special Chapter 12 definition:
+    // Plenum 25.06.2019 N20, para 2; see RULES-MOBILITY.md for primary evidence.
     // 12.30 requires independently confirmed causation/consequence, never estimated harmFor.
     const causalRequirement = c?.source?.trim() && !!c.consequenceRuleRef && f.refs.includes(c.consequenceRuleRef);
     const consequence = causalRequirement && (c?.negligentHarm === 'light' || c?.negligentHarm === 'medium') ? 'koap:12.30.2'
@@ -255,7 +257,7 @@ function legalRefs(f: Finding, a: Actor, scene: Scene, rules: RulesSection): str
     if ((code === 'rule:route-lane' || code === 'rule:route-lane-capital')
       && (codes.includes('rule:opposing-lane') || codes.includes('rule:obstacle-bypass'))) return [];
     if (code === 'rule:maneuver-priority' && (codes.includes('rule:intersection-priority') || codes.includes('rule:route-priority'))) return [];
-    if (code === 'rule:mobility' && a.type === 'moped') return []; // TODO(legal-check): separate 24.7/24.8 moped offences.
+    if (code === 'rule:mobility' && a.type === 'moped') return f.refs.includes('pdd:24.7') ? ['koap:12.15#1'] : [];
     if (code === 'rule:speed') {
       const excess = Number(f.trace.excess);
       return excess > 80 ? ['koap:12.9.5'] : excess > 60 ? ['koap:12.9.4'] : excess > 40 ? ['koap:12.9.3'] : excess > 20 ? ['koap:12.9.2'] : [];

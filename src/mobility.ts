@@ -73,15 +73,11 @@ export function mobilityPlacePermission(a: Actor, place: MobilityPlace): PlacePe
   }
   if (a.age < 14) return answer(['sidewalk', 'footpath', 'cyclepath', 'sharedpath', 'pedestrian-side', 'cycle-side', 'pedestrian-zone'].includes(s)
     || place.pedestrianZone, 'pdd:24.3', 'От 7 до 14 лет: тротуары и дорожки, пешеходные зоны; не велополоса проезжей части.');
-  // TODO(legal-check): literal corpus says “старше 14” and “от 7 до 14”.
-  // At exactly 14 compare both readings; never silently grant the disputed right.
-  if (a.age === 14) {
-    const younger = mobilityPlacePermission({ ...a, age: 13 }, place);
-    const older = mobilityPlacePermission({ ...a, age: 15 }, place);
-    return { allowed: younger.allowed === older.allowed ? older.allowed : null,
-      refs: [...new Set([...younger.refs, ...older.refs])], reason: 'Возраст 14: проверены обе границы формулировок корпуса; различие требует TODO(legal-check).' };
-  }
-  if (['cyclepath', 'sharedpath', 'cycle-side', 'cycle-lane'].includes(s) || place.cycleZone && s === 'cycle-zone') return answer(place.laneDirectionAllowed, 'pdd:24.1', 'Велосипедная инфраструктура или подтверждённая геометрия велосипедной зоны.');
+  // Completed years: the 14+ group follows the traffic police's published
+  // interpretation, not a synthetic extra one-year restriction. Evidence:
+  // https://www.admsurgut.ru/novosti/detail.php?ID=493459 (15.07.2026),
+  // and the Bryansk traffic police explanation, linked in RULES-MOBILITY.md.
+  if (['cyclepath', 'sharedpath', 'cycle-side', 'cycle-lane'].includes(s) || place.cycleZone && ['cycle-zone', 'carriageway'].includes(s)) return answer(place.laneDirectionAllowed, 'pdd:24.1', 'Велосипедная инфраструктура или подтверждённая геометрия велосипедной зоны.');
   const unavailable = c.cycleInfrastructureUnavailable;
   if (sim) {
     const mass = a.simParameters?.deviceMass;

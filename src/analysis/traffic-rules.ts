@@ -1,6 +1,7 @@
 import { checkStopping } from './stopping';
 import { checkPassengers } from './passengers';
 import { checkLighting } from '../rules/lighting';
+import { checkMobilitySupplement } from '../rules/mobility';
 import type { JsonObject } from '../parallel/contracts';
 import {
   roadsAt,
@@ -78,12 +79,12 @@ function ordinarySpeedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; re
   const hits = roadsAt(ctx.geo, posAt(i, k), 1);
   const active = activeSigns(ctx, i.a.id, k, 100000);
   const sign = active.filter((s) => s.kind === '3.24').pop();
-  if (sign?.value && signApplies(sign, classOf(i)) && !uncertainMobilityPlate(sign)) return { limit: sign.value, refs: ['sign:3.24'] };
+  if (sign?.value && signApplies(sign, classOf(i)) && !uncertainMobilityPlate(sign, classOf(i), ctx.scene.env.accidentDate)) return { limit: sign.value, refs: ['sign:3.24'] };
   // знаки зон: 5.21 (жилая зона), 5.23.1/5.24.1 (начало населённого пункта / выезд), 5.31 (зона с ограничением скорости)
   const zoneSign = active.filter((s) => ['5.21', '5.23.1', '5.24.1', '5.31'].includes(s.kind)).pop();
   if (zoneSign) {
     const type = i.a.type as VehicleType;
-    if (zoneSign.kind === '5.31' && zoneSign.value && !uncertainMobilityPlate(zoneSign)) return { limit: zoneSign.value, refs: ['sign:5.31'] };
+    if (zoneSign.kind === '5.31' && zoneSign.value && !uncertainMobilityPlate(zoneSign, classOf(i), ctx.scene.env.accidentDate)) return { limit: zoneSign.value, refs: ['sign:5.31'] };
     if (zoneSign.kind === '5.21') return { limit: 20, refs: ['sign:5.21', 'pdd:17.1'] };
     const z = zoneLimit(type, zoneSign.kind === '5.23.1' ? 'city' : 'outside');
     if (z) return { limit: z.limit, refs: [`sign:${zoneSign.kind}`, z.ref] };
@@ -98,8 +99,8 @@ export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; ref
   if (i.a.type !== 'sim') return ordinary;
   const candidates = [{ limit: 25, refs: ['pdd:24.6'] }, ...(ordinary ? [ordinary] : [])];
   if (roadsAt(ctx.geo, posAt(i, k)).some(h => h.rg.road.zone === 'residential')) candidates.push({ limit: 20, refs: ['pdd:10.2'] });
-  const zone = activeSigns(ctx, i.a.id, k, 100000).filter(s => s.kind === '5.31' && s.value && !uncertainMobilityPlate(s) && signApplies(s, 'sim')).at(-1);
-  if (activeSigns(ctx, i.a.id, k, 100000).some(s => s.kind === '5.21' && !uncertainMobilityPlate(s))) candidates.push({ limit: 20, refs: ['sign:5.21', 'pdd:17.1'] });
+  const zone = activeSigns(ctx, i.a.id, k, 100000).filter(s => s.kind === '5.31' && s.value && !uncertainMobilityPlate(s, classOf(i), ctx.scene.env.accidentDate) && signApplies(s, 'sim')).at(-1);
+  if (activeSigns(ctx, i.a.id, k, 100000).some(s => s.kind === '5.21' && !uncertainMobilityPlate(s, classOf(i), ctx.scene.env.accidentDate))) candidates.push({ limit: 20, refs: ['sign:5.21', 'pdd:17.1'] });
   if (zone?.value) candidates.push({ limit: zone.value, refs: ['sign:5.31'] });
   return candidates.sort((a, b) => a.limit - b.limit)[0];
 }
@@ -954,7 +955,7 @@ function missedWrongSide(ctx: Ctx): void {
 // Правовая оценка
 
 
-export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
+export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject; mobility?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
   const ctx: Ctx = { ...technical, gates: technical.gates.map(g => ({ ...g })), findings: [], events: [], priorityGraphs: [], onc: new Map(), lightViolations: new Map(), stopSkipped: new Map(), pedEntry: new Map() };
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
@@ -1029,6 +1030,7 @@ export function analyzeRules(technical: TechnicalContext, options: { lighting?: 
   // These observations do not establish a cause. Evaluate after the legacy
   // collision heuristic so a contact cannot turn a lamp violation into one.
   if (options.lighting) checkLighting(ctx, options.lighting, finding => addFinding(ctx, finding));
+  if (options.mobility) checkMobilitySupplement(ctx, options.mobility, options.lighting ?? {}, finding => addFinding(ctx, finding));
   const findings: Finding[] = ctx.findings.map(f => {
     const i = ctx.infos.get(f.actorId)!;
     const frame = Math.round((f.t ?? tOf(i.k0)) / DT);

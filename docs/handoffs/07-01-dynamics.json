@@ -1,0 +1,96 @@
+{
+  "task": "07.1",
+  "branch": "codex/07-01-dynamics",
+  "baseSha": "5cf9657dbc903cdb4b2f0fd096f6876d8c9f7513",
+  "dependencies": [],
+  "implementationStatus": "complete",
+  "blocking": false,
+  "implemented": [
+    "Standalone src/physics four-wheel planar Newton–Euler kernel with fixed 5 ms substeps inside 25 ms frames; route controller and UI mode are reserved for 07.2.",
+    "Continuous nonlinear constant-mu Dugoff combined-slip brush law, anisotropic friction ellipse, explicit maximum-dissipation locked-wheel branch and inspectable tyre formulas.",
+    "Quasi-static drive/brake force commands, front brake split, front/rear/all drive, explicit ideal/disabled/unknown ABS; unknown is never inferred as disabled.",
+    "Longitudinal and lateral load transfer, nonnegative loads and wheel-lift flag; low-speed passive impulse limiting, exact substep stop event, reverse and deterministic state continuation.",
+    "Measured/reference/synthetic provenance contract; three explicitly selected CommonRoad reference chassis with source hashes and complete BSD license, separate synthetic verification vehicle.",
+    "Actor.dynamics schema 1 with strict import validation and no implicit migration/default; actorSpec/dimsOf, existing collision impulses and technical use the same selected mass and planar geometry.",
+    "Technical trace records selected parameters, units/provenance and explicitly identifies the still-kinematic scene simulation; kernel trace records every substep and numerical correction.",
+    "Independent formula, energy, momentum, braking, steady-turn/understeer-gradient, lateral grip bound, ellipse, dissipation, convergence, reverse and low-speed verification; all legacy presets preserved.",
+    "Profile documentation docs/PHYSICS.md, research provenance and README limitations; reproducible Chromium verification script."
+  ],
+  "limitations": [
+    "No route/speed controller, env.physics selector, road zones or new parameter editor in 07.1; these are 07.2 responsibilities. simulate() remains kinematic.",
+    "Drive is quasi-static: wheel rotational inertia, engine/gearbox transients, brake hydraulics and a real ABS algorithm are not modeled. Ideal ABS is an explicitly synthetic near-asymptote force limiter.",
+    "Planar rigid body only: no suspension dynamics, rollover, aerodynamic/rolling resistance, slopes or tyre temperature/load/speed dependence. Wheel lift is flagged, not a validated 3D continuation.",
+    "Low-speed slip regularization (0.1 m/s), passive impulse scale and 1e-10 rest threshold are numerical assumptions; load transfer uses previous-substep acceleration and explicit front roll-moment fraction.",
+    "Reference chassis are not measured complete vehicles. Tyres/brakes/drive/roll distribution must be supplied with their own sources. Reference OBB/CG offset is synthetic zero; body height retains the legacy class value.",
+    "No automatic analogue for pedestrians, two-wheelers, carts, rail, articulated or multi-axle vehicles. Other four-wheel classes require explicit applicable parameter sets; no measured bus/truck catalogue is claimed.",
+    "Nonzero separately specified cargo mass is rejected because loaded mass/Iz/CG must be reconciled together.",
+    "No natural/field validation. Original Dugoff paper and primary DOT measurements remain unverified; synthetic tests do not close source-check TODOs.",
+    "sqrt(mu*g*R) is a purely lateral flat-road force bound, not a rollover limit or a guarantee of following a path under combined braking."
+  ],
+  "contracts": [
+    {
+      "name": "DynamicVehicleParameters / ParameterSource / VehicleBody / DugoffTyres",
+      "export": "src/physics/index.ts",
+      "notes": "SI; schemaVersion=1. body.mass kg, yawInertia kg m², lf/lr/tracks/cgHeight/length/width/bodyCenterOffset m; wheelbase=lf+lr. Per-tyre stiffness N/unit-slip or N/rad. Provenance for each parameter group."
+    },
+    {
+      "name": "DynamicState",
+      "export": "src/physics/types.ts",
+      "notes": "CG x/y m, heading rad, world vx/vy m/s, yawRate rad/s, prior inertial ax/ay in body axes m/s². Preserve all fields for continuation. Body axes x forward/y right; positive yaw clockwise."
+    },
+    {
+      "name": "DynamicControl / DynamicRoad",
+      "export": "src/physics/types.ts",
+      "notes": "steering ±pi/3 rad, signed drive [-1,1], brake [0,1]. Simultaneous drive+brake rejected. Road mu>=0 plus source. Unknown ABS permits coasting/drive but braking throws."
+    },
+    {
+      "name": "stepDynamics",
+      "export": "src/physics/dynamics.ts",
+      "notes": "Pure input-to-output 25 ms frame; default five fixed 5 ms steps, optional fixed divisor 0.1–5 ms. Returns {state, trace?}. No path snapping. trace includes force values before impulseScale and motionSeconds for a stop inside a substep."
+    },
+    {
+      "name": "evaluateForces / dugoffTyre / lockedTyre / normalLoads / kineticEnergy / understeerGradient / lateralGripSpeed",
+      "export": "src/physics/index.ts",
+      "notes": "Independent verification API without a route controller. Forces in N and moments N m; normalLoads order FL,FR,RL,RR. K uses axle stiffness=2*per-tyre stiffness and units rad/(m/s²)."
+    },
+    {
+      "name": "VEHICLE_REFERENCES / parametersFromReference / syntheticVehicle",
+      "export": "src/physics/catalog.ts",
+      "notes": "References contain chassis only, not equipment defaults. Factory requires explicit tyres/brakes/drive/loadTransfer. syntheticVehicle returns a fresh synthetic fixture with ABS unknown."
+    },
+    {
+      "name": "Actor.dynamics / dynamicSupport / initialDynamicState / validateActorDynamics",
+      "export": "src/scene.ts and src/physics/actor.ts",
+      "notes": "Optional schema-1 object, legacy scenes remain version 1 with no added defaults. actorSpec/dimsOf use selected mass/geometry and bodyCenterOffset, collision/technical share them. Invalid imports/classes/cargo rejected; support union gives a reason. initialDynamicState converts signed actor.speed km/h to SI once."
+    },
+    {
+      "name": "technical trace physicalParameters",
+      "export": "src/analysis/technical.ts",
+      "notes": "Additive field only for actors with dynamics. Carries actual mass/geometry, parameters and source, with motionMethod='legacy-kinematic'. Does not claim current stopping assessment is dynamic."
+    }
+  ],
+  "todos": [
+    "TODO(source-check): verify original Dugoff 1969/1970 and reconcile sign/linear-branch conventions with the documented continuous rolling-speed implementation.",
+    "TODO(source-check): verify DOT HS 807 956 Table E-5, load condition, sprung/total CG and yaw inertia semantics.",
+    "TODO(source-check): measured tyre/ABS/drive/suspension split, OBB offset, loaded vehicle and additional class parameters.",
+    "Field validation remains open for later validation work; no empirical results are invented."
+  ],
+  "checks": {
+    "test": {
+      "command": "npm test -- --maxWorkers=1 --pool=threads --testTimeout=30000 --teardownTimeout=30000",
+      "exitCode": 0,
+      "summary": "806 tests passed in 32 files (84.16 s), including 96 added checks and all 65 legacy presets. Final full run uses one thread worker and 30 s runner timeouts; assertions and physical tolerances are unchanged. Earlier plain npm test passed 805 tests before the last low-speed stop regression was added; a later plain run hit environment worker/test timeouts and was interrupted (130), then the final full run above passed."
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0,
+      "summary": "tsc --noEmit and Vite production build passed on final source. 41 modules transformed. Existing large-bundle warning (>500 kB) remains; no build errors. CommonRoad license is included in dist/licenses."
+    },
+    "browser": {
+      "command": "PLAYWRIGHT_MODULE_PATH=/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs node tools/check-physics-browser.mjs",
+      "exitCode": 0,
+      "summary": "Chromium 154.0.8037.57: kernel deterministic braking to exact rest, distance error <1%; all 65 legacy presets finite; production old-scene playback/report; imported reference mass/provenance/legacy-motion label in technical trace; BSD license HTTP 200; zero uncaught exceptions. Screenshot inspected. Final source rechecked after the low-speed stop correction.",
+      "browser": "Chromium 154.0.8037.57"
+    }
+  }
+}

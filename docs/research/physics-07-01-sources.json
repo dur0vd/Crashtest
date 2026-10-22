@@ -1,0 +1,41 @@
+[
+  {
+    "file": "LICENSE.txt",
+    "url": "https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/raw/8de058935fdf5b404eef0836785b4cc1830e6d09/LICENSE.txt",
+    "sha256": "791420139425851b85e59e7d53e00cbcea2fda9fe01dad4bbd4e531ec33a68ed",
+    "retrievedAt": "2026-10-22"
+  },
+  {
+    "file": "parameters_vehicle1.yaml",
+    "url": "https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/raw/8de058935fdf5b404eef0836785b4cc1830e6d09/PYTHON/vehiclemodels/parameters/parameters_vehicle1.yaml",
+    "sha256": "3be933190f64a74c0478fa1a8ab1fd5c9bbbf8fe634acfc4990069bfc801ed76",
+    "retrievedAt": "2026-10-22"
+  },
+  {
+    "file": "parameters_vehicle2.yaml",
+    "url": "https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/raw/8de058935fdf5b404eef0836785b4cc1830e6d09/PYTHON/vehiclemodels/parameters/parameters_vehicle2.yaml",
+    "sha256": "5aa278ab6f184b58792e74ad539653acd61e06e0abdba0e047918837a8d90ab9",
+    "retrievedAt": "2026-10-22"
+  },
+  {
+    "file": "parameters_vehicle3.yaml",
+    "url": "https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/raw/8de058935fdf5b404eef0836785b4cc1830e6d09/PYTHON/vehiclemodels/parameters/parameters_vehicle3.yaml",
+    "sha256": "131c08fefa32d5a98890c04d476f16e5c2f13cf29217e2bbed5316f3a6c7f9eb",
+    "retrievedAt": "2026-10-22"
+  },
+  {
+    "file": "brandt.pdf",
+    "url": "https://digital.ub.uni-paderborn.de/hsmig/download/pdf/5000",
+    "sha256": "8d6e00d271e64f00b1cd17a79dab0c6b288666d8d7eb10e6f7bd1da0fd9f0fcb",
+    "retrievedAt": "2026-10-22",
+    "redistributed": false
+  },
+  {
+    "file": "vehicleModels_commonRoad.pdf",
+    "url": "https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/raw/8de058935fdf5b404eef0836785b4cc1830e6d09/vehicleModels_commonRoad.pdf",
+    "sha256": "b605361442969ab05b0a0a761dc139b2e6c8c5af2b5210aa16b1c282628191d7",
+    "retrievedAt": "2026-10-22",
+    "redistributed": false,
+    "checked": "Tables 4 and 6; YAML values retained at original precision. PDF rounded/truncated."
+  }
+]

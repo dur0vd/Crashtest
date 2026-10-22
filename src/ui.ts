@@ -1,3 +1,4 @@
+import { STOP_PLACE_KINDS, normalizeStopPlaces } from './stopping-model';
 import { type CollisionReport, type Finding, type Report, HARM_LABEL, STATUS_LABEL } from './analysis';
 import type { Editor } from './editor';
 import { deg, nearestOnPolyline, rad, segIntersect } from './geom';
@@ -156,6 +157,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
     case 'roads':
       box.append(
         field('Тип дороги', select([['road', 'Обычная дорога'], ['adjacent', 'Выезд с прилегающей территории'], ['roundabout', 'Кольцевая проезжая часть']], it.role ?? 'road', set((v) => (it.role = v)))),
+        field('Примыкание и парковочные знаки', select([['ordinary', 'Обычное пересечение дорог'], ['nonterminating-minor', 'Полевое/лесное/иное второстепенное без соответствующих знаков']], it.stopZoneJunction ?? 'ordinary', set((v: string) => (it.stopZoneJunction = v))), 'По установленным данным: указанное второстепенное примыкание не прерывает зону 3.27–3.30.'),
         field('Покрытие для определения главной', select([['hard', 'Твёрдое'], ['unpaved', 'Грунтовое'], ['unknown', 'Не установлено']], it.surfacePriority ?? 'hard', set((v) => (it.surfacePriority = v))), 'Для п. 13.9; сцепление задаётся отдельно в условиях.'),
         field('Полос в каждую сторону', num(it.lanes, set((v) => (it.lanes = v)), { min: 1, max: 4 })),
         field('Разметка по оси', select([['none', 'Без разметки'], ['dashed', 'Прерывистая (1.5)'], ['solid', 'Сплошная (1.1)'], ['double', 'Двойная сплошная (1.3)']], it.center, set((v) => (it.center = v)))),
@@ -258,7 +260,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         plates.append(h('div', { class: 'plate-row' }, signThumb(pl, 34), h('span', {}, `${pl} ${signTitle(pl)}`), h('button', { type: 'button', class: 'x', title: 'Убрать', onclick: () => app.edit(() => { it.plates = list.filter((x) => x !== pl); if (!it.plates.length) delete it.plates; }, true) }, '✕')));
       }
       plates.append(button('Добавить табличку', () => openSignPicker({ only: '8', onPick: (id) => app.edit(() => { it.plates = [...list, id]; }, true) })));
-      if (list.includes('8.2.1')) plates.append(field('Зона действия, м', num(it.zoneLen ?? VALUE_SIGNS['8.2.1'].def, set((v) => (it.zoneLen = v)), { min: 10, max: 1000, step: 10 })));
+      if (list.some(p => ['8.2.1', '8.2.2'].includes(p))) plates.append(field('Зона действия, м', optionalNumber(it.zoneLen, set((v: number | undefined) => (it.zoneLen = v)), { min: 0, step: 1 })));
       if (list.includes('8.13') || it.kind === '8.13') {
         const directions = h('input', { type: 'text', value: (it.mainDirections ?? []).map((a: number) => +deg(a).toFixed(1)).join('; '), placeholder: '0; 270' });
         directions.addEventListener('change', () => {
@@ -274,6 +276,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         plates.append(field('Въезды главной дороги, °', directions, 'Курсы движения к перекрёстку: 0° — вправо, 90° — вниз. Например: 0; 270.'));
       }
       box.append(plates);
+      if (['3.27', '3.28', '3.29', '3.30'].includes(it.kind)) stoppingSignForm(box, it as Scene['signs'][number], app);
       break;
     }
     case 'markings': {
@@ -695,6 +698,60 @@ function routeContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
   box.append(group);
 }
 
+function stoppingContextForm(box: HTMLElement, a: Actor, app: AppApi): void {
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Остановка, стоянка и аварийное обозначение'),
+    h('p', { class: 'note' }, 'Нулевая скорость не определяет стоянку. Укажите причину, преднамеренность и известную длительность до начала сцены. Пустое поле означает «не установлено».'));
+  type ContextKey = 'stopContext' | 'warningContext' | 'doorContext';
+  const set = (context: ContextKey, key: string, value: unknown) => app.edit(() => {
+    const facts = (a[context] ??= {}) as Record<string, unknown>;
+    if (value === undefined) delete facts[key]; else facts[key] = value;
+  });
+  const enumField = (context: ContextKey, key: string, label: string, options: [string, string][]) => {
+    const value = (a[context] as Record<string, unknown> | undefined)?.[key];
+    group.append(field(label, select([['unknown', 'Не установлено'], ...options], typeof value === 'string' ? value : 'unknown', v => set(context, key, v === 'unknown' ? undefined : v))));
+  };
+  const boolField = (context: ContextKey, key: string, label: string, parent = group) => {
+    const value = (a[context] as Record<string, unknown> | undefined)?.[key];
+    parent.append(field(label, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], value === true ? 'yes' : value === false ? 'no' : 'unknown', v => set(context, key, v === 'unknown' ? undefined : v === 'yes'))));
+  };
+  enumField('stopContext', 'reason', 'Причина прекращения движения', [['passengers', 'Посадка/высадка'], ['cargo', 'Загрузка/разгрузка'], ['rest', 'Длительный отдых/ночлег'], ['other-voluntary', 'Иная добровольная причина'], ['traffic', 'Сигнал, затор, требование движения'], ['forced', 'Вынужденная: неисправность, груз, состояние человека, препятствие']]);
+  boolField('stopContext', 'intentional', 'Преднамеренное прекращение движения');
+  const numbers: [string, string][] = [['durationBeforeStart', 'Неподвижность до начала сцены, с'], ['rowFromEdge', 'Ряд от края проезжей части'], ['permissibleMaxMass', 'Разрешённая максимальная масса, кг'], ['clearanceMeters', 'Зазор до сплошной (не краевой), разделителя или противоположного края, м'], ['visibilityForward', 'Видимость дороги вперёд, м'], ['visibilityBackward', 'Видимость дороги назад, м']];
+  for (const [key, label] of numbers) group.append(field(label, optionalNumber((a.stopContext as Record<string, unknown> | undefined)?.[key] as number | undefined, v => set('stopContext', key, v), { min: key === 'rowFromEdge' ? 1 : 0, step: key === 'rowFromEdge' ? 1 : 0.1 })));
+  enumField('stopContext', 'side', 'Сторона относительно движения ТС', [['right', 'Правая'], ['left', 'Левая']]);
+  enumField('stopContext', 'registeredClass', 'Установленный регистрационный вид ТС', [['passenger-car', 'Легковой автомобиль'], ['motorcycle', 'Мотоцикл'], ['moped', 'Мопед'], ['other', 'Иной']]);
+  const placement = h('details', { class: 'group' }, h('summary', {}, 'Место, помехи и способ постановки'));
+  const placementFacts: [string, string][] = [
+    ['onShoulder', 'На обочине'], ['shoulderPresent', 'Обочина имеется'], ['atCarriagewayEdge', 'У края проезжей части'], ['onCarriageway', 'На проезжей части'], ['stoppingProhibited', 'Запрет остановки в месте установлен по материалам'],
+    ['parallelToEdge', 'Параллельно краю'], ['twoWheelsWithoutSidecar', 'Двухколёсное ТС без бокового прицепа'], ['parkingArrangementComplied', 'Способ постановки по 6.4/табличкам/разметке соблюдён'], ['angularParkingGeometrySuitable', 'Уширение и разметка допускают постановку под углом'],
+    ['tIntersectionOppositeException', 'Установлено исключение напротив бокового проезда Т-пересечения со сплошной/разделителем'], ['tramObstructed', 'Создаёт помеху трамваю'], ['routeTaxiUnimpeded', 'Посадка/высадка без помех маршрутным ТС и такси'], ['signsSignalsBlocked', 'Закрывает другим знаки/сигналы'], ['otherAccessBlocked', 'Препятствует проезду, въезду или выезду'], ['pedestriansObstructed', 'Создаёт помеху пешеходам'], ['designatedRestArea', 'Предусмотренная площадка для отдыха'], ['outsideRoad', 'За пределами дороги'],
+    ['disabledParkingEligible', 'Право на место инвалидов подтверждено'], ['disabilityBadge', 'Опознавательный знак «Инвалид» имеется'], ['disabilityExemptionEligible', 'Полный набор условий льготы инвалидов по 3.28–3.30 подтверждён'], ['postalLiveryEligible', 'Федеральная почтовая связь с установленной цветографикой'], ['taxiMeterOn', 'Таксометр включён'],
+    ['relocationPossible', 'Имеется установленная возможность отвода ТС'], ['relocationMeasuresTaken', 'Все возможные меры отвода из запрещённого места приняты']];
+  for (const [key, label] of placementFacts) boolField('stopContext', key, label, placement);
+  for (const sign of app.scene().signs.filter(sign => ['3.27', '3.28', '3.29', '3.30'].includes(sign.kind) && sign.plates?.some(p => p.startsWith('8.4.')))) {
+    const known = a.stopContext?.signApplicability?.find(pair => pair.signId === sign.id)?.applies;
+    placement.append(field(`Табличка 8.4 у знака ${sign.kind} (${sign.id}) действует на это ТС`, select([['unknown', 'Не установлено'], ['yes', 'Да'], ['no', 'Нет']], known === true ? 'yes' : known === false ? 'no' : 'unknown', value => app.edit(() => {
+      const c = a.stopContext ??= {};
+      c.signApplicability = (c.signApplicability ?? []).filter(pair => pair.signId !== sign.id);
+      if (value !== 'unknown') c.signApplicability.push({ signId: sign.id, applies: value === 'yes' });
+    }))));
+  }
+  group.append(placement);
+  const personal = h('details', { class: 'group' }, h('summary', {}, 'Дверь и уход водителя'));
+  for (const [key, label] of [['opened', 'Дверь открыта'], ['createsObstruction', 'Открывание создаёт помеху']] as const) boolField('doorContext', key, label, personal);
+  group.append(personal);
+  enumField('doorContext', 'operator', 'Кто открывает дверь', [['driver', 'Водитель'], ['passenger', 'Пассажир']]);
+  for (const [key, label] of [['driverLeft', 'Водитель покинул место/ТС'], ['rollawaySecured', 'Самопроизвольное движение исключено'], ['unauthorizedUsePrevented', 'Использование без водителя исключено'], ['childUnder7Present', 'В ТС ребёнок младше 7 лет'], ['adultPresent', 'В ТС остаётся совершеннолетний']] as const) boolField('stopContext', key, label, personal);
+  personal.append(h('small', {}, 'Помеха от двери не доказывает контакт: отдельная геометрия двери не рассчитывается.'));
+  const warning = h('details', { class: 'group' }, h('summary', {}, 'Аварийная сигнализация и треугольник (7.1–7.2)'));
+  for (const [key, label] of [['hazardAvailable', 'Аварийная сигнализация исправна и имеется'], ['accident', 'ДТП установлено вне смоделированного контакта'], ['dazzled', 'Ослепление фарами'], ['towedMechanical', 'Буксируемое механическое ТС'], ['childrenBoardingWithSign', 'Посадка/высадка детей с опознавательным знаком'], ['otherDanger', 'Иная опасность, требующая предупреждения'], ['timelyVisibleToOthers', 'ТС своевременно заметно другим водителям'], ['trianglePlaced', 'Треугольник выставлен'], ['trianglePromptly', 'Треугольник выставлен незамедлительно'], ['timelyWarningEnsured', 'Положение треугольника обеспечивает своевременное предупреждение']] as const) boolField('warningContext', key, label, warning);
+  warning.append(field('Измеренное расстояние от габарита ТС до треугольника, м', optionalNumber(a.warningContext?.triangleDistance, v => set('warningContext', 'triangleDistance', v), { min: 0 })),
+    h('small', {}, 'Активность аварийной сигнализации задаётся существующими сигналами маршрута и их временем. Минимум 15 м в населённом пункте, 30 м вне; фиксированного срока в секундах ПДД не задают.'));
+  group.append(warning);
+  for (const [context, label] of [['stopContext', 'Источник обстоятельств остановки'], ['doorContext', 'Источник сведений о двери'], ['warningContext', 'Источник аварийного обозначения']] as const) group.append(field(label, h('textarea', { rows: 2, value: a[context]?.source ?? '', onchange: (event: Event) => set(context, 'source', (event.target as HTMLTextAreaElement).value.trim() || undefined) })));
+  box.append(group);
+}
+
 function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void): void {
   const ed = app.editor;
   const set = <T,>(fn: (v: T) => void) => (v: T) => app.edit(() => fn(v));
@@ -744,6 +801,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     railwayContextForm(box, a, app);
     specialSignalsForm(box, a, app);
     routeContextForm(box, a, app);
+    stoppingContextForm(box, a, app);
   }
   // траектория
   const pathBox = h('div', { class: 'group' }, h('h4', {}, 'Траектория'));
@@ -818,6 +876,7 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
       }), 'Местное время места ДТП. По этой дате выбираются редакции норм.'),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
       field('Город для специальных составов КоАП', select<NonNullable<Scene['env']['federalCity']> | 'unknown'>([['unknown', 'Не установлен'], ['moscow', 'Москва'], ['saint-petersburg', 'Санкт-Петербург'], ['sevastopol', 'Севастополь'], ['other', 'Другое место']], s.env.federalCity ?? 'unknown', value => app.edit(() => { if (value === 'unknown') delete s.env.federalCity; else s.env.federalCity = value; })), 'Укажите место по исходным материалам; повышенная часть для выделенной полосы относится к Москве и Санкт-Петербургу.'),
+      field('Подтверждённый календарный статус даты ДТП для 8.5', select([['unknown', 'Не установлен'], ['working', 'Рабочий день'], ['nonworking', 'Нерабочий/праздничный день']], s.env.dayStatus?.[s.env.accidentDate.slice(0, 10)] ?? 'unknown', value => app.edit(() => { const calendar = s.env.dayStatus ??= {}; const date = s.env.accidentDate.slice(0, 10); if (value === 'unknown') delete calendar[date]; else calendar[date] = value as 'working' | 'nonworking'; }))),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
       button('Добавить кольцевой перекрёсток', () => app.editor.addRoundabout()),
@@ -835,6 +894,53 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
   intersectionBoundariesForm(root, app, () => buildEnv(root, app, extra));
   railwayCrossingsForm(root, app, () => buildEnv(root, app, extra));
   routeStopsForm(root, app, () => buildEnv(root, app, extra));
+  stopPlacesForm(root, app, () => buildEnv(root, app, extra));
+}
+
+const STOP_PLACE_LABELS: Record<string, string> = { shoulder: 'Обочина', 'sidewalk-edge': 'Край тротуара', parking: 'Парковочное место', 'disabled-parking': 'Место для инвалидов', tunnel: 'Тоннель', bridge: 'Мост/эстакада', 'under-bridge': 'Под мостом/эстакадой', 'dangerous-bend': 'Опасный поворот', crest: 'Выпуклый перелом', 'intersection-carriageways': 'Пересечение проезжих частей (граница)', 'bicycle-lane': 'Полоса для велосипедистов', 'bicycle-path': 'Велодорожка', 'bicycle-crossing': 'Пересечение велодорожки с проезжей частью', 'pedestrian-ramp': 'Сопряжение тротуара', 'safety-island': 'Островок' };
+function stopPlacesForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {
+  const group = h('details', { class: 'form' }, h('summary', {}, 'Измеренные места остановки и стоянки'),
+    h('p', { class: 'note' }, 'Переходы, переезды, остановки и пути задавайте в существующих объектах. Здесь — локальные границы дополнительных мест. Для 5 м у перекрёстка нужен край пересекаемой проезжей части.'));
+  const renderPlace = (place: NonNullable<Scene['stopPlaces']>[number]) => {
+    const panel = h('details', { class: 'group', 'data-stop-place': place.id }, h('summary', {}, `${STOP_PLACE_LABELS[place.kind]} (${place.id})`));
+    const points = h('textarea', { rows: 4, value: place.boundary.map(p => `${p.x}; ${p.y}`).join('\n') });
+    const source = h('textarea', { rows: 2, value: place.source });
+    const signs = h('input', { value: (place.signIds ?? []).join(', ') });
+    const note = h('p', { class: 'note', role: 'status' });
+    panel.append(field('Вид места', select(STOP_PLACE_KINDS.map(kind => [kind, STOP_PLACE_LABELS[kind]]), place.kind, value => app.edit(() => { place.kind = value; }))),
+      field('Контур, м: каждая строка X; Y', points), field('Источник обмера', source), field('Связанные знаки 6.4: ID через запятую', signs),
+      button('Сохранить место', () => {
+        try {
+          const boundary = points.value.trim().split('\n').map(line => { const pair = line.split(';'); return { x: pair.length === 2 && pair[0].trim() ? Number(pair[0].trim().replace(',', '.')) : NaN, y: pair.length === 2 && pair[1].trim() ? Number(pair[1].trim().replace(',', '.')) : NaN }; });
+          const next = normalizeStopPlaces([{ ...place, boundary, source: source.value.trim(), signIds: signs.value.split(',').map(id => id.trim()).filter(Boolean) }])![0];
+          app.edit(() => { Object.assign(place, next); const places = app.scene().stopPlaces ??= []; if (!places.includes(place)) places.push(place); }); note.textContent = 'Измеренное место сохранено.';
+        } catch { note.textContent = 'Укажите источник и не менее трёх точек X; Y.'; }
+      }), button('Удалить место', () => { app.edit(() => { app.scene().stopPlaces = app.scene().stopPlaces?.filter(p => p.id !== place.id); }); panel.remove(); rebuild(); }), note);
+    group.append(panel);
+    panel.open = !place.source;
+  };
+  for (const place of app.scene().stopPlaces ?? []) renderPlace(place);
+  group.append(button('Добавить измеренное место', () => {
+      const places = app.scene().stopPlaces ?? [], x = app.editor.cam.x, y = app.editor.cam.y;
+      let n = 1; while (places.some(p => p.id === `stop-place-${n}`) || group.querySelector(`[data-stop-place="stop-place-${n}"]`)) n++;
+      // An unsaved draft is deliberately absent from analysis until a source is supplied.
+      renderPlace({ id: `stop-place-${n}`, kind: 'parking', source: '', boundary: [{ x: x - 3, y: y - 2 }, { x: x + 3, y: y - 2 }, { x: x + 3, y: y + 2 }, { x: x - 3, y: y + 2 }] });
+  }));
+  root.append(group);
+}
+function stoppingSignForm(box: HTMLElement, sign: Scene['signs'][number], app: AppApi): void {
+  const group = h('details', { class: 'group' }, h('summary', {}, 'Условия парковочного знака'), h('small', {}, 'Знак действует на стороне установки. Для табличек вдоль фасада укажите обмеренную зону вдоль оси дороги. Применимость изображённого вида ТС на 8.4 устанавливается отдельно для каждого участника в его свойствах.'));
+  type Context = NonNullable<typeof sign.stopRule>;
+  const set = <K extends keyof Context>(key: K, value: Context[K]) => app.edit(() => { if (value === undefined) { if (sign.stopRule) delete sign.stopRule[key]; } else (sign.stopRule ??= {})[key] = value; });
+  group.append(field('Дорога знака', select([['', 'Ближайшая по геометрии'], ...app.scene().roads.map(r => [r.id, r.id] as [string, string])], sign.stopRule?.roadId ?? '', v => set('roadId', v || undefined))),
+    field('Начало зоны от начала оси дороги, м', optionalNumber(sign.stopRule?.fromS, v => set('fromS', v), { min: 0 })),
+    field('Конец зоны от начала оси дороги, м', optionalNumber(sign.stopRule?.toS, v => set('toS', v), { min: 0 })),
+    field('Дни на установленной табличке 8.5.5–7', select([['unknown', 'Не установлены'], ['working', 'Рабочие'], ['nonworking', 'Нерабочие/праздничные'], ['weekdays', 'Указанные дни недели']], sign.stopRule?.scheduleDays ?? 'unknown', value => set('scheduleDays', value === 'unknown' ? undefined : value as Context['scheduleDays']))),
+    field('Дни недели 8.5.3/7 (1=пн…7=вс, через запятую)', h('input', { value: sign.stopRule?.weekdays?.join(', ') ?? '', onchange: (event: Event) => { const text = (event.target as HTMLInputElement).value.trim(); const days = text.split(',').map(Number); if (!text || days.every(d => Number.isInteger(d) && d >= 1 && d <= 7)) set('weekdays', text ? days : undefined); } })));
+  const from = h('input', { type: 'time', value: sign.stopRule?.hours?.from ?? '' }), to = h('input', { type: 'time', value: sign.stopRule?.hours?.to ?? '' });
+  const hours = () => set('hours', from.value && to.value && from.value !== to.value ? { from: from.value, to: to.value } : undefined);
+  from.addEventListener('change', hours); to.addEventListener('change', hours);
+  group.append(field('Начало времени действия 8.5', from), field('Конец времени действия 8.5 (не включительно)', to)); box.append(group);
 }
 
 function routeStopsForm(root: HTMLElement, app: AppApi, rebuild: () => void): void {

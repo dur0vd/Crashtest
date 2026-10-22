@@ -22,6 +22,7 @@ export interface MarkingSpec {
   oneSide?: boolean;
   /** остановка и стоянка вдоль линии запрещены */
   noStop?: boolean;
+  noParking?: boolean;
   /** въезд на площадку запрещён */
   noEnter?: boolean;
   /** стрелка: допустимые направления дальнейшего движения */
@@ -38,7 +39,7 @@ export const MARKINGS: MarkingSpec[] = [
   { id: '1.7', form: 'line', name: 'Полосы на перекрёстке', color: '#f2f4f8', width: 0.15, dash: [1, 1] },
   { id: '1.8', form: 'line', name: 'Граница полосы разгона', color: '#f2f4f8', width: 0.3, dash: [3, 1] },
   { id: '1.9', form: 'line', name: 'Реверсивная полоса', color: '#f2f4f8', width: 0.15, pair: 'dashed-dashed', dash: [3, 3] },
-  { id: '1.10', form: 'line', name: 'Стоянка запрещена (жёлтая)', color: '#ffcf3d', width: 0.2, dash: [1, 1], noStop: true },
+  { id: '1.10', form: 'line', name: 'Стоянка запрещена (жёлтая)', color: '#ffcf3d', width: 0.2, dash: [1, 1], noParking: true },
   { id: '1.11', form: 'line', name: 'Односторонний переход', color: '#f2f4f8', width: 0.15, pair: 'solid-dashed', oneSide: true },
   { id: '1.12', form: 'line', name: 'Стоп-линия', color: '#f2f4f8', width: 0.6 },
   { id: '1.13', form: 'line', name: 'Линия «Уступи дорогу»', color: '#f2f4f8', width: 0.5, triangles: true },

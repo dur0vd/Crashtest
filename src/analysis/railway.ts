@@ -1,3 +1,4 @@
+import { classifyStop, stopIntervals } from './stopping';
 import { obbContact, obbCorners, pointInObb, segIntersect, toLocal, type OBB, type Vec } from '../geom';
 import type { RailwayCrossing } from '../scene';
 import { DT, type Collision } from '../sim';
@@ -81,10 +82,12 @@ function stopFrame(c: RailwayCrossing, i: Info, start = i.k0, end = i.kEnd): num
 
 function nonForcedStopAfterEntry(c: RailwayCrossing, i: Info, entry: Entry): boolean {
   const r = i.a.railwayContext;
-  if (r?.forcedStop !== false || r.crossingId !== undefined && r.crossingId !== c.id) return false;
+  if (r?.crossingId !== undefined && r.crossingId !== c.id) return false;
   let end = entry.frame;
   while (end < i.kEnd && obbContact(boxAt(i, end + 1), railwayBox(c))) end++;
-  return stopFrame(c, i, entry.frame, end) !== null;
+  const frame = stopFrame(c, i, entry.frame, end);
+  const interval = stopIntervals(i).find(rest => frame !== null && rest.from <= frame && rest.to >= frame);
+  return frame !== null && !!interval && classifyStop(i.a, interval, frame, i.k0).voluntary === true;
 }
 
 function entryChecks(ctx: Ctx, c: RailwayCrossing, i: Info, entry: Entry, add: Add): void {
@@ -158,11 +161,13 @@ function crossingStops(ctx: Ctx, c: RailwayCrossing, i: Info, add: Add): void {
   const frame = stopFrame(c, i);
   if (frame === null) return;
   const r = i.a.railwayContext, applies = !r?.crossingId || r.crossingId === c.id;
-  const forced = applies ? r?.forcedStop : undefined;
-  if (forced === false) add({ actorId: i.a.id, severity: 'violation', t: tOf(frame), title: 'остановка на железнодорожном переезде',
-    detail: 'Наблюдается остановка на переезде; явно задано, что она не вынужденная. Повторность из прогона не определяется.',
+  const interval = stopIntervals(i).find(rest => rest.from <= frame && rest.to >= frame);
+  const classification = interval ? classifyStop(i.a, interval, frame, i.k0) : null;
+  const forced = classification?.kind === 'forced' ? true : applies ? r?.forcedStop : undefined;
+  if (classification?.voluntary === true) add({ actorId: i.a.id, severity: 'violation', t: tOf(frame), title: 'остановка на железнодорожном переезде',
+    detail: 'Установлена преднамеренная остановка на переезде по известной причине. Повторность из прогона не определяется.',
     refs: ['pdd:12.4', 'rule:railway-stop'], trace: { ...traceAt(ctx, c, i, frame), stopObservationSeconds: STOP_OBSERVATION_SECONDS } });
-  else if (forced === undefined) add({ actorId: i.a.id, severity: 'contributing', t: tOf(frame), title: 'причина остановки на переезде не задана',
+  else if (forced !== true && classification?.kind !== 'traffic') add({ actorId: i.a.id, severity: 'contributing', t: tOf(frame), title: 'причина остановки на переезде не задана',
     detail: 'Нулевая скорость сама по себе не отличает вынужденную остановку от остановки или стоянки. Административный состав по этому факту не назначается.',
     refs: ['pdd:15.5'], trace: { ...traceAt(ctx, c, i, frame), compliance: 'не определить' } });
   if (forced !== true) return;

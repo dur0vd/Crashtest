@@ -21,8 +21,9 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   const summary: string[] = [];
   if (!collisions.length) {
     summary.push('Столкновений не произошло.');
-    const v = verdicts.filter((x) => x.status !== 'no-violations').length;
-    summary.push(v ? 'Тем не менее у части участников выявлены нарушения ПДД.' : 'Нарушений ПДД не выявлено.');
+    const v = verdicts.some(x => x.status === 'causal-violation' || x.status === 'noncausal-violation');
+    const unknown = verdicts.some(x => x.status === 'insufficient-data');
+    summary.push(v ? 'Тем не менее у части участников выявлены нарушения ПДД.' : unknown ? 'Данных для полной оценки соблюдения ПДД недостаточно.' : 'Нарушений ПДД не выявлено.');
   } else {
     summary.push(collisions.length === 1 ? `Произошло ДТП: ${collisions[0].title.toLowerCase()}.` : `Произошло ${collisions.length} столкновения.`);
     const causalActors = verdicts.filter((v) => v.status === 'causal-violation');

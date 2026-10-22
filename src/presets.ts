@@ -1,3 +1,5 @@
+import { PARKING_PRESETS } from './parking-presets';
+export { PARKING_PRESETS } from './parking-presets';
 import { rad } from './geom';
 import {
   type Actor,
@@ -804,6 +806,7 @@ export const PRESETS: Preset[] = [
   ...RAILWAY_PRESETS,
   ...SPECIAL_SIGNAL_PRESETS,
   ...ROUTE_TRANSPORT_PRESETS,
+  ...PARKING_PRESETS,
 ];
 
 export function blankScene(): Scene {

@@ -1,0 +1,72 @@
+// Optional browser verification: start Vite separately; requires Playwright and Chromium.
+// Writes screenshots under /tmp; no repository or remote data is changed.
+const { chromium } = require(process.env.CRASHTEST_PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CRASHTEST_CHROMIUM_PATH || '/usr/bin/chromium',args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}); const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.CRASHTEST_BROWSER_URL || 'http://127.0.0.1:5173/');
+ await page.evaluate(async()=>{ const {PARKING_PRESETS}=await import('/src/parking-presets.ts'); localStorage.setItem('crashtest.scene.v1',JSON.stringify(PARKING_PRESETS[0].build())); });
+ await page.reload(); await page.waitForSelector('#cv');
+ const cv=await page.locator('#cv').boundingBox(); await page.locator('#cv').click({position:{x:cv.width/2,y:cv.height/2}});
+ console.log('selected',await page.locator('#pane-props h3').allTextContents());
+ await page.getByText('Остановка, стоянка и аварийное обозначение',{exact:true}).click();
+ await page.getByLabel('Неподвижность до начала сцены, с',{exact:true}).fill('20');
+ await page.getByLabel('Неподвижность до начала сцены, с',{exact:true}).dispatchEvent('change');
+ await page.getByText('Преднамеренное прекращение движения',{exact:true}).locator('..').locator('select').selectOption('unknown');
+ await page.waitForTimeout(700);
+ let s=await page.evaluate(()=>JSON.parse(localStorage.getItem('crashtest.scene.v1')));
+ assert.equal(s.actors[0].stopContext.durationBeforeStart,20); assert.equal(s.actors[0].stopContext.intentional,undefined);
+ await page.getByText('Преднамеренное прекращение движения',{exact:true}).locator('..').locator('select').selectOption('yes');
+ await page.screenshot({path:'/tmp/parking-desktop.png',fullPage:true});
+ await page.locator('#btnPlay').click(); await page.locator('[data-tab="report"]').click();
+ await page.waitForTimeout(500); for (const summary of await page.locator('#pane-report details.finding > summary').all()) await summary.click(); let text=await page.locator('#pane-report').innerText(); assert.ok(text.includes('разметка 1.10')); assert.ok(text.includes('выполнено'));
+ await page.locator('#btnEdit').click(); await page.locator('[data-tab="env"]').click();
+ await page.getByText('Измеренные места остановки и стоянки',{exact:true}).click();
+ await page.getByRole('button',{name:'Добавить измеренное место',exact:true}).click();
+ await page.getByRole('button',{name:'Сохранить место',exact:true}).click();
+ assert.ok((await page.locator('#pane-env').innerText()).includes('Укажите источник'));
+ await page.getByLabel('Источник обмера',{exact:true}).fill('Условный обмер Chromium');
+ await page.getByRole('button',{name:'Сохранить место',exact:true}).click();
+ await page.waitForTimeout(700);s=await page.evaluate(()=>JSON.parse(localStorage.getItem('crashtest.scene.v1'))); assert.equal(s.stopPlaces.length,1);
+ await page.reload(); await page.locator('[data-tab="env"]').click();
+ await page.getByText('Измеренные места остановки и стоянки',{exact:true}).click();
+ assert.ok((await page.locator('#pane-env').innerText()).includes('stop-place-1'));
+ await page.screenshot({path:'/tmp/parking-geometry.png',fullPage:true});
+ // Real preset results in the browser, with the browser runtime engine.
+ const pairs=await page.evaluate(async()=>{const {PARKING_PRESETS}=await import('/src/parking-presets.ts');const {analyze}=await import('/src/analysis.ts');const {simulate}=await import('/src/sim.ts');return PARKING_PRESETS.map(p=>{const s=p.build();const r=analyze(s,simulate(s));return {id:p.id,violations:r.rules.findings.filter(f=>f.severity==='violation').map(f=>f.refs)};});});
+ assert.ok(pairs.find(p=>p.id==='parking-yellow-bad').violations.flat().includes('marking:1.10'));
+ assert.ok(!pairs.find(p=>p.id==='parking-yellow-good').violations.flat().includes('marking:1.10'));
+ await page.setViewportSize({width:390,height:844}); if (!(await page.locator('body').getAttribute('class') ?? '').includes('sheet')) await page.locator('#btnSheet').click(); await page.locator('[data-tab="env"]').click();
+ await page.screenshot({path:'/tmp/parking-mobile.png',fullPage:true});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ // Inspect the actor form at phone width as well.
+ await page.locator('#sheetClose').click();
+ const phoneCanvas = await page.locator('#cv').boundingBox();
+ await page.locator('#cv').click({position:{x:phoneCanvas.width/2,y:phoneCanvas.height/2}});
+ await page.locator('#btnSheet').click(); await page.locator('[data-tab="props"]').click();
+ await page.getByText('Остановка, стоянка и аварийное обозначение',{exact:true}).click();
+ await page.getByText('Неподвижность до начала сцены, с',{exact:true}).scrollIntoViewIfNeeded();
+ await page.screenshot({path:'/tmp/parking-mobile-actor.png',fullPage:true});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ // Switch back to desktop and edit the actual sign/plate inspector.
+ await page.setViewportSize({width:1440,height:1000});
+ await page.evaluate(async()=>{ const {PARKING_PRESETS}=await import('/src/parking-presets.ts'); const s=PARKING_PRESETS[0].build(); s.markings=[];s.signs=[{id:'parking-sign',kind:'3.27',x:-4,y:5,angle:0,plates:['8.2.2','8.5.4']}];localStorage.setItem('crashtest.scene.v1',JSON.stringify(s)); });
+ await page.reload();
+ const signCanvas = await page.locator('#cv').boundingBox();
+ const scale = Math.min(signCanvas.width/30,signCanvas.height/30);
+ await page.locator('#cv').click({position:{x:signCanvas.width/2-4*scale,y:signCanvas.height/2+2.5*scale}});
+ await page.getByLabel('Зона действия, м',{exact:true}).fill('40');
+ await page.getByLabel('Зона действия, м',{exact:true}).dispatchEvent('change');
+ await page.getByText('Условия парковочного знака',{exact:true}).click();
+ await page.getByLabel('Начало времени действия 8.5',{exact:true}).fill('12:00');
+ await page.getByLabel('Начало времени действия 8.5',{exact:true}).dispatchEvent('change');
+ await page.getByLabel('Конец времени действия 8.5 (не включительно)',{exact:true}).fill('13:00');
+ await page.getByLabel('Конец времени действия 8.5 (не включительно)',{exact:true}).dispatchEvent('change');
+ await page.waitForTimeout(700);
+ s=await page.evaluate(()=>JSON.parse(localStorage.getItem('crashtest.scene.v1')));
+ assert.equal(s.signs[0].zoneLen,40); assert.deepEqual(s.signs[0].stopRule.hours,{from:'12:00',to:'13:00'});
+ await page.screenshot({path:'/tmp/parking-sign.png',fullPage:true});
+ assert.deepEqual(errors,[]); console.log(JSON.stringify({browser:await browser.version(),checks:['actor fields edited and saved','tri-state unknown persists without false','1.10 short stop result visible','invalid polygon draft rejected','polygon saved and reloaded','8 presets evaluated in Chromium','390px mobile actor and environment forms without horizontal page overflow','sign 8.2.2 zone and 8.5 hours edited and saved'],errors,pairs},null,2));
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

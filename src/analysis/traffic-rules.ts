@@ -1,3 +1,4 @@
+import { checkStopping } from './stopping';
 import {
   roadsAt,
   intersectionAt,
@@ -141,7 +142,7 @@ function checkPosition(ctx: Ctx, i: Info): void {
     const p = posAt(i, k);
     const hits = roadsAt(ctx.geo, p);
     if (hits.length === 0) {
-      if (sidewalkAt(ctx.geo, p)) {
+      if (i.tr.v[k] > 0.1 && sidewalkAt(ctx.geo, p)) {
         sidewalk++;
         if (sidewalkK < 0) sidewalkK = k;
       }
@@ -842,7 +843,7 @@ function obstacleName(k: string): string {
 }
 
 function markCausal(ctx: Ctx, actorId: string): void {
-  for (const f of ctx.findings) if (f.actorId === actorId && f.severity === 'violation') f.causal = true;
+  for (const f of ctx.findings) if (f.actorId === actorId && f.severity === 'violation' && !f.trace?.stopping) f.causal = true;
 }
 
 function reasonToBrake(ctx: Ctx, i: Info, k: number): boolean {
@@ -948,6 +949,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   checkRouteTransport(ctx, f => addFinding(ctx, f));
   checkManeuvers(ctx, f => addFinding(ctx, f));
   checkRailway(ctx, f => addFinding(ctx, f));
+  checkStopping(ctx, f => addFinding(ctx, f));
   const addRequirement = (finding: FindingInput) => {
     const directional = finding.refs.some(ref => /^sign:(?:3\.18\.[12]|3\.19|4\.1\.[1-6])$/.test(ref) || ref === 'marking:1.18');
     if (directional) {
@@ -971,6 +973,17 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   checkMarkingRules(ctx, kit);
   checkCargoRules(ctx, kit);
   const collisions = analyzeCollisions(ctx);
+  for (const finding of ctx.findings.filter(f => f.trace?.stoppingBasis && f.severity === 'violation')) {
+    const involved = collisions.filter(report => report.collision.a === finding.actorId || report.collision.b === finding.actorId);
+    if (!involved.length) continue;
+    finding.causal = false;
+    finding.trace = { ...finding.trace, causalAssessment: {
+      status: 'unknown', contactObserved: true,
+      otherAvoidanceAssessments: involved.flatMap(report => report.tech.filter(tech => tech.actorId !== finding.actorId).map(tech => tech.trace)),
+      reason: 'Контакт с неподвижным ТС не устанавливает механизм помехи/закрытия обзора и причинную связь. Возможность предотвращения другим участником приведена отдельно; контрфактический прогон без стоящего ТС не выполнен.',
+    } };
+  }
+
   nearMisses(ctx);
   missedWrongSide(ctx);
 

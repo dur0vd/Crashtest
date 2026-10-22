@@ -287,29 +287,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
       }
     }
 
-    // остановка и стоянка (3.27, 3.28)
-    if (s.kind === '3.27' || s.kind === '3.28') {
-      const end = Math.min(g.until ?? i.kEnd + 1, i.kEnd + 1);
-      let from = -1;
-      for (let k = g.frame; k < end; k++) {
-        if (i.tr.v[k] < 0.3) {
-          if (from < 0) from = k;
-          const needed = s.kind === '3.27' ? 4 : Math.min(i.kEnd * DT, 10);
-          if ((k - from) * DT >= needed - 1e-9) {
-            if (kit.reasonToBrake(ctx, i, from)) break; // остановка по требованиям ПДД (светофор, пешеход, затор)
-            signKit.add({
-              actorId: i.a.id,
-              severity: 'violation',
-              t: tOf(from),
-              title: s.kind === '3.27' ? 'остановка в зоне знака «Остановка запрещена»' : 'стоянка в зоне знака «Стоянка запрещена»',
-              detail: s.kind === '3.27' ? 'ТС остановилось в зоне действия знака 3.27.' : 'ТС остаётся на месте в зоне действия знака 3.28 (условно: стоянка — стоит всё время расчёта).',
-              refs: [ref, 'pdd:12.4', 'rule:parking-sign'],
-            });
-            break;
-          }
-        } else from = -1;
-      }
-    }
+
   }
 }
 
@@ -363,30 +341,6 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
             });
             break;
           }
-        }
-      }
-
-      // остановка у линий, запрещающих её
-      if (spec.form === 'line' && spec.noStop && dense.length >= 2) {
-        let from = -1;
-        for (let k = i.k0; k <= i.kEnd; k++) {
-          const near = nearestOnPolyline(dense, kit.posAt(i, k));
-          const close = near.dist < 2.5 && !near.beyond;
-          if (close && i.tr.v[k] < 0.3) {
-            if (from < 0) from = k;
-            if ((k - from) * DT >= 4) {
-              if (kit.reasonToBrake(ctx, i, from)) break;
-              kit.add({
-                actorId: i.a.id,
-                severity: 'violation',
-                t: tOf(from),
-                title: `остановка у разметки ${m.kind}, запрещающей остановку`,
-                detail: `ТС остановилось у линии ${m.kind} (${spec.name.toLowerCase()}).`,
-                refs: [`marking:${m.kind}`, 'pdd:12.4', 'rule:parking-sign'],
-              });
-              break;
-            }
-          } else from = -1;
         }
       }
 

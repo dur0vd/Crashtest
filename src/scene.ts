@@ -1,3 +1,6 @@
+import { normalizeStopContext, normalizeWarningContext, normalizeDoorContext, normalizeStopSign, normalizeStopPlaces } from './stopping-model';
+import type { StopContext, WarningContext, DoorContext, StopPlace, StopSignContext } from './stopping-model';
+export type { StopContext, WarningContext, DoorContext, StopPlace, StopSignContext } from './stopping-model';
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
 
@@ -145,6 +148,8 @@ export interface RouteContext {
 }
 
 export interface Road {
+  /** Established field/forest/minor unsigned junction excluded by group 3. */
+  stopZoneJunction?: 'ordinary' | 'nonterminating-minor';
   id: string;
   routeLanes?: RouteLane[];
   /** Выезд с прилегающей территории не образует перекрёсток (п. 1.2). */
@@ -308,6 +313,7 @@ export interface TrafficLight {
 export type SignKind = string;
 
 export interface Sign {
+  stopRule?: StopSignContext;
   id: string;
   x: number;
   y: number;
@@ -416,6 +422,9 @@ export interface ManeuverContext {
 }
 
 export interface Actor {
+  stopContext?: StopContext;
+  warningContext?: WarningContext;
+  doorContext?: DoorContext;
   /** Водитель не может определить наличие покрытия: п. 13.13. */
   coveringUnknown?: boolean;
   /** Возраст в полных годах; для ребёнка без возраста правовой субъект не установлен. */
@@ -452,6 +461,8 @@ export function defaultAccidentDate(): string {
 }
 
 export interface Env {
+  /** Confirmed local working/nonworking calendar; never inferred from weekends. */
+  dayStatus?: Record<string, 'working' | 'nonworking'>;
   accidentDate: string;
   federalCity?: 'moscow' | 'saint-petersburg' | 'sevastopol' | 'other';
   /** Параметры модели заблаговременности сигнала; ПДД не задают эти числа. */
@@ -462,6 +473,7 @@ export interface Env {
 }
 
 export interface Scene {
+  stopPlaces?: StopPlace[];
   routeStops?: RouteStop[];
   railwayCrossings?: RailwayCrossing[];
   /** Обмеренные границы по началам закруглений (п. 1.2), заменяют автоматическую оценку. */
@@ -636,6 +648,14 @@ export function normalizeScene(raw: unknown): Scene {
       return result;
     });
   } else delete scene.routeStops;
+  scene.stopPlaces = normalizeStopPlaces(r.stopPlaces);
+  for (const sign of scene.signs) {
+    if (sign.stopRule) sign.stopRule = normalizeStopSign(sign.stopRule);
+  }
+  if (scene.env.dayStatus && typeof scene.env.dayStatus === 'object') {
+    scene.env.dayStatus = Object.fromEntries(Object.entries(scene.env.dayStatus).filter(([date, status]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && ['working', 'nonworking'].includes(status)));
+  } else delete scene.env.dayStatus;
+  for (const road of scene.roads) if (!['ordinary', 'nonterminating-minor'].includes(road.stopZoneJunction ?? '')) delete road.stopZoneJunction;
   for (const track of scene.tracks) track.kind = track.kind === 'railway' ? 'railway' : 'tram';
   if (Array.isArray(r.railwayCrossings)) {
     scene.railwayCrossings = r.railwayCrossings.map(crossing => {
@@ -791,6 +811,9 @@ export function normalizeScene(raw: unknown): Scene {
       if (Object.keys(context).length) a.railwayContext = context;
       else delete a.railwayContext;
     } else delete a.railwayContext;
+    if (a.stopContext) a.stopContext = normalizeStopContext(a.stopContext);
+    if (a.warningContext) a.warningContext = normalizeWarningContext(a.warningContext);
+    if (a.doorContext) a.doorContext = normalizeDoorContext(a.doorContext);
     a.coveringUnknown = a.coveringUnknown === true;
     // A pedestrian's path already expresses walking direction. The negative
     // speed convention is reserved for reversing transport, not walking back.

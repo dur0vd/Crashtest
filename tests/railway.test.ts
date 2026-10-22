@@ -209,6 +209,7 @@ describe('15.3: rare acts require explicit context facts', () => {
 describe('15.5: distinguish forced stops from unexplained immobility', () => {
   function stop(context?: RailwayContext, state: Partial<RailwayCrossing> = {}): Ctx {
     const a = halted(context);
+    if (context?.forcedStop === false) a.actor.stopContext = { reason: 'other-voluntary', intentional: true, durationBeforeStart: 0 };
     return run(makeScene([a], crossing(state)), [a]);
   }
   it('unknown stop reason does not establish an administrative stop offence', () => {
@@ -216,7 +217,7 @@ describe('15.5: distinguish forced stops from unexplained immobility', () => {
     expect(violations(ctx, 'rule:railway-stop')).toHaveLength(0);
     expect(matching(ctx, 'pdd:15.5').some(f => f.trace?.compliance === 'не определить')).toBe(true);
   });
-  it('explicitly non-forced stop receives the stop code without invented repeat offence', () => {
+  it('explicitly intentional voluntary stop receives the stop code without invented repeat offence', () => {
     const finding = violations(stop({ forcedStop: false }), 'rule:railway-stop')[0];
     expect(finding).toBeDefined();
     expect(finding.refs).not.toContain('koap:12.10#3');
@@ -357,7 +358,7 @@ describe('railway preset simulation and legal integration', () => {
   });
   it('jam entry followed by an explicitly non-forced stop selects the special part once', () => {
     const a = observed('car', [{ t: 0, x: -30, y: 1.75, v: 8 }, { t: 3, x: -6, y: 1.75, v: 8 },
-      { t: 4, x: 0, y: 1.75, v: 0 }, { t: duration, x: 0, y: 1.75, v: 0 }], { railwayContext: { forcedStop: false } });
+      { t: 4, x: 0, y: 1.75, v: 0 }, { t: duration, x: 0, y: 1.75, v: 0 }], { railwayContext: { forcedStop: false }, stopContext: { reason: 'other-voluntary', intentional: true } });
     const scene = makeScene([a], crossing({ exitBlocked: true })), report = analyze(scene, timeline([a]));
     expect(report.rules.findings.some(f => f.actorId === 'car' && f.severity === 'violation' && f.refs.includes('pdd:15.3'))).toBe(true);
     expect(report.findings.some(f => f.actorId === 'car' && f.refs.includes('koap:12.10#1'))).toBe(true);

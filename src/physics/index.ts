@@ -10,3 +10,4 @@ export * from './extension';
 export * from './impact';
 export * from './crash3';
 export * from './injury';
+export * from './pedestrian';

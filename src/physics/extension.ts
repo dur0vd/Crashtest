@@ -75,11 +75,54 @@ export interface VehiclePhysicsInput {
   impact?: Partial<ImpactSettings>;
 }
 
+/**
+ * Post-impact model of a pedestrian or two-wheeler (dynamic mode). All values are
+ * explicit inputs with a source; absent input keeps the legacy free-motion model.
+ */
+export interface VulnerableBodyInput {
+  /** Pedestrian: contact is instantaneous (carry phase not timed), then flight from launchHeight at launchAngle, landing, slide. */
+  throw?: { launchAngle: number; launchHeight: number; friction: number; source: ParameterSource };
+  /**
+   * Two-wheeler: the fallen vehicle slides with vehicleFriction; the rider separates
+   * (momentum conserved) with the pre- or post-impact velocity, flies from
+   * riderLaunchHeight horizontally and slides with riderFriction.
+   */
+  twoWheeler?: {
+    vehicleFriction: number;
+    riderFriction: number;
+    riderMass: number;
+    riderLaunchHeight: number;
+    riderSeparation: 'pre-impact-velocity' | 'post-impact-velocity';
+    source: ParameterSource;
+  };
+}
+
+export function validateVulnerable(v: VulnerableBodyInput | undefined): void {
+  if (!v) return;
+  if (v.throw) {
+    finite(v.throw.launchAngle, 'throw.launchAngle', -Math.PI / 4, Math.PI / 2 - 0.01);
+    finite(v.throw.launchHeight, 'throw.launchHeight', 0, 5);
+    finite(v.throw.friction, 'throw.friction', 0.01, 3);
+    validateSource(v.throw.source);
+  }
+  if (v.twoWheeler) {
+    const t = v.twoWheeler;
+    finite(t.vehicleFriction, 'vehicleFriction', 0.01, 3);
+    finite(t.riderFriction, 'riderFriction', 0.01, 3);
+    finite(t.riderMass, 'riderMass', 1, 400);
+    finite(t.riderLaunchHeight, 'riderLaunchHeight', 0, 5);
+    if (!['pre-impact-velocity', 'post-impact-velocity'].includes(t.riderSeparation)) throw new Error('riderSeparation: pre-impact-velocity или post-impact-velocity');
+    validateSource(t.source);
+  }
+}
+
 /** Options of simulate(scene, options); the port fills them from extensions.physics. */
 export interface SimulationOptions {
   zones?: PhysicsZone[];
   barriers?: Barrier[];
   vehicles?: Record<string, VehiclePhysicsInput>;
+  /** Pedestrians and two-wheelers by actor id (stage 09). */
+  vulnerable?: Record<string, VulnerableBodyInput>;
   /** Vehicle–vehicle and vehicle–obstacle contact; default k=0.12 (legacy value), full impact. */
   impact?: ImpactSettings;
   /** Vehicle–pedestrian/two-wheeler contact; default plastic (k=0), full impact. */

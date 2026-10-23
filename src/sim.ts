@@ -17,7 +17,7 @@ import {
   sub,
   wrapAngle,
 } from './geom';
-import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, dimsOf, validateSimParameters } from './scene';
+import { type Actor, type Scene, type VehicleType, SURFACES, VEHICLES, actorSpec, dimsOf, validateSimParameters } from './scene';
 import type { DynamicControl, DynamicRoad, DynamicState, DynamicVehicleParameters, ParameterSource } from './physics/types';
 import { DYNAMIC_FRAME_DT, DYNAMIC_SUBSTEP, DYNAMICS_LIMITATIONS, bodyVelocity, integrateSubstep } from './physics/dynamics';
 import { dynamicSupport, initialDynamicState } from './physics/actor';
@@ -28,8 +28,8 @@ import {
   purePursuitSteer, stanleySteer, validateController, validateHazard,
 } from './physics/controller';
 import {
-  type Barrier, type ImpactSettings, type PostImpactSettings, type SimulationOptions, DEFAULT_POST_IMPACT_SOURCE,
-  validateBarrier, validateBraking, validateImpact, validatePostImpact,
+  type Barrier, type ImpactSettings, type PostImpactSettings, type SimulationOptions, type VulnerableBodyInput, DEFAULT_POST_IMPACT_SOURCE,
+  validateBarrier, validateBraking, validateImpact, validatePostImpact, validateVulnerable,
 } from './physics/extension';
 import { type ImpactBody, type ImpactResult, planarImpact } from './physics/impact';
 
@@ -102,6 +102,10 @@ export interface TimelinePhysics {
   zones?: PhysicsZone[];
   barriers?: Barrier[];
   rest?: Record<string, RestPose>;
+  vulnerable?: Record<string, VulnerableBodyInput>;
+  /** Separated riders of two-wheelers (stage 09), not scene actors. */
+  riders?: Record<string, { x: Float32Array; y: Float32Array; v: Float32Array; present: Uint8Array; mass: number;
+    separation: string; rest: { x: number; y: number; atRest: boolean } | null }>;
   assumptions: string[];
   limitations: string[];
 }
@@ -195,7 +199,11 @@ interface Node {
   directionStop?: boolean;
 }
 
+/** Stage 09 post-impact phases of a particle body: flight without friction, landing, slide. */
+type ThrowState = { mode: 'flight'; remaining: number; landingVz: number; friction: number } | { mode: 'slide'; friction: number };
+
 interface Rt {
+  thrown?: ThrowState;
   a: Actor;
   path: PathData;
   nodes: Node[];
@@ -728,6 +736,38 @@ export function halfPlaneContact(points: Vec[], cg: Vec, a: Vec, b: Vec, half: n
   return { n: mul(m, -side), depth: half - best.delta, point: best.point };
 }
 
+interface ThrownBody { pos: Vec; vel: Vec; thrown?: ThrowState }
+
+/** Flight from height h with vertical launch speed |v_h|·tan(angle); horizontal speed unchanged until landing. */
+function startFlight(b: ThrownBody, angle: number, h: number, friction: number): void {
+  const vh = len(b.vel), vz0 = vh * Math.tan(angle), vz = Math.sqrt(vz0 * vz0 + 2 * G * h);
+  b.thrown = { mode: 'flight', remaining: (vz0 + vz) / G, landingVz: vz, friction };
+}
+
+/** Exact piecewise kinematics: flight, landing impulse (−μ·|vz| horizontally), slide at μg to rest. */
+function advanceThrown(b: ThrownBody, dt: number): void {
+  let left = dt;
+  const st = b.thrown!;
+  if (st.mode === 'flight') {
+    const step = Math.min(left, st.remaining);
+    b.pos = add(b.pos, mul(b.vel, step));
+    st.remaining -= step;
+    left -= step;
+    if (st.remaining > 1e-12) return;
+    const sp = len(b.vel), after = sp - st.friction * st.landingVz;
+    b.vel = after > 0 && sp > 0 ? mul(b.vel, after / sp) : { x: 0, y: 0 };
+    b.thrown = { mode: 'slide', friction: st.friction };
+  }
+  const sp = len(b.vel);
+  if (!sp || left <= 0) return;
+  const dec = (b.thrown as { friction: number }).friction * G, tStop = sp / dec, tt = Math.min(left, tStop);
+  const nsp = tt >= tStop ? 0 : sp - dec * tt, dir = mul(b.vel, 1 / sp);
+  b.pos = add(b.pos, mul(dir, (sp + nsp) / 2 * tt));
+  b.vel = mul(dir, nsp);
+}
+
+interface RiderState extends ThrownBody { id: string; mass: number; separatedAt: number }
+
 interface DynRt {
   r: Rt;
   p: DynamicVehicleParameters;
@@ -893,6 +933,19 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
     if (!ids.has(id)) issues.push({ actorId: id, code: 'invalid-input', message: 'параметры заданы для отсутствующего участника' });
     else if (methods[id] && methods[id] !== 'dynamic-four-wheel') issues.push({ actorId: id, code: 'invalid-input', message: `параметры динамики ТС не применимы к модели ${methods[id]}` });
   }
+  for (const [id, v] of Object.entries(options.vulnerable ?? {})) {
+    const m = methods[id];
+    if (!ids.has(id)) issues.push({ actorId: id, code: 'invalid-input', message: 'параметры заданы для отсутствующего участника' });
+    else if (v.throw && m !== 'pedestrian-kinematic') issues.push({ actorId: id, code: 'invalid-input', message: 'модель отброса применима только к пешеходу' });
+    else if (v.twoWheeler && m !== 'two-wheeler-or-sim-kinematic') issues.push({ actorId: id, code: 'invalid-input', message: 'модель падения применима только к двухколёсному/СИМ' });
+    else {
+      try {
+        validateVulnerable(v);
+        const total = actorSpec(scene.actors.find(a => a.id === id)!).mass;
+        if (v.twoWheeler && v.twoWheeler.riderMass >= total) issues.push({ actorId: id, code: 'invalid-input', message: `масса ездока ${v.twoWheeler.riderMass} кг не меньше общей массы ${total} кг` });
+      } catch (error) { issues.push({ actorId: id, code: 'invalid-input', message: error instanceof Error ? error.message : String(error) }); }
+    }
+  }
   if (issues.length) throw new PhysicsUnsupportedError(issues);
   const zones = options.zones ?? [];
   validateZones(zones);
@@ -972,6 +1025,16 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
   validateImpact(vulnerable);
   if (barriers.length) assumptions.push('Отбойник — жёсткая тонкая преграда (геометрия 0,2 м); бордюр действует только на точки контакта колёс, наезд на бордюр не моделируется.');
   const kinPrev = new Map<string, { pos: Vec; h: number }>();
+  const riders = new Map<string, RiderState>();
+  const riderTracks = new Map<string, { x: Float32Array; y: Float32Array; v: Float32Array; present: Uint8Array }>();
+  for (const [id, v] of Object.entries(options.vulnerable ?? {})) {
+    if (v.twoWheeler) riderTracks.set(id, { x: new Float32Array(n), y: new Float32Array(n), v: new Float32Array(n), present: new Uint8Array(n) });
+    if (v.throw) assumptions.push(`${id}: после контакта — накат не моделируется во времени; полёт с высоты ${v.throw.launchHeight} м под углом ${(v.throw.launchAngle * 180 / Math.PI).toFixed(1)}°, затем скольжение μ=${v.throw.friction} (входные допущения с источником).`);
+    if (v.twoWheeler) assumptions.push(`${id}: двухколёсное падает при ударе и скользит с μ=${v.twoWheeler.vehicleFriction}; ездок (${v.twoWheeler.riderMass} кг) отделяется со скоростью ${v.twoWheeler.riderSeparation === 'pre-impact-velocity' ? 'до удара' : 'после удара'} при сохранении общего импульса.`);
+  }
+  for (const r of rts) if (!dyn.has(r.a.id) && r.a.kind === 'pedestrian' && !options.vulnerable?.[r.a.id]?.throw) {
+    assumptions.push(`${r.a.id}: после удара — прежняя модель свободного движения пешехода (замедление 4 м/с²), фазы отброса не заданы.`);
+  }
   const kinPose = (r: Rt, f: number): { pos: Vec; h: number } => {
     const p0 = kinPrev.get(r.a.id) ?? { pos: r.pos, h: r.h };
     return { pos: add(p0.pos, mul(sub(r.pos, p0.pos), f)), h: p0.h + f * wrapAngle(r.h - p0.h) };
@@ -1023,6 +1086,8 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
       kinPrev.set(r.a.id, { pos: { ...r.pos }, h: r.h });
       if (r.mode === 'path') {
         if (k > 0 || r.a.delay > 0) stepPath(r, DT, t);
+      } else if (r.thrown) {
+        advanceThrown(r, DT);
       } else {
         const sp = len(r.vel);
         if (sp > 0) {
@@ -1052,6 +1117,8 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
         for (let b = a + 1; b < rts.length; b++) {
           const B = rts[b];
           if (!B.present || !dA && !dyn.has(B.a.id)) continue;
+          // A fallen pedestrian is run over, not struck again: no planar impulse (limitation).
+          if (A.a.kind === 'pedestrian' && A.down || B.a.kind === 'pedestrian' && B.down) continue;
           // Minimum-overlap axis: with substeps of at most 5 ms overlaps stay shallow,
           // so the legacy time-of-impact heuristic for deep 25 ms overlaps is not used.
           const c = obbContact(boxAtF(A, f), boxAtF(B, f));
@@ -1092,6 +1159,12 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
         const c = obbContact(boxOf(A), og.box, velocityOf(A));
         if (c) kinematicContact(A, null, c, `${A.a.id}|${og.item.id}`, k, og.item.id);
       }
+    }
+    for (const [id, rt] of riderTracks) {
+      const rider = riders.get(id), r = rts.find(x => x.a.id === id)!;
+      if (rider && rider.separatedAt < k) advanceThrown(rider, DT);
+      const q = rider ?? { pos: r.pos, vel: { x: 0, y: 0 } };
+      rt.x[k] = q.pos.x; rt.y[k] = q.pos.y; rt.v[k] = len(q.vel); rt.present[k] = rider ? 1 : 0;
     }
     for (const r of rts) {
       const tr = tracks.get(r.a.id)!, d = dyn.get(r.a.id);
@@ -1150,6 +1223,7 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
       if (fresh) res = planarImpact({ a: bodyOf(A, f), b: B ? bodyOf(B, f) : bodyB, point: c.point, normal: c.n, restitution: settings.restitution, contactFriction: settings.contactFriction });
       applyImpact(A, res.a, f);
       if (B) applyImpact(B, res.b, f);
+      if (fresh) for (const [r, pre] of (B ? [[A, preA], [B, preB]] : [[A, preA]]) as [Rt, Vec][]) startPostImpact(r, pre, k, f);
       if (A.a.kind === 'pedestrian') A.down = true;
       if (B?.a.kind === 'pedestrian') B.down = true;
       if (fresh) {
@@ -1182,6 +1256,36 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
     if (tot > 0 && c.depth > 0) {
       movePos(A, mul(c.n, -(c.depth * wA) / tot));
       if (B) movePos(B, mul(c.n, (c.depth * wB) / tot));
+    }
+  }
+
+  /** Stage 09: explicit post-impact phases for a pedestrian (flight/slide) or a two-wheeler (fall, rider). */
+  function startPostImpact(r: Rt, pre: Vec, k: number, f: number): void {
+    if (dyn.has(r.a.id) || r.rail && r.mode === 'path') return;
+    const input = options.vulnerable?.[r.a.id];
+    if (!input) return;
+    if (input.throw && !r.thrown) {
+      // The frame remainder after the impact is replayed with the flight model.
+      const q = kinPose(r, f);
+      r.pos = q.pos;
+      startFlight(r, input.throw.launchAngle, input.throw.launchHeight, input.throw.friction);
+      advanceThrown(r, (1 - f) * DT);
+      kinPrev.set(r.a.id, { pos: q.pos, h: q.h });
+    }
+    if (input.twoWheeler && !riders.has(r.a.id)) {
+      const tw = input.twoWheeler, m = r.mass, mr = tw.riderMass;
+      const q = kinPose(r, f);
+      const vr = tw.riderSeparation === 'pre-impact-velocity' ? { ...pre } : { ...r.vel };
+      const vv = mul(sub(mul(r.vel, m), mul(vr, mr)), 1 / (m - mr));
+      const rider: RiderState = { id: `${r.a.id}:rider`, mass: mr, pos: { ...q.pos }, vel: vr, separatedAt: k };
+      startFlight(rider, 0, tw.riderLaunchHeight, tw.riderFriction);
+      advanceThrown(rider, (1 - f) * DT);
+      riders.set(r.a.id, rider);
+      r.vel = vv;
+      r.pos = q.pos;
+      r.thrown = { mode: 'slide', friction: tw.vehicleFriction };
+      advanceThrown(r, (1 - f) * DT);
+      kinPrev.set(r.a.id, { pos: q.pos, h: q.h });
     }
   }
 
@@ -1257,9 +1361,13 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
     hazards: Object.fromEntries([...dyn].filter(([, d]) => d.hazard).map(([id, d]) => [id, structuredClone(d.hazard!)])),
     postImpact: record(d => structuredClone(d.post)), impact: structuredClone(impact), vulnerableImpact: structuredClone(vulnerable),
     zones: structuredClone(zones), barriers: structuredClone(barriers), rest,
+    vulnerable: structuredClone(options.vulnerable ?? {}),
+    riders: Object.fromEntries([...riderTracks].map(([id, rt]) => [id, { ...rt, mass: options.vulnerable![id].twoWheeler!.riderMass,
+      separation: options.vulnerable![id].twoWheeler!.riderSeparation, rest: riders.get(id) ? { x: riders.get(id)!.pos.x, y: riders.get(id)!.pos.y, atRest: !len(riders.get(id)!.vel) } : null }])),
     assumptions, limitations: [...DYNAMICS_LIMITATIONS,
       'Удар: мгновенный импульс твёрдых тел в точке перекрытия контуров (обнаружение на каждом подшаге); деформация кузова — только энергетический итог; раздвижение тел — численная проекция.',
       'Пешеходы, двухколёсные и рельсовые в ударе — частицы без вращения; трамвай на рельсах — с заданным движением (бесконечная масса) до схода.',
+      'Переезд/наезд на упавшего пешехода не моделируется: после первого удара пешеход не участвует в импульсных контактах с ТС.',
       'Регулятор (pure pursuit/Stanley и P-контур скорости) — численная настройка, не модель конкретного водителя; реакция на опасность только по явно заданному моменту.',
       'Тяга без запаздывания двигателя/трансмиссии; тормоз — чистая задержка t2 и линейное нарастание t3.'] } };
 }

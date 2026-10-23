@@ -1,0 +1,30 @@
+$ npm exec -- crashtest-verify --help
+exit 0
+crashtest-verify [--json] [--integrity-only] [--password-env NAME] project.crashtest
+Exit: 0 match/integrity-only; 1 mismatch; 2 invalid; 3 engine unavailable; 4 no baseline; 5 engine error.
+
+$ npx --no-install crashtest-verify /tmp/crashtest-graphics-cli.crashtest --json
+exit 3
+{
+  "integrity": "verified",
+  "calculation": "unavailable",
+  "inputHash": "0bb53a0e38b0638c92ac9601c41475cd311dc49b1d31705cd780099d8e481b8c",
+  "versions": {
+    "corpus": "unrecorded",
+    "engine": "unavailable",
+    "ui": "0.2.0"
+  },
+  "versionStatus": "unavailable",
+  "versionDiff": [],
+  "diff": [],
+  "materials": [],
+  "savedBaseline": null
+}
+
+$ npm exec -- crashtest-verify /tmp/crashtest-graphics-cli.crashtest --integrity-only
+exit 0
+Целостность: verified. SHA-256 входов: 0bb53a0e38b0638c92ac9601c41475cd311dc49b1d31705cd780099d8e481b8c
+Версии: {"corpus":"unrecorded","engine":"unavailable","ui":"0.2.0"}; сопоставление версий: unavailable
+Материалы: []
+Пересчёт: unavailable
+Различия: —

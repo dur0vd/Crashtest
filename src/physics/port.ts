@@ -15,7 +15,11 @@ import { CALCULATORS, toDescriptors } from '../expert/calc';
 import { assessAvoidability, yellowServiceStop } from '../expert/stopping';
 import { brakeTiming, reactionTime, steadyDeceleration, type ExpertValue, type UserValue } from '../expert/params';
 import { hazardMoments, visibilityTimeline, type VisibilityOptions } from '../expert/hazard';
-import { MC_MODELS, runMonteCarlo, type MonteCarloSpec } from './montecarlo';
+import { MC_MODELS, runMonteCarlo, type MonteCarloResult, type MonteCarloSpec } from './montecarlo';
+
+/** Optional Monte Carlo executor (e.g. a Web Worker); must reproduce runMonteCarlo for the same spec.
+ * A cancellation without a partial result rejects with an Error named 'AbortError'. */
+export type MonteCarloRunner = (spec: MonteCarloSpec, control?: RunControl) => Promise<MonteCarloResult>;
 import { reconstructImpact, reconstructScene, type ImpactProblem } from './inverse';
 import { averageSpeed, carrierSpeed, fitHomography, fitTrajectory, imageToPlane, type Correspondence, type Homography } from '../video-math';
 import { analyzeTechnical } from '../analysis/technical';
@@ -222,7 +226,7 @@ function run(project: ProjectEnvelope, control?: RunControl): { tl: Timeline; sc
   return { tl: simulate(scene, options), scene };
 }
 
-async function calculateImpl(method: string, project: ProjectEnvelope, parameters: JsonObject, control?: RunControl): Promise<FeatureResult<CalculationRecord[]>> {
+async function calculateImpl(method: string, project: ProjectEnvelope, parameters: JsonObject, control?: RunControl, monteCarlo?: MonteCarloRunner): Promise<FeatureResult<CalculationRecord[]>> {
   const p: JsonObject = { ...stored(project, method), ...parameters };
   if (CALCULATORS[method] && !(method === 'expert.braking' && (p.mode === 'scene' || p.mode === 'yellow' || p.mode === 'observed'))) {
     const r = CALCULATORS[method].run(p);
@@ -265,11 +269,15 @@ async function calculateImpl(method: string, project: ProjectEnvelope, parameter
   }
   if (method === 'reconstruction.monte-carlo') {
     try {
-      const result = await runMonteCarlo(p as unknown as MonteCarloSpec, { onProgress: control?.onProgress, isCancelled: control?.isCancelled, yieldEvery: 200 });
+      const result = monteCarlo ? await monteCarlo(p as unknown as MonteCarloSpec, control)
+        : await runMonteCarlo(p as unknown as MonteCarloSpec, { onProgress: control?.onProgress, isCancelled: control?.isCancelled, yieldEvery: 200 });
       return ok([{ id: 'reconstruction.monte-carlo', method, inputs: p, formula: 'Сэмплирование входов по распределениям (mulberry32, seed), перцентили типа 7, tornado по 5/95 квантилям',
         result: json(result), units: {}, sources: ['Модель: ' + (MC_MODELS[String(p.model)]?.title ?? String(p.model))], assumptions: [result.interpretation] }],
         result.status === 'cancelled' ? [issue('cancelled', `Остановлено на ${result.completed} из ${result.n}`)] : []);
-    } catch (e) { return { status: 'insufficient-data', issues: [issue('invalid-input', e instanceof Error ? e.message : String(e))] }; }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return { status: 'error', issues: [issue('cancelled', 'Расчёт отменён до получения результата')] };
+      return { status: 'insufficient-data', issues: [issue('invalid-input', e instanceof Error ? e.message : String(e))] };
+    }
   }
   if (method === 'reconstruction.inverse') {
     if (typeof p.seed !== 'number') return { status: 'insufficient-data', issues: [issue('missing-input', 'Нужен seed', 'seed')] };
@@ -346,7 +354,7 @@ async function calculateImpl(method: string, project: ProjectEnvelope, parameter
   return { status: 'unsupported', issues: [issue('unsupported-method', `Метод ${method} не поддерживается физическим портом`)] };
 }
 
-export function createPhysicsPort(): PhysicsPort {
+export function createPhysicsPort(options: { monteCarlo?: MonteCarloRunner } = {}): PhysicsPort {
   return {
     contractVersion: 1,
     describe: project => describePhysics(project),
@@ -371,7 +379,7 @@ export function createPhysicsPort(): PhysicsPort {
     },
     async calculate(method, project, parameters, control) {
       if (project?.contractVersion !== 1) return { status: 'error', issues: [issue('contract-version', 'Ожидается contractVersion 1')] };
-      try { return await calculateImpl(method, project, parameters ?? {}, control); }
+      try { return await calculateImpl(method, project, parameters ?? {}, control, options.monteCarlo); }
       catch (e) {
         const scene = project.scene;
         return unsupportedFrom(e, scene);

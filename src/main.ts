@@ -14,6 +14,7 @@ import { buildReference, focusRef } from './reference';
 import { inputHash, newProject, ProjectHistory, type ProjectFile, type Versions } from './project/model';
 import { createPorts, currentVersions, issueText, rulesMode, runProject, type RulesMode } from './integration/ports';
 import type { FeatureResult, PhysicsOutput } from './parallel/contracts';
+import { workerMonteCarlo } from './integration/browser';
 import { resultJSON } from './project/canonical';
 import { loadLocal, saveLocal } from './project/storage';
 
@@ -59,7 +60,7 @@ let currentFile:ProjectFile=newProject(editor.scene);
 let hostHistory=new ProjectHistory(currentFile);
 let workbenchInstance:{destroy():void}|undefined;
 // Real physics and rules ports: the same instances serve ▶, the workbench and saved results.
-const ports = createPorts();
+const ports = createPorts({ monteCarlo: typeof Worker === 'undefined' ? undefined : workerMonteCarlo });
 let versions: Versions | undefined;
 const versionsReady = currentVersions().then((v) => { versions = v; if (currentFile.versions.engine === 'unavailable') currentFile.versions = v; return v; });
 /** A new situation from the main canvas is an explicit educational analysis; the selector switches it. */

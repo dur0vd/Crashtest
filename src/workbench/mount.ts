@@ -1269,10 +1269,13 @@ export function mountWorkbench(
     }
     busy = true;
     const token = ++generation;
+    const isCancelled = () => dead || token !== generation;
     const control = {
-      isCancelled: () => dead || token !== generation,
-      onProgress: (n: number, total: number) =>
-        message(`Расчёт: ${n}${total ? ` / ${total}` : ''}`),
+      isCancelled,
+      // A late progress event of a cancelled run must not overwrite the cancel status.
+      onProgress: (n: number, total: number) => {
+        if (!isCancelled()) message(`Расчёт: ${n}${total ? ` / ${total}` : ''}`);
+      },
     };
     try {
       if (method) {

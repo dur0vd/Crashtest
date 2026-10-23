@@ -8,7 +8,7 @@ import type {
   ProjectEnvelope, RulesPort, RunControl,
 } from '../parallel/contracts';
 import type { Report } from '../analysis/types';
-import { createPhysicsPort } from '../physics/port';
+import { createPhysicsPort, type MonteCarloRunner } from '../physics/port';
 import { createRulesPort } from '../rules/port';
 import { corpus } from '../corpus';
 import { LAW } from '../law';
@@ -108,8 +108,8 @@ function withRulesEvidence(base: PhysicsPort): PhysicsPort {
   };
 }
 
-export function createPorts(): IntegratedPorts {
-  return { physics: withRulesEvidence(createPhysicsPort()), rules: createRulesPort() };
+export function createPorts(options: { monteCarlo?: MonteCarloRunner } = {}): IntegratedPorts {
+  return { physics: withRulesEvidence(createPhysicsPort(options)), rules: createRulesPort() };
 }
 
 let corpusVersion: Promise<string> | undefined;

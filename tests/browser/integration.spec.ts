@@ -114,7 +114,7 @@ test('детерминизм Node ↔ Chromium: одинаковые хэши р
   }), ...TITLES];
   // Reference values from a separate Node process without DOM.
   const node = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', 'tools/integration-hashes.ts', JSON.stringify({ titles, mc: MC, fixedDate: FIXED_DATE })], { encoding: 'utf8', maxBuffer: 1 << 26 }));
-  const browser = await page.evaluate(async ({ titles, mc, fixedDate }) => {
+  const browser = await page.evaluate(async ({ titles, mc, fixedDate, dump }) => {
     const load = (path: string) => import(/* @vite-ignore */ path);
     const { createPorts, runProject } = await load('/src/integration/ports.ts');
     const { workerMonteCarlo } = await load('/src/integration/browser.ts');
@@ -128,12 +128,47 @@ test('детерминизм Node ↔ Chromium: одинаковые хэши р
       p.extensions.rules = { mode: 'educational' };
       p.scene.env.accidentDate = fixedDate;
       const run = await runProject(p, ports);
-      out[title] = await sha256(utf8(canonical(resultJSON({ physics: run.physics.value, rules: run.rules.value }))));
+      const text = canonical(resultJSON({ physics: run.physics.value, rules: run.rules.value }));
+      out[title] = dump ? text : await sha256(utf8(text));
     }
+    if (dump) return { out, ua: navigator.userAgent };
     const r = await ports.physics.calculate('reconstruction.monte-carlo', newProject(PRESETS[0].build()).project, mc);
     out['monte-carlo'] = await sha256(utf8(canonical(resultJSON(r.value))));
     return { out, ua: navigator.userAgent };
-  }, { titles, mc: MC, fixedDate: FIXED_DATE });
+  }, { titles, mc: MC, fixedDate: FIXED_DATE, dump: false });
+  const differing = titles.filter(t => browser.out[t] !== node[t]);
+  if (differing.length) {
+    // Diagnostics: the first differing leaves (path, Node value, Chromium value) per scene.
+    const nodeJson = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', 'tools/integration-hashes.ts', JSON.stringify({ titles: differing, mc: MC, fixedDate: FIXED_DATE, dump: true })], { encoding: 'utf8', maxBuffer: 1 << 28 }));
+    const dumped = await page.evaluate(async ({ titles, mc, fixedDate, dump }) => {
+      const load = (path: string) => import(/* @vite-ignore */ path);
+      const { createPorts, runProject } = await load('/src/integration/ports.ts');
+      const { PRESETS } = await load('/src/presets.ts');
+      const { newProject } = await load('/src/project/model.ts');
+      const { canonical, resultJSON } = await load('/src/project/canonical.ts');
+      const ports = createPorts();
+      const out: Record<string, string> = {};
+      for (const title of titles) {
+        const p = newProject(PRESETS.find((x: { title: string }) => x.title === title).build()).project;
+        p.extensions.rules = { mode: 'educational' };
+        p.scene.env.accidentDate = fixedDate;
+        const run = await runProject(p, ports);
+        out[title] = canonical(resultJSON({ physics: run.physics.value, rules: run.rules.value }));
+      }
+      return { out, dump, mc };
+    }, { titles: differing, mc: MC, fixedDate: FIXED_DATE, dump: true });
+    const leaves: Record<string, { path: string; node: unknown; chromium: unknown }[]> = {};
+    const walk = (a: unknown, b: unknown, path: string, acc: { path: string; node: unknown; chromium: unknown }[]) => {
+      if (acc.length >= 12 || JSON.stringify(a) === JSON.stringify(b)) return;
+      if (a && b && typeof a === 'object' && typeof b === 'object') {
+        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) walk((a as any)[k], (b as any)[k], `${path}/${k}`, acc);
+      } else acc.push({ path, node: a, chromium: b });
+    };
+    for (const t of differing) walk(JSON.parse(nodeJson[t]), JSON.parse(dumped.out[t]), '', leaves[t] = []);
+    await mkdir(OUT, { recursive: true });
+    await writeFile(`${OUT}/determinism-diff.json`, JSON.stringify({ node: process.version, chromium: browser.ua, leaves }, null, 1));
+    console.log('determinism diff', browser.ua, JSON.stringify(leaves, null, 1).slice(0, 6000));
+  }
   expect(browser.out).toEqual(node);
   await mkdir(OUT, { recursive: true });
   await writeFile(`${OUT}/determinism.json`, JSON.stringify({ node: process.version, chromium: browser.ua, hashes: node }, null, 2));

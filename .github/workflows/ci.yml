@@ -24,6 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # pdftotext: the PDF test extracts Cyrillic text and the hash from the generated report.
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Unit, integration and CLI tests
         run: npm test
       - name: Verification table (stage 17)
@@ -61,4 +63,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
-          path: /tmp/crashtest-graphics-playwright
+          path: |
+            /tmp/crashtest-graphics-playwright
+            docs/integration-verification/determinism-diff.json

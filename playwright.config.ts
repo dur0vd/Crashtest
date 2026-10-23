@@ -7,7 +7,8 @@ export default defineConfig({
   use: {
     browserName: 'chromium',
     launchOptions: {
-      executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium',
+      // Unset: Playwright's own Chromium (CI installs it); locally CHROMIUM_PATH.
+      executablePath: process.env.CHROMIUM_PATH || undefined,
       args: ['--no-sandbox'],
     },
     baseURL: 'http://127.0.0.1:4173',

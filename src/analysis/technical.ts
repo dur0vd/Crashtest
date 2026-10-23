@@ -309,6 +309,10 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
     'Диапазон остановочного пути рассчитан для времени реакции 0,8–1,2 с при прочих неизменных параметрах; это анализ чувствительности, а не доверительный интервал.',
     ...(scene.actors.some(a => a.type === 'sim') ? ['СИМ: физические параметры введены пользователем; массы устройства и ездока суммируются только для кинетики. Замедление масштабируется по μ/0,7, без натурной валидации.'] : []),
     'Тяжесть вреда здоровью оценена по скорости столкновения ориентировочно; её устанавливает судебно-медицинская экспертиза.',
+    ...(tl.physics?.mode === 'dynamic' ? [
+      'Движение рассчитано динамической моделью сил (env.physics=dynamic); остановочный путь ниже — аналитическая экспертная формула.',
+      ...tl.physics.assumptions,
+    ] : []),
   ];
   return ctx;
 }
@@ -323,12 +327,25 @@ export function sampleTrace(ctx: TechnicalContext, i: Info, frame: number): Trac
       massKg: i.mass, lengthM: i.hl * 2, widthM: i.hw * 2, bodyCenterOffsetM: i.shift,
       source: structuredClone(i.a.dynamics.body.source),
       dynamics: structuredClone(i.a.dynamics),
-      motionMethod: 'legacy-kinematic',
-      limitation: '07.1 supplies shared mass/geometry and a separate dynamics kernel. The scene simulator and stopping assessment remain kinematic until 07.2 integration.',
+      motionMethod: ctx.tl.physics?.methods[i.a.id] ?? 'legacy-kinematic',
+      limitation: ctx.tl.physics?.mode === 'dynamic'
+        ? 'Dynamic mode: positions/speeds from the force model with a route controller. The stopping assessment below remains the analytic expert formula, not a rerun of the force model.'
+        : 'Kinematic mode: shared mass/geometry only; the scene follows the drawn route without tyre force limits.',
     } } : {}),
+    ...(i.tr.dynamics ? { dynamicSample: dynamicSample(i.tr.dynamics, k) } : {}),
     roads: roadsAt(ctx.geo, point).map(h => ({ road: structuredClone(h.rg.road), near: h.near })),
   };
 }
+function dynamicSample(d: NonNullable<Info['tr']['dynamics']>, k: number): Trace {
+  const wheels = ['front-left', 'front-right', 'rear-left', 'rear-right'].map((id, w) => ({ id,
+    normalLoadN: d.wheelLoad[4 * k + w], fxN: d.wheelFx[4 * k + w], fyN: d.wheelFy[4 * k + w],
+    ellipseUse: d.wheelUse[4 * k + w], mode: ['rolling', 'locked', 'unloaded'][d.wheelMode[4 * k + w]] }));
+  return { vxMs: d.vx[k], vyMs: d.vy[k], yawRateRadS: d.yawRate[k], sideslipRad: d.sideslip[k],
+    steeringRad: d.steering[k], drive: d.drive[k], brake: d.brake[k], mu: d.mu[k], muKnown: !!d.muKnown[k],
+    gradeKnown: !!d.gradeKnown[k], staticHold: !!d.staticHold[k], zoneId: d.zone[k], wheels,
+    units: { force: 'N', speed: 'm/s', angle: 'rad' } };
+}
+
 export function leftmostLat(i: Info, k: number, near: RoadHit['near']): number {
   const r = rightOf(angleOf(near.tangent));
   const forward = dot(fromAngle(i.tr.h[k]), near.tangent) >= 0;

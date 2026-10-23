@@ -4,3 +4,6 @@ export * from './catalog';
 export * from './tyre';
 export * from './dynamics';
 export * from './actor';
+export * from './zones';
+export * from './controller';
+export * from './extension';

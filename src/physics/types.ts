@@ -61,6 +61,14 @@ export interface DynamicVehicleParameters {
     frontRollFraction: number;
     source: ParameterSource;
   };
+  /**
+   * Optional rolling resistance, F=-c*Fz per rolling wheel. Absent means not
+   * modelled (free rolling never stops on a flat road), never an implied value.
+   */
+  rollingResistance?: {
+    coefficient: number;
+    source: ParameterSource;
+  };
 }
 
 /** Coordinates match geom.ts: body x forward, y right, positive yaw clockwise. */
@@ -83,11 +91,32 @@ export interface DynamicControl {
   /** Signed force demand [-1, 1]. Negative commands reverse drive. */
   drive: number;
   brake: number;
+  /**
+   * Optional per-wheel lock (FL, FR, RL, RR), e.g. post-impact damage or an
+   * established locked wheel. Locked wheels use the Coulomb ellipse regardless of ABS.
+   */
+  wheelLock?: [boolean, boolean, boolean, boolean];
+}
+
+/** Surface plane z(x,y): dz/dx, dz/dy in world axes, dimensionless (0.05 = 5 %). */
+export interface SurfaceGrade {
+  x: number;
+  y: number;
+  source: ParameterSource;
 }
 
 export interface DynamicRoad {
   mu: number;
   source: ParameterSource;
+  /**
+   * Optional measured plane gradient. Absent means a flat plane was declared by
+   * the caller; an unknown grade must be reported by that caller, not inferred here.
+   */
+  grade?: SurfaceGrade;
+  /** Measured zone that supplied mu/grade, for traces only. */
+  zoneId?: string;
+  /** Optional per-contact mu (FL, FR, RL, RR) for split-mu zones; overrides mu per wheel. */
+  wheelMu?: [number, number, number, number];
 }
 
 export type WheelId = 'front-left' | 'front-right' | 'rear-left' | 'rear-right';
@@ -141,6 +170,13 @@ export interface DynamicStepTrace {
     motionSeconds: number;
     energyBefore: number;
     energyAfter: number;
+    /** Present when the road or control changed inside the frame. */
+    road?: DynamicRoad;
+    control?: DynamicControl;
+    /** Held at rest by static friction against the slope force. */
+    staticHold?: boolean;
+    /** World-frame slope force, N; absent on a flat road. */
+    gravity?: { x: number; y: number };
   }[];
   limitations: string[];
 }

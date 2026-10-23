@@ -35,6 +35,11 @@ export function validateDynamicParameters(p: DynamicVehicleParameters): void {
   finite(p.drive.maxForce, 'drive.maxForce', 0);
   if (!['front', 'rear', 'all'].includes(p.drive.axle)) throw new Error('Динамика: неизвестный привод');
   finite(p.loadTransfer.frontRollFraction, 'frontRollFraction', 0, 1);
+  if (p.rollingResistance !== undefined) {
+    if (!p.rollingResistance || typeof p.rollingResistance !== 'object') throw new Error('Динамика: неверное сопротивление качению');
+    finite(p.rollingResistance.coefficient, 'rollingResistance.coefficient', 0, 1);
+    validateSource(p.rollingResistance.source);
+  }
   for (const source of [b.source, b.bodyCenterSource, p.tyres.source, p.brakes.source, p.drive.source, p.loadTransfer.source]) validateSource(source);
 }
 

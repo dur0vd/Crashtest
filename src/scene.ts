@@ -533,6 +533,8 @@ export interface Env {
   signalLeadMeters?: number;
   surface: SurfaceType;
   duration: number;
+  /** Motion model; absent means the legacy kinematic ('упрощённый') simulator. */
+  physics?: 'kinematic' | 'dynamic';
 }
 
 export interface Scene {
@@ -716,6 +718,7 @@ export function normalizeScene(raw: unknown): Scene {
     if (!Number.isFinite(scene.env[field]) || scene.env[field]! <= 0) delete scene.env[field];
   }
   if (!['moscow', 'saint-petersburg', 'sevastopol', 'other'].includes(scene.env.federalCity ?? '')) delete scene.env.federalCity;
+  if (!['kinematic', 'dynamic'].includes(scene.env.physics ?? '')) delete scene.env.physics;
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
     if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');

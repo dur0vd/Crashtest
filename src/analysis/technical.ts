@@ -2,6 +2,7 @@ import { passengerFacts } from '../passengers';
 import { type Geo, type RoadHit, buildGeo, roadsAt } from '../geo';
 import { type OBB, type Vec, angDiff, angleOf, rightOf, sub, add, mul, fromAngle, dot, segIntersect, toLocal, kmh, obbCorners, pointInObb, distToSegment } from '../geom';
 import { type Timeline, DT } from '../sim';
+import { AUGENSTEIN_2003_META, TEFFT_2011, TEFFT_2011_META, modeFromPdof, occupantMais3Risk, pedestrianRisk } from '../physics/injury';
 import { type Scene, type VehicleType, VEHICLES, actorLabels, actorTitle, actorSpec, dimsOf, lightPhase, SURFACES, LANE_WIDTH } from '../scene';
 import type { Info, GateEvent } from './context';
 import type { TechAssessment, HarmLevel, TechnicalSection, TechnicalCollision, Trace } from './types';
@@ -197,6 +198,30 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
+/**
+ * Probabilistic risk from published curves (stage 08/09). Occupants: Augenstein
+ * et al. 2003 (MAIS3+ vs total Δv, mode from PDOF when the impulse model gave it).
+ * Pedestrians: Tefft 2011 (AIS4+/death vs impact speed, ages 15+). No curve is
+ * applied to two-wheelers/SIM riders: no verified curve is bundled.
+ */
+function injuryRiskFor(i: Info, col: Timeline['collisions'][number], side: 'a' | 'b'): Trace {
+  const exposed = !i.isVeh || VEHICLES[i.a.type as VehicleType].exposed;
+  const dv = side === 'a' ? col.dvA : col.dvB;
+  if (!i.isVeh) {
+    const other = side === 'a' ? col.vB : col.vA, own = side === 'a' ? col.vA : col.vB;
+    const impactSpeed = Math.hypot(other.x - own.x, other.y - own.y);
+    return { curve: TEFFT_2011_META, impactSpeedMs: impactSpeed, impactSpeedNote: 'Скорость удара = модуль относительной скорости до контакта (для пешехода ≈ скорость ТС).',
+      severe: pedestrianRisk(impactSpeed, 'severe', i.a.age), death: pedestrianRisk(impactSpeed, 'death', i.a.age),
+      ageShift70vs30Mph: TEFFT_2011.ageShift70vs30, ...(i.a.age === undefined ? { ageNote: 'Возраст не задан: средний риск популяции 15+ лет.' } : {}) };
+  }
+  if (exposed) return { unsupported: 'Для водителей двухколёсных ТС/СИМ проверенная кривая риска не подключена; вероятность не рассчитывается.' };
+  const pdof = side === 'a' ? col.impact?.pdofA : col.impact?.pdofB;
+  const modes = pdof === undefined ? { modes: ['all' as const], assumption: 'PDOF не рассчитан (кинематический удар): общая модель всех режимов.' } : modeFromPdof(pdof);
+  return { curve: AUGENSTEIN_2003_META, deltaVMs: dv, pdofDeg: pdof ?? null, modeAssumption: modes.assumption,
+    values: modes.modes.map(mode => occupantMais3Risk(dv, mode)),
+    deltaVSource: col.impact ? 'Δv импульсной модели с вращением (этап 08)' : 'Δv поступательного обмена кинематического режима' };
+}
+
 /** Просвет между двумя прямоугольниками (0 при перекрытии). */
 export function gap(A: OBB, B: OBB): number {
   const ca = obbCorners(A);
@@ -290,7 +315,9 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
       const i = ctx.infos.get(id);
       if (!i) continue;
       const exposed = !i.isVeh || VEHICLES[i.a.type as VehicleType].exposed;
-      harm.push({ actorId: id, level: harmFor(i, dv, col.rel), trace: { actorId: id, dvMs: dv, relMs: col.rel, exposed, speedKmh: kmh(exposed ? col.rel : dv), thresholdsKmh: exposed ? [8, 20, 35, 50] : [10, 25, 40, 55] } });
+      harm.push({ actorId: id, level: harmFor(i, dv, col.rel), trace: { actorId: id, dvMs: dv, relMs: col.rel, exposed, speedKmh: kmh(exposed ? col.rel : dv), thresholdsKmh: exposed ? [8, 20, 35, 50] : [10, 25, 40, 55],
+        levelNote: 'Категория — прежний ориентир по порогам скорости; вероятности ниже — опубликованные популяционные кривые. Тяжесть вреда устанавливает судебно-медицинская экспертиза.',
+        injuryRisk: injuryRiskFor(i, col, id === col.a ? 'a' : 'b') } });
       const other = otherOf(ctx, otherId);
       const assessment = other ? techFor(ctx, i, other, col.frame) : null;
       if (assessment) tech.push(assessment);
@@ -309,6 +336,10 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
     'Диапазон остановочного пути рассчитан для времени реакции 0,8–1,2 с при прочих неизменных параметрах; это анализ чувствительности, а не доверительный интервал.',
     ...(scene.actors.some(a => a.type === 'sim') ? ['СИМ: физические параметры введены пользователем; массы устройства и ездока суммируются только для кинетики. Замедление масштабируется по μ/0,7, без натурной валидации.'] : []),
     'Тяжесть вреда здоровью оценена по скорости столкновения ориентировочно; её устанавливает судебно-медицинская экспертиза.',
+    ...(tl.physics?.mode === 'dynamic' ? [
+      'Движение рассчитано динамической моделью сил (env.physics=dynamic); остановочный путь ниже — аналитическая экспертная формула.',
+      ...tl.physics.assumptions,
+    ] : []),
   ];
   return ctx;
 }
@@ -323,12 +354,25 @@ export function sampleTrace(ctx: TechnicalContext, i: Info, frame: number): Trac
       massKg: i.mass, lengthM: i.hl * 2, widthM: i.hw * 2, bodyCenterOffsetM: i.shift,
       source: structuredClone(i.a.dynamics.body.source),
       dynamics: structuredClone(i.a.dynamics),
-      motionMethod: 'legacy-kinematic',
-      limitation: '07.1 supplies shared mass/geometry and a separate dynamics kernel. The scene simulator and stopping assessment remain kinematic until 07.2 integration.',
+      motionMethod: ctx.tl.physics?.methods[i.a.id] ?? 'legacy-kinematic',
+      limitation: ctx.tl.physics?.mode === 'dynamic'
+        ? 'Dynamic mode: positions/speeds from the force model with a route controller. The stopping assessment below remains the analytic expert formula, not a rerun of the force model.'
+        : 'Kinematic mode: shared mass/geometry only; the scene follows the drawn route without tyre force limits.',
     } } : {}),
+    ...(i.tr.dynamics ? { dynamicSample: dynamicSample(i.tr.dynamics, k) } : {}),
     roads: roadsAt(ctx.geo, point).map(h => ({ road: structuredClone(h.rg.road), near: h.near })),
   };
 }
+function dynamicSample(d: NonNullable<Info['tr']['dynamics']>, k: number): Trace {
+  const wheels = ['front-left', 'front-right', 'rear-left', 'rear-right'].map((id, w) => ({ id,
+    normalLoadN: d.wheelLoad[4 * k + w], fxN: d.wheelFx[4 * k + w], fyN: d.wheelFy[4 * k + w],
+    ellipseUse: d.wheelUse[4 * k + w], mode: ['rolling', 'locked', 'unloaded'][d.wheelMode[4 * k + w]] }));
+  return { vxMs: d.vx[k], vyMs: d.vy[k], yawRateRadS: d.yawRate[k], sideslipRad: d.sideslip[k],
+    steeringRad: d.steering[k], drive: d.drive[k], brake: d.brake[k], mu: d.mu[k], muKnown: !!d.muKnown[k],
+    gradeKnown: !!d.gradeKnown[k], staticHold: !!d.staticHold[k], zoneId: d.zone[k], wheels,
+    units: { force: 'N', speed: 'm/s', angle: 'rad' } };
+}
+
 export function leftmostLat(i: Info, k: number, near: RoadHit['near']): number {
   const r = rightOf(angleOf(near.tangent));
   const forward = dot(fromAngle(i.tr.h[k]), near.tangent) >= 0;

@@ -1,5 +1,32 @@
 # Источники для этапа 07: динамика транспортного средства
 
+## Дополнение parallel-physics — 2026-10-23
+
+Источники этапов 07.2–13 ветки `codex/parallel-physics`. Копии PDF получались
+во временный каталог сессии и **в репозиторий не включены** (лицензии на
+распространение текста не установлены, кроме CC BY 3.0 у Soica 2018). Хэши — для
+повторной проверки той же редакции.
+
+| Источник | Что использовано | Как проверено | Лицензия / статус |
+| --- | --- | --- | --- |
+| Coulter R.C. Implementation of the Pure Pursuit Path Tracking Algorithm, CMU-RI-TR-92-01, 1992 | геометрия pure pursuit (§2) | прочитан ранее (см. ниже) | ссылка; текст не копируется |
+| Hoffmann G.M., Tomlin C.J., Montemerlo M., Thrun S. Autonomous Automobile Trajectory Tracking for Off-Road Driving…, ACC 2007, doi:10.1109/ACC.2007.4282788 | закон Stanley δ = ψe + atan(k·e/(ks+v)) | DOI проверен через OpenAlex (W2124770562); полный текст не читался — TODO(source-check) знаков | ссылка |
+| Augenstein J., Perdeck E., Stratton J., Digges K., Bahouth G. Characteristics of crashes that increase the risk of serious injuries. Annu Proc AAAM 2003;47:561–576, PMC3217552 | логистические коэффициенты MAIS3+ от Δv (табл. 2–3) | полный текст PMC; контрольные значения при 30 миль/ч воспроизведены | © AAAM 2003; использованы только числовые коэффициенты |
+| Tefft B.C. Impact Speed and a Pedestrian's Risk of Severe Injury or Death. AAA Foundation for Traffic Safety, 09.2011 (копия rules.cityofnewyork.us, SHA-256 3deef7f75204089bf13bacc978128e7ae7e52006e2ca17e008e0d24209fc0624) | табл. 3: скорости для уровней риска 10–90 %, сдвиги 70 vs 30 лет и грузовик/легковой | текст извлечён pdftotext | использованы только опубликованные значения; коэффициентов модели в отчёте нет |
+| Becker T., Reade M., Scurlock B. Simulations of Pedestrian Impact Collisions with Virtual CRASH 3 and Comparisons with IPTM Staged Tests, arXiv:1512.00790 (SHA-256 13cd67f4c81222bb8b9d7ec5b6b9510c957ec74a876a9239d172e7af182c0644) | вывод «уравнения Searle» (ур. 33) и граница tanθ=1/μ (59° при μ=0,6) | текст извлечён; формула совпала с собственным выводом при h=0 | arXiv non-exclusive distribution: ссылка, текст не копируется |
+| Soica A. 2018 IOP Conf. Ser.: Mater. Sci. Eng. 444 072017, doi:10.1088/1757-899X/444/7/072017 (SHA-256 26abdb1df1bcbae53e5f2b40d0d96710242c82e0ceac05ac8c77969c00bdba83) | ур. (2) — формула Wood (1988) по Stevenson (2006); табл. 1 μ тела | текст извлечён; ур. (4) с «D+μh» противоречит выводу — не используется | CC BY 3.0 |
+| Wood D.P. Impact and movement of pedestrians in frontal collisions with vehicles. Proc IMechE D 202 (1988) 101–110; SAE 910814 (1991) | первоисточник Wood | **не прочитан** (paywall/403) | TODO(source-check) |
+| Searle J.A., Searle A. SAE 831622 (1983); Searle J.A. SAE 930659 (1993) | первоисточник Searle | **не прочитан** | TODO(source-check) |
+| Knoblauch R.L., Pietrucha M.T., Nitzburg M. TRR 1538 (1996) 27–38 (аннотация TRID 469376) | 15-й процентиль 1,25/0,97 м/с, проектные 1,22/0,91 м/с | аннотация; полный текст не читался | ссылка |
+| ТР ТС 018/2011, прил. 8, табл. 1.4 (транскрипция pddmaster.ru, 2026-10-22) | нормативы рабочей тормозной системы при дорожных испытаниях | транскрипция; официальный текст ЕАЭС и ГОСТ 33997-2016 (Изм. № 1, 2025) не сверены | TODO(source-check) |
+| Методические рекомендации по автотехнической экспертизе (t1, t2, t3, j) | таблицы времён | **не найдены/не подтверждены** — значения не внесены | TODO(legal-check) |
+| CRASH3 User's Guide and Technical Manual (NHTSA NCSA); Campbell K.L., SAE 740565 (1974); Strother et al., SAE 900101 (1990) | форма энергии деформации, линейная жёсткость, отказ от классовых A/B | формулы выведены интегрированием; документы не прочитаны | TODO(source-check) номера/страниц |
+| Brach R.M. Mechanical Impact Dynamics: Rigid Body Collisions, Wiley 1991 | тип импульсной модели (критическое отношение импульсов) | уравнения выведены из законов сохранения; книга не прочитана | TODO(source-check); Kudlich–Slibar не заявляется |
+| Hartley R., Zisserman A. Multiple View Geometry in Computer Vision, 2nd ed., CUP 2004, алг. 4.2 | нормализованный DLT | реализация проверена на синтетической камере | ссылка |
+| Lagarias J.C. et al. SIAM J. Optim. 9(1) 1998; Storn R., Price K. J. Global Optim. 11 (1997) | коэффициенты Nelder–Mead; DE rand/1/bin | стандартные алгоритмы, проверены на Розенброке | ссылка |
+| mulberry32 (T. Ettinger) | ГПСЧ по сиду | детерминизм проверен | public domain |
+
+
 ## Дополнение 07.1 — 2026-10-22
 
 В реализации 07.1 повторно получены закреплённые YAML 1–3, полный BSD-текст,

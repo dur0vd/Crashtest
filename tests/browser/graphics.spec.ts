@@ -28,9 +28,11 @@ test('production editor, real files, VFR frame navigation, PDF, archive, persist
   await expect(page.locator('#cv')).toBeVisible();
   await open(page);
   await tab(page, 'Параметры');
+  // Integrated build: the real PhysicsPort/RulesPort describe their inputs.
   await expect(
     page.getByText('Расчёт недоступен в этой сборке', { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByText('Режим движения').first()).toBeVisible();
   await tab(page, 'Вещественная обстановка');
   await page
     .getByLabel('Координаты [{x,y}] (м)', { exact: true })

@@ -11,3 +11,7 @@ export * from './impact';
 export * from './crash3';
 export * from './injury';
 export * from './pedestrian';
+export * from './rng';
+export * from './optimize';
+export * from './montecarlo';
+export * from './inverse';

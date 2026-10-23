@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   differentialEvolution, impactForward, mulberry32, nelderMead, percentile, quantile, reconstructImpact, reconstructScene, runMonteCarlo,
-  sample, stoppingDistance as _sd, syntheticVehicle, type ImpactProblem,
+  sample, syntheticVehicle, type ImpactProblem,
 } from '../src/physics';
 import { safeSpeed, stoppingDistance } from '../src/expert';
 import { handleMonteCarloMessage, type WorkerReply } from '../src/physics/mc-worker';
 import { emptyScene, type Actor } from '../src/scene';
-void _sd;
 
 const synthetic = { kind: 'synthetic' as const, description: 'Test fixture only' };
 

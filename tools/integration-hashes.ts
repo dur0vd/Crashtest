@@ -5,12 +5,14 @@ import { createPorts, runProject } from '../src/integration/ports';
 import { newProject } from '../src/project/model';
 import { canonical, resultJSON, sha256, utf8 } from '../src/project/canonical';
 
-const { titles, mc } = JSON.parse(process.argv[2]) as { titles: string[]; mc: Record<string, unknown> };
+const { titles, mc, fixedDate: FIXED_DATE } = JSON.parse(process.argv[2]) as { titles: string[]; mc: Record<string, unknown>; fixedDate: string };
 const ports = createPorts();
 const out: Record<string, string> = {};
 for (const title of titles) {
   const p = newProject(PRESETS.find(x => x.title === title)!.build()).project;
   p.extensions.rules = { mode: 'educational' };
+  // Presets stamp the current minute as the accident date; identical inputs need a fixed one.
+  p.scene.env.accidentDate = FIXED_DATE;
   const run = await runProject(p, ports);
   if (run.physics.status !== 'ok' || run.rules?.status !== 'ok') throw new Error(title);
   out[title] = await sha256(utf8(canonical(resultJSON({ physics: run.physics.value, rules: run.rules.value }))));

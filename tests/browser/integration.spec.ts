@@ -9,6 +9,8 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
 const OUT = 'docs/integration-verification';
+// Presets stamp the current minute as the accident date; compare identical inputs.
+const FIXED_DATE = '2026-10-22T12:00';
 const MC = { model: 'expert.braking', seed: 7, n: 2000,
   inputs: { v0: { kind: 'uniform', min: 13, max: 15 }, available: { kind: 'fixed', value: 40 }, t1: { kind: 'triangular', min: 0.6, mode: 0.8, max: 1.2 },
     t2: { kind: 'fixed', value: 0.1 }, t3: { kind: 'fixed', value: 0.35 }, j: { kind: 'normal', mean: 6.8, sd: 0.4, min: 5.5, max: 8 } } };
@@ -111,8 +113,8 @@ test('детерминизм Node ↔ Chromium: одинаковые хэши р
     return PRESETS.slice(0, 12).map((p: { title: string }) => p.title);
   }), ...TITLES];
   // Reference values from a separate Node process without DOM.
-  const node = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', 'tools/integration-hashes.ts', JSON.stringify({ titles, mc: MC })], { encoding: 'utf8', maxBuffer: 1 << 26 }));
-  const browser = await page.evaluate(async ({ titles, mc }) => {
+  const node = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', 'tools/integration-hashes.ts', JSON.stringify({ titles, mc: MC, fixedDate: FIXED_DATE })], { encoding: 'utf8', maxBuffer: 1 << 26 }));
+  const browser = await page.evaluate(async ({ titles, mc, fixedDate }) => {
     const load = (path: string) => import(/* @vite-ignore */ path);
     const { createPorts, runProject } = await load('/src/integration/ports.ts');
     const { workerMonteCarlo } = await load('/src/integration/browser.ts');
@@ -124,13 +126,14 @@ test('детерминизм Node ↔ Chromium: одинаковые хэши р
     for (const title of titles) {
       const p = newProject(PRESETS.find((x: { title: string }) => x.title === title).build()).project;
       p.extensions.rules = { mode: 'educational' };
+      p.scene.env.accidentDate = fixedDate;
       const run = await runProject(p, ports);
       out[title] = await sha256(utf8(canonical(resultJSON({ physics: run.physics.value, rules: run.rules.value }))));
     }
     const r = await ports.physics.calculate('reconstruction.monte-carlo', newProject(PRESETS[0].build()).project, mc);
     out['monte-carlo'] = await sha256(utf8(canonical(resultJSON(r.value))));
     return { out, ua: navigator.userAgent };
-  }, { titles, mc: MC });
+  }, { titles, mc: MC, fixedDate: FIXED_DATE });
   expect(browser.out).toEqual(node);
   await mkdir(OUT, { recursive: true });
   await writeFile(`${OUT}/determinism.json`, JSON.stringify({ node: process.version, chromium: browser.ua, hashes: node }, null, 2));

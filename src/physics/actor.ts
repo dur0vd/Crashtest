@@ -1,6 +1,7 @@
 import type { Actor } from '../scene';
 import type { DynamicState, DynamicVehicleParameters } from './types';
 import { finite, validateDynamicParameters } from './parameters';
+import { dm } from '../dmath';
 
 /** Also used by actorSpec/normalization: invalid dynamics never silently change mass. */
 export function validateActorDynamics(actor: Actor): void {
@@ -34,6 +35,6 @@ export function initialDynamicState(actor: Actor): DynamicState {
   if (!support.supported) throw new Error(`Динамика ${actor.id}: ${support.reason}`);
   for (const key of ['x', 'y', 'heading', 'speed'] as const) finite(actor[key], key);
   const speed = actor.speed / 3.6;
-  return { x: actor.x, y: actor.y, heading: actor.heading, vx: speed * Math.cos(actor.heading),
-    vy: speed * Math.sin(actor.heading), yawRate: 0, ax: 0, ay: 0 };
+  return { x: actor.x, y: actor.y, heading: actor.heading, vx: speed * dm.cos(actor.heading),
+    vy: speed * dm.sin(actor.heading), yawRate: 0, ax: 0, ay: 0 };
 }

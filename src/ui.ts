@@ -49,6 +49,9 @@ export interface AppApi {
   editor: Editor;
   scene: () => Scene;
   report: () => Report | null;
+  /** Режим разбора правил проекта (extensions.rules.mode); без хоста — не показывается. */
+  analysisMode?: () => 'expert' | 'educational';
+  setAnalysisMode?: (mode: 'expert' | 'educational') => void;
   /** сообщить об изменении свойств (фиксирует точку отмены) */
   edit: (fn: () => void, rebuild?: boolean) => void;
   seek: (t: number) => void;
@@ -984,6 +987,11 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
       field('Город для специальных составов КоАП', select<NonNullable<Scene['env']['federalCity']> | 'unknown'>([['unknown', 'Не установлен'], ['moscow', 'Москва'], ['saint-petersburg', 'Санкт-Петербург'], ['sevastopol', 'Севастополь'], ['other', 'Другое место']], s.env.federalCity ?? 'unknown', value => app.edit(() => { if (value === 'unknown') delete s.env.federalCity; else s.env.federalCity = value; })), 'Укажите место по исходным материалам; повышенная часть для выделенной полосы относится к Москве и Санкт-Петербургу.'),
       field('Подтверждённый календарный статус даты ДТП для 8.5', select([['unknown', 'Не установлен'], ['working', 'Рабочий день'], ['nonworking', 'Нерабочий/праздничный день']], s.env.dayStatus?.[s.env.accidentDate.slice(0, 10)] ?? 'unknown', value => app.edit(() => { const calendar = s.env.dayStatus ??= {}; const date = s.env.accidentDate.slice(0, 10); if (value === 'unknown') delete calendar[date]; else calendar[date] = value as 'working' | 'nonworking'; }))),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
+      field('Модель движения', select<'kinematic' | 'dynamic'>([['kinematic', 'Кинематическая (упрощённая, для обучения)'], ['dynamic', 'Динамическая (силы шин, удар с вращением)']], s.env.physics ?? 'kinematic',
+        value => app.edit(() => { if (value === 'kinematic') delete s.env.physics; else s.env.physics = value; })),
+        'Динамическая модель требует параметров каждого ТС (масса, Iz, шины…) в «Материалы → Параметры». Без них расчёт явно недоступен и не заменяется кинематикой.'),
+      app.analysisMode && app.setAnalysisMode ? field('Режим разбора', select<'expert' | 'educational'>([['educational', 'Учебный: упрощённые расчёты и ориентировочная правовая оценка'], ['expert', 'Экспертный: только переданные научные доказательства, без правовой оценки']], app.analysisMode(),
+        value => app.setAnalysisMode!(value)), 'Эксперт не решает правовые вопросы: в экспертном режиме правовая оценка не показывается.') : null,
       h('h3', {}, 'Редактор'),
       button('Добавить кольцевой перекрёсток', () => app.editor.addRoundabout()),
       h('small', {}, 'Кольцо и четыре въезда появятся в центре видимой карты. Знаки 4.3 можно также выбрать в каталоге знаков.'),
@@ -1378,7 +1386,10 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     }
     legal.append(card);
   }
-  root.append(legal);
+  // Expert mode: the expert does not decide legal questions (stage 14).
+  if (app.analysisMode?.() === 'expert') root.append(h('section', { class: 'report-legal' }, h('h3', {}, 'Правовая оценка выключена'),
+    h('p', {}, 'Экспертный режим: квалификация по КоАП/УК и обязанности после ДТП не показываются. Переключите «Режим разбора» во вкладке «Условия», чтобы увидеть ориентировочную правовую оценку.')));
+  else root.append(legal);
 
   // хронология
   if (rep.events.length) {

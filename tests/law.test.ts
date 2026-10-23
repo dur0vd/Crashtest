@@ -27,7 +27,12 @@ describe('база норм', () => {
     expect(used.size).toBeGreaterThan(30);
     for (const id of used) {
       const r = lawRef(id, today);
-      if (id.startsWith('gk:') || id.startsWith('osago:') || /uk:(109|118)\./.test(id)) {
+      if (id === 'osago:11.1') {
+        expect(r.revision?.validFrom).toBe('2025-07-05');
+        expect(r.source?.url).toContain('cons_doc_LAW_36528');
+        expect(r.text).toContain('Краткое изложение');
+        expect(lawRef(id, '2019-09-30').revision).toBeUndefined();
+      } else if (id.startsWith('gk:') || id.startsWith('osago:') || /uk:(109|118)\./.test(id)) {
         expect(r.warning, id).toContain('TODO(legal-check)');
         expect(r.text).toBe('');
       } else if (id === 'koap:12.9') {

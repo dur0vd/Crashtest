@@ -2,3 +2,6 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# Open validation data is downloaded by tools/fetch-validation-data.mjs, not committed
+tests/validation/data/*.json

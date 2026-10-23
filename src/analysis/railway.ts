@@ -5,6 +5,7 @@ import { DT, type Collision } from '../sim';
 import type { Ctx, Info } from './context';
 import { boxAt, posAt, sampleTrace, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
+import { dm } from '../dmath';
 
 type Add = (finding: FindingInput) => unknown;
 const SPEED_EPSILON = 0.1;
@@ -229,7 +230,7 @@ export function railwayPriority(ctx: Ctx, a: string, b: string, collision: Colli
   if (!A || !B || !A.isVeh || !B.isVeh || !!A.a.railwayTrain === !!B.a.railwayTrain) return null;
   const [train, road] = A.a.railwayTrain ? [A, B] : [B, A];
   const k = Math.max(road.k0, train.k0, collision.frame - 1);
-  const crossingCourse = Math.abs(Math.sin(road.tr.h[k] - train.tr.h[k])) > 0.3;
+  const crossingCourse = Math.abs(dm.sin(road.tr.h[k] - train.tr.h[k])) > 0.3;
   const failureEstablished = crossingCourse && road.tr.v[k] > SPEED_EPSILON && train.tr.v[k] > SPEED_EPSILON && road.a.railwayContext?.forcedStop !== true;
   const crossingIds = (ctx.scene.railwayCrossings ?? []).filter(c => pointInObb(collision.point, railwayBox(c))).map(c => c.id);
   const specialConduct = ctx.findings.some(f => f.actorId === road.a.id && f.t !== undefined && f.t <= collision.t

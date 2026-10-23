@@ -1,4 +1,5 @@
 import { finite } from './parameters';
+import { dm } from '../dmath';
 
 export interface DugoffInput {
   /** Travel-oriented (R*omega - |Vx|)/|Vx|, > -1 (rolling); negative while braking. */
@@ -34,13 +35,13 @@ export function dugoffTyre(i: DugoffInput): { fx: number; fy: number; lambda: nu
   // avoids overflow near wheel lock without altering the nonlinear formula.
   const qx = i.longitudinalStiffness * i.kappa;
   const qy = -i.corneringStiffness * i.tanAlpha;
-  const norm = Math.hypot(qx / (i.muX * i.normalLoad), qy / (i.muY * i.normalLoad));
+  const norm = dm.hypot(qx / (i.muX * i.normalLoad), qy / (i.muY * i.normalLoad));
   if (!norm) return { fx: 0, fy: 0, lambda: null, ellipseUse: 0 };
   const lambda = (1 + i.kappa) / (2 * norm);
   const gain = lambda < 1 ? (1 - lambda / 2) / norm : 1 / (1 + i.kappa);
   const fx = i.direction * qx * gain;
   const fy = qy * gain;
-  return { fx, fy, lambda, ellipseUse: Math.hypot(fx / (i.muX * i.normalLoad), fy / (i.muY * i.normalLoad)) };
+  return { fx, fy, lambda, ellipseUse: dm.hypot(fx / (i.muX * i.normalLoad), fy / (i.muY * i.normalLoad)) };
 }
 
 /** Exact inverse of the pure-slip Dugoff envelope for |force| < capacity. */
@@ -61,7 +62,7 @@ export function lockedTyre(vx: number, vy: number, normalLoad: number, muX: numb
   const speedScale = Math.max(Math.abs(vx), Math.abs(vy));
   if (!speedScale) return { fx: 0, fy: 0 };
   const nx = vx / speedScale, ny = vy / speedScale;
-  const denominator = Math.hypot(muX * nx, muY * ny);
+  const denominator = dm.hypot(muX * nx, muY * ny);
   if (!denominator) return { fx: 0, fy: 0 };
   return { fx: -normalLoad * muX ** 2 * nx / denominator, fy: -normalLoad * muY ** 2 * ny / denominator };
 }

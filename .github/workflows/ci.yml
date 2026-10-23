@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests, build, verification, security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # pdftotext: the PDF test extracts Cyrillic text and the hash from the generated report.
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Unit, integration and CLI tests
+        run: npm test
+      - name: Verification table (stage 17)
+        run: PHYSICS_VERIFICATION_OUT=verification.md npx vitest run tests/verification
+      - name: Build
+        run: npm run build
+      - name: Build audit — no unlisted external URLs (stage 18)
+        run: node tools/audit-build.mjs dist
+      - name: Security tests on the built app
+        run: npx vitest run tests/security.test.ts
+      - name: Dependency audit — runtime dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Dependency audit — all dependencies, high and critical
+        run: npm audit --audit-level=high
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verification-table
+          path: verification.md
+
+  browser:
+    name: Chromium end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:browser
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            /tmp/crashtest-graphics-playwright
+            docs/integration-verification/determinism-diff.json

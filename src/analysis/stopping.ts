@@ -8,6 +8,7 @@ import type { Ctx, Info } from './context';
 import { regularRoute, routeSignException } from './route-transport';
 import { boxAt, posAt, sampleTrace, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
+import { dm } from '../dmath';
 
 export type Known = boolean | null;
 type Add = (f: FindingInput) => unknown;
@@ -123,7 +124,7 @@ export function parkingSignZone(ctx: Ctx, i: Info, sign: Sign, frame: number, ig
   if (Math.abs(near.d) < EPS || Math.abs(body.d) < EPS) return null;
   if (!ignoreSide && near.d * body.d < 0) return false;
   const dir = dot(fromAngle(sign.angle), near.tangent) >= 0 ? 1 : -1;
-  if (Math.abs(angDiff(sign.angle, Math.atan2(near.tangent.y, near.tangent.x) + (dir < 0 ? Math.PI : 0))) > 0.6) return null;
+  if (Math.abs(angDiff(sign.angle, dm.atan2(near.tangent.y, near.tangent.x) + (dir < 0 ? Math.PI : 0))) > 0.6) return null;
   const stations = obbCorners(boxAt(i, frame)).map(point => nearestOnPolyline(road.pts, point).s * dir);
   const station = Math.max(...stations), bodyStart = Math.min(...stations), start = near.s * dir;
   const plates = sign.plates ?? [], custom = sign.stopRule;
@@ -279,13 +280,13 @@ function placeRules(ctx: Ctx, i: Info, frame: number): PlaceRule[] {
   for (const m of ctx.scene.markings.filter(m => /^1\.16\./.test(m.kind))) if (m.pts.length >= 3 && bodyDistance(i, frame, m.pts) <= EPS) add('general', 'остановка на направляющем островке/островке безопасности', true, '12.4', { markingId: m.id });
   if (c?.clearanceMeters !== undefined) add('general', 'свободный зазор до сплошной/разделителя/противоположного края менее 3 м', less(c.clearanceMeters, 3), '12.4', { clearanceMeters: c.clearanceMeters, measured: true });
   if (c?.clearanceMeters === undefined && road && onRoad === true) {
-    const heading = Math.atan2(road.n.tangent.y, road.n.tangent.x);
-    if (Math.abs(Math.sin(i.tr.h[frame] - heading)) < 0.15) {
+    const heading = dm.atan2(road.n.tangent.y, road.n.tangent.x);
+    if (Math.abs(dm.sin(i.tr.h[frame] - heading)) < 0.15) {
       const candidates: { basis: string; distance: number }[] = [];
       if (!road.r.road.oneWay && ['solid', 'double'].includes(road.r.road.center)) candidates.push({ basis: `road:${road.r.road.id}:solid-axis`, distance: bodyDistance(i, frame, road.r.pts, false) });
       for (const m of ctx.scene.markings.filter(m => ['1.1', '1.3', '1.11'].includes(m.kind) && m.pts.length >= 2)) {
         const n = nearestOnPolyline(m.pts, p);
-        if (!n.beyond && Math.abs(Math.sin(Math.atan2(n.tangent.y, n.tangent.x) - heading)) < 0.15) candidates.push({ basis: `marking:${m.id}`, distance: bodyDistance(i, frame, m.pts, false) });
+        if (!n.beyond && Math.abs(dm.sin(dm.atan2(n.tangent.y, n.tangent.x) - heading)) < 0.15) candidates.push({ basis: `marking:${m.id}`, distance: bodyDistance(i, frame, m.pts, false) });
       }
       if (Math.abs(road.n.d) > EPS) candidates.push({ basis: 'opposite-carriageway-edge', distance: bodyDistance(i, frame, road.n.d > 0 ? road.r.left : road.r.right, false) });
       if (candidates.length) {
@@ -382,10 +383,10 @@ function personalChecks(i: Info, parked: Known, frame: number, add: Add): void {
   const emit = (ref: string, title: string, complied: Known, trace: Trace) => add({ actorId: i.a.id, severity: complied === true ? 'info' : complied === false ? 'violation' : 'contributing', t: tOf(frame), causal: false,
     title, detail: 'Оцениваются явно установленные обстоятельства. Отдельная геометрия двери и контакт с ней не моделируются. Субъект и состав ответственности требуют юридической проверки.', refs: [`pdd:${ref}`],
     trace: { stopping: true, personalDuty: true, ...trace, compliance: complied === true ? 'выполнено' : complied === false ? 'не выполнено' : 'не определить', legalCheck: 'TODO(legal-check): субъект и состав за дверь/уход водителя/оставление ребёнка; водительская 12.19 автоматически не назначается', doorGeometryModeled: false } });
-  if (d?.opened === true) emit('12.7', 'открывание двери с учётом помехи другим участникам', not(known(d.createsObstruction)), { doorContext: structuredClone(d), contactProven: false });
+  if (d?.opened === true) emit('12.7', 'открывание двери с учётом помехи другим участникам', not(known(d.createsObstruction)), { personalDutyKind: 'door', doorContext: structuredClone(d), contactProven: false });
   if (c?.driverLeft === true) {
-    emit('12.8', 'меры против самопроизвольного движения и использования без водителя', and(known(c.rollawaySecured), known(c.unauthorizedUsePrevented)), { stopContext: structuredClone(c) });
-    if (c.childUnder7Present === true) emit('12.8', 'ребёнок младше 7 лет при стоянке остаётся со взрослым', parked === true ? known(c.adultPresent) : parked === null ? null : true, { parked, stopContext: structuredClone(c) });
+    emit('12.8', 'меры против самопроизвольного движения и использования без водителя', and(known(c.rollawaySecured), known(c.unauthorizedUsePrevented)), { personalDutyKind: 'driver-left', stopContext: structuredClone(c) });
+    if (c.childUnder7Present === true) emit('12.8', 'ребёнок младше 7 лет при стоянке остаётся со взрослым', parked === true ? known(c.adultPresent) : parked === null ? null : true, { personalDutyKind: 'child-left', parked, stopContext: structuredClone(c) });
   }
 }
 

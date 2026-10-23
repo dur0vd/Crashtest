@@ -5,6 +5,7 @@ import { DT, type Collision } from '../sim';
 import type { Ctx, Info } from './context';
 import { posAt, sampleTrace, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
+import { dm } from '../dmath';
 
 type Add = (finding: FindingInput) => unknown;
 // Bounds of the observation algorithm, not distances or times prescribed by 3.2/3.3.
@@ -178,7 +179,7 @@ function checkEncounter(ctx: Ctx, special: Info, other: Info, frame: number, add
   const contactFrame = contact ? Math.max(other.k0, special.k0, contact.frame - 1) : frame;
   // A rear impact does not prove that the leading driver had room to clear a
   // lane. A moving cross-course entry provides a separate observed conflict.
-  const observedFailure = !!contact && Math.abs(Math.sin(other.tr.h[contactFrame] - special.tr.h[contactFrame])) > 0.5
+  const observedFailure = !!contact && Math.abs(dm.sin(other.tr.h[contactFrame] - special.tr.h[contactFrame])) > 0.5
     && other.tr.v[contactFrame] > STATIONARY_SPEED;
   const contradictedYield = interaction?.yielded === true && observedFailure;
   const notYielded = interaction?.yielded === false || observedFailure;
@@ -277,7 +278,7 @@ function specialPassing(ctx: Ctx, add: Add): void {
         const road = commonRoad(ctx, special, other, firstOpposing >= 0 ? firstOpposing : behind)?.first.rg.road;
         const returnHit = last && road && roadsAt(ctx.geo, last).find(hit => hit.rg.road.id === road.id);
         const plannedReturn = last && returnHit && !road.oneWay
-          && Math.abs(angDiff(special.tr.h[behind], Math.atan2(last.y - previous.y, last.x - previous.x))) < 0.35
+          && Math.abs(angDiff(special.tr.h[behind], dm.atan2(last.y - previous.y, last.x - previous.x))) < 0.35
           && lateralFor(returnHit.near, special.tr.h[behind]).lat >= other.hw;
         if (!opposing || !plannedReturn || maximumLongitudinal - initialLongitudinal < 1) continue;
       }

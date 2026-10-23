@@ -1,6 +1,7 @@
 import type { Collision } from '../sim';
 import type { PriorityGraph } from './intersections';
 import type { LawRef } from '../law';
+import type { CalculationRecord, JsonObject } from '../parallel/contracts';
 
 export type Severity = 'violation' | 'contributing' | 'info';
 
@@ -121,6 +122,8 @@ export interface TechnicalCollision {
   trace: Trace;
 }
 export interface TechnicalSection {
+  calculations?: CalculationRecord[];
+  scientific?: JsonObject;
   nearMisses: { a: string; b: string; frame: number; t: number; gap: number; trace: Trace }[];
   overtakes: { overtaker: string; overtaken: string; frame: number; trace: Trace }[];
   points: TechnicalPoint[];

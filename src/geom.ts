@@ -1,3 +1,4 @@
+import { dm } from './dmath';
 // Геометрия сцены. Единицы: метры и радианы. Ось Y направлена вниз (как на экране),
 // поэтому «вправо по ходу движения» для направления a — это вектор (-sin a, cos a).
 
@@ -12,12 +13,12 @@ export const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 export const mul = (a: Vec, k: number): Vec => ({ x: a.x * k, y: a.y * k });
 export const dot = (a: Vec, b: Vec): number => a.x * b.x + a.y * b.y;
 export const cross = (a: Vec, b: Vec): number => a.x * b.y - a.y * b.x;
-export const len = (a: Vec): number => Math.hypot(a.x, a.y);
-export const dist = (a: Vec, b: Vec): number => Math.hypot(a.x - b.x, a.y - b.y);
+export const len = (a: Vec): number => dm.hypot(a.x, a.y);
+export const dist = (a: Vec, b: Vec): number => dm.hypot(a.x - b.x, a.y - b.y);
 export const lerp = (a: Vec, b: Vec, t: number): Vec => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-export const fromAngle = (a: number): Vec => ({ x: Math.cos(a), y: Math.sin(a) });
-export const angleOf = (a: Vec): number => Math.atan2(a.y, a.x);
-export const rightOf = (a: number): Vec => ({ x: -Math.sin(a), y: Math.cos(a) });
+export const fromAngle = (a: number): Vec => ({ x: dm.cos(a), y: dm.sin(a) });
+export const angleOf = (a: Vec): number => dm.atan2(a.y, a.x);
+export const rightOf = (a: number): Vec => ({ x: -dm.sin(a), y: dm.cos(a) });
 export const norm = (a: Vec): Vec => {
   const l = len(a);
   return l < 1e-9 ? { x: 1, y: 0 } : { x: a.x / l, y: a.y / l };
@@ -321,13 +322,13 @@ export function filletPolyline(pts: Vec[], radius: number, steps = 12): Vec[] {
     const a = mul(toPrev, 1 / lp);
     const b = mul(toNext, 1 / ln);
     const cosInt = clamp(dot(a, b), -1, 1);
-    const interior = Math.acos(cosInt); // угол между отрезками
+    const interior = dm.acos(cosInt); // угол между отрезками
     if (interior > Math.PI - 0.02 || interior < 0.02) {
       out.push(v); // почти прямая или разворот на месте
       continue;
     }
     // длина касательной от вершины до начала дуги
-    let t = radius / Math.tan(interior / 2);
+    let t = radius / dm.tan(interior / 2);
     t = Math.min(t, lp * 0.5, ln * 0.5);
     const p0 = add(v, mul(a, t));
     const p1 = add(v, mul(b, t));

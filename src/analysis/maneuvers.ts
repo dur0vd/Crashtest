@@ -9,6 +9,7 @@ import { boxAt, posAt, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
 import { railwayBox } from './railway';
 import { regularRoute, routePriority } from './route-transport';
+import { dm } from '../dmath';
 
 /** Observation tolerances, not statutory dimensions or times. */
 const TURN_START_ANGLE = 0.12;
@@ -47,7 +48,7 @@ function observedTurn(ctx: Ctx, i: Info, start: number, end: number, heading: nu
   // local centre line differs, so measure the observed displacement in the
   // incoming vehicle frame rather than subtracting two unrelated road offsets.
   const parallelTransition = startHit && endHit
-    && Math.abs(Math.sin(angDiff(angleOf(startHit.near.tangent), angleOf(endHit.near.tangent)))) < Math.sin(0.2);
+    && Math.abs(dm.sin(angDiff(angleOf(startHit.near.tangent), angleOf(endHit.near.tangent)))) < dm.sin(0.2);
   const latChange = startHit && endHit && startHit.rg.road.id === endHit.rg.road.id
     ? localLat(i, end, endHit) - localLat(i, start, startHit)
     : parallelTransition ? toLocal(posAt(i, end), { cx: i.tr.x[start], cy: i.tr.y[start], a: heading }).y : 0;
@@ -101,7 +102,7 @@ export function observedManeuvers(ctx: Ctx, i: Info): ObservedManeuver[] {
     for (; end < i.kEnd; end++) {
       if (reverseAt(i, end + 1)) break;
       const currentHit = atRoad(ctx, i, end);
-      const aligned = !currentHit || Math.abs(Math.sin(angDiff(angleOf(currentHit.near.tangent), i.tr.h[end]))) < Math.sin(TURN_START_ANGLE);
+      const aligned = !currentHit || Math.abs(dm.sin(angDiff(angleOf(currentHit.near.tangent), i.tr.h[end]))) < dm.sin(TURN_START_ANGLE);
       stable = aligned && Math.abs(angDiff(i.tr.h[end], i.tr.h[end + 1])) < 0.003 ? stable + 1 : 0;
       if (stable >= stableFrames) break;
     }
@@ -357,7 +358,7 @@ function passages(ctx: Ctx): Passage[] {
       // A prohibited overtake may be aborted without contact or a completed pass.
       // Distinguish an excursion to pass a leader from a planned turn away.
       const last = A.a.path.at(-1), previous = A.a.path.at(-2) ?? A.a;
-      const plannedStraight = last && Math.abs(angDiff(A.tr.h[start], Math.atan2(last.y - previous.y, last.x - previous.x))) < 0.35;
+      const plannedStraight = last && Math.abs(angDiff(A.tr.h[start], dm.atan2(last.y - previous.y, last.x - previous.x))) < 0.35;
       if (!opposing || !plannedStraight && !hasContact(ctx, A.a.id, B.a.id, start, end)) continue;
       pass = lastOpposing;
     }
@@ -409,10 +410,10 @@ function overtakeChecks(ctx: Ctx, add: Add): void {
         }));
         const beforeMeasuredRail = ctx.scene.railwayCrossings?.some(c => {
           const delta = c.angle - A.tr.h[k];
-          if (Math.abs(Math.sin(delta)) > 0.3) return false;
+          if (Math.abs(dm.sin(delta)) > 0.3) return false;
           const local = toLocal(c, { cx: A.tr.x[k], cy: A.tr.y[k], a: A.tr.h[k] });
-          const along = Math.abs(Math.cos(delta)) * c.length / 2 + Math.abs(Math.sin(delta)) * c.width / 2;
-          const across = Math.abs(Math.cos(delta)) * c.width / 2 + Math.abs(Math.sin(delta)) * c.length / 2;
+          const along = Math.abs(dm.cos(delta)) * c.length / 2 + Math.abs(dm.sin(delta)) * c.width / 2;
+          const across = Math.abs(dm.cos(delta)) * c.width / 2 + Math.abs(dm.sin(delta)) * c.length / 2;
           const remaining = local.x - along - A.hl;
           return remaining >= 0 && remaining <= 100 && Math.abs(local.y) <= across + A.hw;
         });

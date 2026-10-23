@@ -19,7 +19,6 @@ import {
 } from './scene';
 import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
-import { DT } from './sim';
 import { vehicleSignalAt } from './maneuver-signals';
 import { effectiveRouteLaneStations } from './analysis/route-transport';
 
@@ -1103,7 +1102,7 @@ export class Renderer {
     if (v.mode === 'play' && v.tl) {
       const tr = v.tl.tracks.get(a.id);
       if (tr) {
-        const k = Math.min(v.tl.n - 1, Math.max(0, Math.round(v.t / DT)));
+        const k = Math.min(v.tl.n - 1, Math.max(0, Math.round(v.t / v.tl.dt)));
         return { p: { x: tr.x[k], y: tr.y[k] }, h: tr.h[k], present: !!tr.present[k], free: !!tr.free[k] };
       }
     }
@@ -1290,7 +1289,7 @@ export class Renderer {
   private drawTrails(v: ViewState): void {
     if (v.mode !== 'play' || !v.tl) return;
     const { ctx } = this;
-    const kNow = Math.min(v.tl.n - 1, Math.round(v.t / DT));
+    const kNow = Math.min(v.tl.n - 1, Math.round(v.t / v.tl.dt));
     for (const a of v.scene.actors) {
       const tr = v.tl.tracks.get(a.id);
       if (!tr) continue;
@@ -1608,7 +1607,7 @@ export class Renderer {
     }
     // скорость в режиме воспроизведения
     if (v.mode === 'play' && v.tl) {
-      const k = Math.min(v.tl.n - 1, Math.round(v.t / DT));
+      const k = Math.min(v.tl.n - 1, Math.round(v.t / v.tl.dt));
       ctx.textBaseline = 'top';
       for (const a of v.scene.actors) {
         const tr = v.tl.tracks.get(a.id);

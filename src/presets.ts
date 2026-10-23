@@ -19,6 +19,7 @@ import {
   VEHICLES,
   emptyScene,
 } from './scene';
+import { dm } from './dmath';
 
 // Небольшой конструктор сцен для готовых примеров.
 
@@ -171,9 +172,9 @@ export interface Preset {
 
 /** A stopped waypoint records the actual wait before entry, rather than hiding the participant. */
 function waitBeforeEntry(a: Actor, seconds = 8): void {
-  const dx = Math.cos(a.heading);
-  const dy = Math.sin(a.heading);
-  const distance = Math.max(0, Math.hypot(a.x, a.y) - 11);
+  const dx = dm.cos(a.heading);
+  const dy = dm.sin(a.heading);
+  const distance = Math.max(0, dm.hypot(a.x, a.y) - 11);
   a.path.unshift({ x: a.x + dx * distance, y: a.y + dy * distance, v: 0, hold: seconds });
 }
 
@@ -215,7 +216,7 @@ function circleEntry(title: string, compliant: boolean): Scene {
   // At the west arm the circle travels south: the island remains on the driver's left.
   const ring: [number, number][] = Array.from({ length: 33 }, (_, k) => {
     const a = -Math.PI / 2 - k * Math.PI / 16;
-    return [20 * Math.cos(a), 20 * Math.sin(a)];
+    return [20 * dm.cos(a), 20 * dm.sin(a)];
   });
   b.road(ring, { oneWay: true, center: 'none', role: 'roundabout' })
     .road([[-85, 0], [-20, 0]], { role: 'road' })

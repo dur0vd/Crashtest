@@ -1,5 +1,6 @@
 import { angDiff, type Vec } from './geom';
 import type { Actor, Waypoint } from './scene';
+import { dm } from './dmath';
 
 export type VehicleSignal = 'none' | 'left' | 'right' | 'hazard';
 export type SignalSource = 'explicit' | 'observed' | 'estimate' | 'none';
@@ -63,7 +64,7 @@ function estimatedWaypointTimes(actor: Actor): (number | null)[] {
   let point: Vec = actor;
   let speed = Number.isFinite(actor.speed) ? Math.abs(actor.speed) / 3.6 : 0;
   for (const waypoint of actor.path) {
-    const distance = Math.hypot(waypoint.x - point.x, waypoint.y - point.y);
+    const distance = dm.hypot(waypoint.x - point.x, waypoint.y - point.y);
     const nextSpeed = Number.isFinite(waypoint.v) ? Math.abs(waypoint.v) / 3.6 : 0;
     const meanSpeed = (speed + nextSpeed) / 2;
     if (time !== null) {
@@ -134,8 +135,8 @@ function directionForSegment(actor: Actor, segmentIndex: number): number {
 function segmentHeading(actor: Actor, segmentIndex: number): number | null {
   const start: Vec = segmentIndex === 0 ? actor : actor.path[segmentIndex - 1];
   const end: Vec = actor.path[segmentIndex];
-  if (!start || !end || Math.hypot(end.x - start.x, end.y - start.y) < 1e-7) return null;
-  const heading = Math.atan2(end.y - start.y, end.x - start.x);
+  if (!start || !end || dm.hypot(end.x - start.x, end.y - start.y) < 1e-7) return null;
+  const heading = dm.atan2(end.y - start.y, end.x - start.x);
   return heading + (directionForSegment(actor, segmentIndex) < 0 ? Math.PI : 0);
 }
 
@@ -191,7 +192,7 @@ function timeBeforeRouteDistance(actor: Actor, waypointIndex: number, maneuverTi
   for (let index = waypointIndex; index >= 0; index--) {
     const start = index === 0 ? actor : actor.path[index - 1];
     const end = actor.path[index];
-    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const length = dm.hypot(end.x - start.x, end.y - start.y);
     if (!Number.isFinite(length)) return null;
     const startTime = index === 0 ? delay : times[index - 1];
     const endTime = index === waypointIndex ? maneuverTime : times[index];

@@ -1,5 +1,6 @@
 import { angDiff } from './geom';
 import { lightPhase, type MobilitySurface, type Movement, type TrafficLight } from './scene';
+import { dm } from './dmath';
 
 export interface MovementPermission {
   /** Whether this control determines the intersection's traffic order (13.3).
@@ -126,11 +127,11 @@ function controllerPermission(light: TrafficLight, actor: DirectedActor, movemen
     'Рука поднята вверх: движение запрещено, кроме случая п. 6.14.');
   if (actor.type === 'sim' || actor.type === 'scooter' || actor.kind === 'pedestrian') {
     if (!Number.isFinite(actor.heading) || !Number.isFinite(light.angle)) return result(true, null, refs, 'Направление движения не установлено.');
-    const acrossSides = Math.abs(Math.cos(angDiff(light.angle, actor.heading))) < 0.15;
+    const acrossSides = Math.abs(dm.cos(angDiff(light.angle, actor.heading))) < 0.15;
     if (light.controllerGesture === 'arms-out') return result(true, acrossSides, refs, 'Пешеходный сигнал: переход со стороны левого и правого бока; СИМ следует ему по 6.10.');
     if (!acrossSides) return result(true, false, refs, 'Переход не проходит за спиной регулировщика.');
     if (!Number.isFinite(actor.x) || !Number.isFinite(actor.y)) return result(true, null, refs, 'Для перехода за спиной нужны координаты пути.');
-    const behind = (actor.x! - light.x) * Math.cos(light.angle) + (actor.y! - light.y) * Math.sin(light.angle);
+    const behind = (actor.x! - light.x) * dm.cos(light.angle) + (actor.y! - light.y) * dm.sin(light.angle);
     return result(true, Math.abs(behind) < 0.1 ? null : behind < 0, refs, 'Пешеходный сигнал: переход только за спиной регулировщика; положение на границе неопределённо.');
   }
   if (movement === 'unknown' || !Number.isFinite(actor.heading) || !Number.isFinite(light.angle)) return result(true, null, refs,

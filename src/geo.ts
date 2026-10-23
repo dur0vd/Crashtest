@@ -20,6 +20,7 @@ import {
 } from './geom';
 import type { Actor, Crosswalk, EdgePt, Movement, Obstacle, Road, Scene, Sidewalk, Sign, TrafficLight, TramTrack } from './scene';
 import { roadWidth } from './scene';
+import { dm } from './dmath';
 
 /** Расстояние, на которое знак «простреливает» поперёк дороги влево от своей опоры. */
 export const SIGN_REACH = 14;
@@ -192,7 +193,7 @@ export function buildRoadGeo(road: Road): RoadGeo {
     const r1 = rightOf(angleOf(t1));
     const r2 = rightOf(angleOf(t2));
     let n = { x: r1.x + r2.x, y: r1.y + r2.y };
-    const l = Math.hypot(n.x, n.y);
+    const l = dm.hypot(n.x, n.y);
     if (l < 1e-6) n = r1;
     else {
       const cos = Math.max(0.35, l / 2);
@@ -331,7 +332,7 @@ function intersectionNodes(roads: RoadGeo[]): IntersectionNode[] {
       for (const station of [0, endRoad.total]) {
         const endpoint = frameAtStation(endRoad.pts, endRoad.cum, station);
         const near = nearestOnPolyline(throughRoad.pts, endpoint.p);
-        const sin = Math.abs(Math.cos(endpoint.a) * near.tangent.y - Math.sin(endpoint.a) * near.tangent.x);
+        const sin = Math.abs(dm.cos(endpoint.a) * near.tangent.y - dm.sin(endpoint.a) * near.tangent.x);
         const w = widthsAt(throughRoad, near.s);
         if (!near.beyond && sin > 0.3 && near.dist <= (near.d >= 0 ? w.r : w.l) + 0.05) push(near.point);
       }
@@ -479,7 +480,7 @@ export function classifyIntersectionMovement(geo: Geo, actor: Actor, junction: I
   for (let i = 1; i < points.length && !exit; i++) {
     const start = points[i - 1];
     const delta = sub(points[i], start);
-    const length = Math.hypot(delta.x, delta.y);
+    const length = dm.hypot(delta.x, delta.y);
     const crossings = junction.boundary.flatMap((a, n) => {
       const hit = segIntersect(start, points[i], a, junction.boundary[(n + 1) % junction.boundary.length]);
       return hit ? [hit.t] : [];
@@ -505,7 +506,7 @@ export function classifyIntersectionMovement(geo: Geo, actor: Actor, junction: I
       if (dist(points[i - 1], junction.center) > nearbyLimit) continue;
       const heading = angleOf(sub(points[i], points[i - 1]));
       const hit = roadsAt(geo, points[i - 1], 0.3).filter(r => junction.roadIds.includes(r.rg.road.id))
-        .sort((a, b) => Math.abs(Math.sin(angDiff(angleOf(a.near.tangent), heading))) - Math.abs(Math.sin(angDiff(angleOf(b.near.tangent), heading))))[0];
+        .sort((a, b) => Math.abs(dm.sin(angDiff(angleOf(a.near.tangent), heading))) - Math.abs(dm.sin(angDiff(angleOf(b.near.tangent), heading))))[0];
       if (!hit) continue;
       const roadHeading = angleOf(hit.near.tangent);
       observations.push({ roadId: hit.rg.road.id, heading: dot(fromAngle(heading), hit.near.tangent) >= 0 ? roadHeading : roadHeading + Math.PI });
@@ -534,7 +535,7 @@ export function classifyIntersectionMovement(geo: Geo, actor: Actor, junction: I
   const delta = angDiff(entryHeading, exitHeading);
   const roadAt = (p: Vec, heading: number) => roadsAt(geo, p, 0.5)
     .filter(r => junction.roadIds.includes(r.rg.road.id))
-    .sort((a, b) => Math.abs(Math.sin(angDiff(angleOf(a.near.tangent), heading))) - Math.abs(Math.sin(angDiff(angleOf(b.near.tangent), heading))))[0]?.rg.road.id;
+    .sort((a, b) => Math.abs(dm.sin(angDiff(angleOf(a.near.tangent), heading))) - Math.abs(dm.sin(angDiff(angleOf(b.near.tangent), heading))))[0]?.rg.road.id;
   return { maneuver: Math.abs(delta) < Math.PI / 4 ? 'straight' : Math.abs(delta) > Math.PI * 3 / 4 ? 'uturn' : delta > 0 ? 'right' : 'left',
     entryHeading, exitHeading,
     entryRoadId: entryApproach?.roadId ?? roadAt(entry.point, entryHeading),

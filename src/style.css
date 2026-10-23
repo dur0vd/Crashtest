@@ -1036,3 +1036,5 @@ button {
 
 .trace pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: 11px; }
 .person.insufficient-data { border-color: var(--muted); }
+
+.modal.ct-wide .modal-card{width:min(1240px,98vw);max-width:98vw;padding:0;max-height:94dvh;background:#f5f8fa}.modal.ct-wide #modalClose{position:sticky;top:4px;float:right;z-index:3;color:#12344c;background:#fff;border:1px solid #7c9bad;margin:8px}.modal.ct-wide #modalBody{clear:both}

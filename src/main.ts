@@ -1,30 +1,28 @@
 import './style.css';
-import { analyze, type Report } from './analysis';
+import type { Report } from './analysis';
 import { type Tool, Editor, POLY_TOOLS } from './editor';
 import { clamp } from './geom';
 import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
-import { DT, type Timeline, simulate } from './sim';
+import { DT, type Timeline } from './sim';
 import { DISCLAIMER } from './law';
 import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
+import { inputHash, newProject, ProjectHistory, type ProjectFile, type Versions } from './project/model';
+import { createPorts, currentVersions, issueText, rulesMode, runProject, type RulesMode } from './integration/ports';
+import type { FeatureResult, PhysicsOutput } from './parallel/contracts';
+import { workerMonteCarlo } from './integration/browser';
+import { resultJSON } from './project/canonical';
+import { loadLocal, saveLocal } from './project/storage';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
 
 // ---------------------------------------------------------------------------
 // Загрузка и сохранение
-
-function encodeShare(scene: Scene): string {
-  const json = JSON.stringify(scene);
-  const bytes = new TextEncoder().encode(json);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
 
 function decodeShare(s: string): Scene {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
@@ -58,6 +56,26 @@ function loadInitial(): Scene {
 const canvas = $<HTMLCanvasElement>('cv');
 const renderer = new Renderer(canvas);
 const editor = new Editor(loadInitial(), canvas, renderer);
+let currentFile:ProjectFile=newProject(editor.scene);
+let hostHistory=new ProjectHistory(currentFile);
+let workbenchInstance:{destroy():void}|undefined;
+// Real physics and rules ports: the same instances serve ▶, the workbench and saved results.
+const ports = createPorts({ monteCarlo: typeof Worker === 'undefined' ? undefined : workerMonteCarlo });
+let versions: Versions | undefined;
+const versionsReady = currentVersions().then((v) => { versions = v; if (currentFile.versions.engine === 'unavailable') currentFile.versions = v; return v; });
+/** A new situation from the main canvas is an explicit educational analysis; the selector switches it. */
+function newSituation(s: Scene): void {
+  currentFile = newProject(s);
+  currentFile.project.extensions.rules.mode = 'educational';
+  if (versions) currentFile.versions = versions;
+  hostHistory = new ProjectHistory(currentFile);
+  loadScene(s);
+}
+function syncProject(): void {
+  const project = structuredClone(currentFile.project);
+  project.scene = resultJSON(editor.scene) as Scene;
+  hostHistory.change(project, 'Правка сцены');
+}
 
 let mode: 'edit' | 'play' = 'edit';
 let t = 0;
@@ -75,6 +93,15 @@ const api: AppApi = {
   editor,
   scene: () => editor.scene,
   report: () => report,
+  analysisMode: () => rulesMode(currentFile.project),
+  setAnalysisMode(next: RulesMode) {
+    syncProject();
+    const project = structuredClone(currentFile.project);
+    project.extensions.rules = { ...project.extensions.rules, mode: next };
+    hostHistory.change(project, `Режим разбора: ${next}`);
+    invalidate();
+    save();
+  },
   edit(fn, rebuild) {
     editor.checkpoint();
     fn();
@@ -83,13 +110,15 @@ const api: AppApi = {
     updateHint();
   },
   seek(time) {
-    if (!tl) runSim(false);
-    if (!tl) return;
-    enterPlay();
-    playing = false;
-    t = clamp(time - 0.3, 0, tl.duration);
-    syncPlayer();
-    dirty = true;
+    void (async () => {
+      if (!tl && !(await runSim(false))) return;
+      if (!tl) return;
+      enterPlay();
+      playing = false;
+      t = clamp(time - 0.3, 0, tl.duration);
+      syncPlayer();
+      dirty = true;
+    })();
   },
   focus(id) {
     focus = id;
@@ -104,6 +133,7 @@ function invalidate(): void {
   if (tl || report || mode === 'play') {
     tl = null;
     report = null;
+    rulesProblem = null;
     mode = 'edit';
     playing = false;
     editor.locked.value = false;
@@ -129,20 +159,45 @@ function leavePlay(): void {
   dirty = true;
 }
 
-function runSim(start = true): void {
+let runToken = 0;
+let rulesProblem: string | null = null;
+
+/** Physics did not produce a Timeline: say so explicitly, never fall back to another model. */
+function showPhysicsProblem(result: FeatureResult<PhysicsOutput>): void {
+  const title = result.status === 'unsupported' ? 'Расчёт в выбранном режиме не поддерживается'
+    : result.status === 'insufficient-data' ? 'Недостаточно данных для расчёта' : 'Расчёт не выполнен';
+  showModal(h('div', { class: 'doc' }, h('h2', {}, title),
+    h('p', {}, 'Сцена не просчитана. Упрощённая кинематика не подставляется вместо выбранного режима.'),
+    h('ul', {}, ...result.issues.map((i) => h('li', {}, i.message, i.path ? h('small', {}, ` (${i.path})`) : null))),
+    h('p', { class: 'note' }, 'Параметры ТС, зоны и тормозные характеристики задаются в разделе «Материалы, проекты и мобильный комиссар» → «Параметры»; модель движения — во вкладке «Условия».')));
+}
+
+async function runSim(start = true): Promise<boolean> {
   if (editor.tool === 'path' || editor.drawing?.pts.length) editor.finishDrawing();
   if (!editor.scene.actors.length) {
     toast('Сначала добавьте на сцену транспорт или пешехода');
-    return;
+    return false;
   }
+  const token = ++runToken;
   try {
-    const timeline = simulate(editor.scene);
-    const result = analyze(editor.scene, timeline);
-    tl = timeline;
-    report = result;
+    syncProject();
+    const project = structuredClone(currentFile.project);
+    const run = await runProject(project, ports);
+    if (token !== runToken) return false;
+    if (run.physics.status !== 'ok') {
+      showPhysicsProblem(run.physics);
+      return false;
+    }
+    tl = run.physics.value.timeline;
+    report = run.rules?.status === 'ok' ? run.rules.value : null;
+    rulesProblem = run.rules && run.rules.status !== 'ok' ? `Разбор по правилам не выполнен (${run.rules.status}): ${issueText(run.rules.issues)}` : null;
+    // Saved results are bound to the exact inputs and engine versions they were computed with.
+    currentFile.savedResults = resultJSON({ physics: run.physics.value, rules: report }) as never;
+    currentFile.resultInputHash = await inputHash(project);
+    currentFile.versions = await versionsReady;
   } catch (error) {
     toast(error instanceof Error ? error.message : 'Не удалось рассчитать сцену');
-    return;
+    return false;
   }
   enterPlay();
   t = 0;
@@ -151,12 +206,15 @@ function runSim(start = true): void {
   syncFollow();
   openedReport = false;
   buildReport($('pane-report'), api);
+  if (rulesProblem) $('pane-report').prepend(h('div', { class: 'summary bad' }, h('h3', {}, 'Разбор недоступен'), h('p', {}, rulesProblem)));
   const badge = $('repBadge');
-  badge.textContent = report.hasCollision ? '!' : '✓';
-  badge.className = `badge ${report.hasCollision ? 'bad' : 'ok'}`;
+  const collision = tl.collisions.length > 0;
+  badge.textContent = collision ? '!' : report ? '✓' : '?';
+  badge.className = `badge ${collision || !report ? 'bad' : 'ok'}`;
   if (!isMobile()) showTab('report');
   syncPlayer();
   dirty = true;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +546,7 @@ function openFile(): void {
     const f = inp.files?.[0];
     if (!f) return;
     try {
-      loadScene(normalizeScene(JSON.parse(await f.text())));
+      newSituation(normalizeScene(JSON.parse(await f.text())));
       toast('Ситуация загружена');
     } catch {
       toast('Не удалось прочитать файл');
@@ -498,16 +556,24 @@ function openFile(): void {
 }
 
 async function copyLink(): Promise<void> {
-  const url = `${location.origin}${location.pathname}#s=${encodeShare(editor.scene)}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    toast('Ссылка скопирована');
-  } catch {
-    window.prompt('Скопируйте ссылку:', url);
-  }
+  toast('Ссылки с данными проекта отключены. Используйте экспорт без ПДн в разделе материалов.');
 }
 
+async function openWorkbench():Promise<void>{
+  const { mountWorkbench }=await import('./workbench/mount');
+  syncProject();
+  const project=structuredClone(currentFile.project);
+  const container=h('div',{});showModal(container);$('modal').classList.add('ct-wide');
+  workbenchInstance=mountWorkbench(container,{project,ports,file:currentFile,versions:await versionsReady,
+    onProjectChange(next){currentFile.project=next;loadScene(next.scene);},
+    onFileChange(next){currentFile=next;hostHistory=new ProjectHistory(currentFile);},
+  });
+}
+
+function closeModal():void{workbenchInstance?.destroy();workbenchInstance=undefined;$('modal').classList.add('hidden');$('modal').classList.remove('ct-wide');}
+
 function showModal(body: HTMLElement): void {
+  workbenchInstance?.destroy();workbenchInstance=undefined;$('modal').classList.remove('ct-wide');
   $('modalBody').replaceChildren(body);
   $('modal').classList.remove('hidden');
 }
@@ -535,10 +601,11 @@ function help(): void {
 
 function buildMenus(): void {
   const ex = $('menuExamples');
-  ex.replaceChildren(...PRESETS.map((p) => menuItem(p.title, () => loadScene(p.build()), p.hint)));
+  ex.replaceChildren(...PRESETS.map((p) => menuItem(p.title, () => newSituation(p.build()), p.hint)));
   const main = $('menuMain');
   main.replaceChildren(
-    menuItem('Новая ситуация', () => loadScene(emptyScene())),
+    menuItem('Новая ситуация', () => newSituation(emptyScene())),
+    menuItem('Материалы, проекты и мобильный комиссар', () => {void openWorkbench().catch(e=>toast(String(e)));}),
     menuItem('Сохранить в файл', () => download(`${editor.scene.name || 'crashtest'}.json`, JSON.stringify(editor.scene, null, 2), 'application/json')),
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
@@ -548,13 +615,11 @@ function buildMenus(): void {
 
 function save(): void {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(editor.scene));
-    } catch {
-      /* хранилище недоступно */
-    }
-  }, 400);
+  saveTimer=window.setTimeout(()=>{
+    const project=structuredClone(currentFile.project);project.scene=resultJSON(editor.scene) as Scene;
+    hostHistory.change(project,'Правка сцены');
+    void saveLocal('current',currentFile).then(()=>localStorage.removeItem(STORE)).catch(()=>toast('Автосохранение недоступно. Экспортируйте проект.'));
+  },400);
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +632,7 @@ function init(): void {
   $<HTMLInputElement>('sceneName').addEventListener('change', (e) => {
     editor.checkpoint();
     editor.scene.name = (e.target as HTMLInputElement).value;
-    save();
+    editor.changed(true);
   });
 
   renderer.onImage = () => (dirty = true);
@@ -612,7 +677,7 @@ function init(): void {
   };
 
   $('btnPlay').addEventListener('click', () => {
-    if (!tl) runSim(true);
+    if (!tl) void runSim(true);
     else {
       if (t >= tl.duration - 1e-6) t = 0;
       playing = !playing;
@@ -661,8 +726,9 @@ function init(): void {
   toggle('btnExamples', 'menuExamples');
   toggle('btnMenu', 'menuMain');
   document.addEventListener('click', closeMenus);
-  $('modalClose').addEventListener('click', () => $('modal').classList.add('hidden'));
-  $('modal').addEventListener('click', (e) => e.target === $('modal') && $('modal').classList.add('hidden'));
+  $('modalClose').addEventListener('click', closeModal);
+  $('modal').addEventListener('click', (e) => {if(e.target === $('modal'))closeModal();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
   const resize = () => {
     renderer.resize();
@@ -678,8 +744,12 @@ function init(): void {
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(()=>toast('Приложение готово к работе без сети')).catch(()=>toast('Офлайн-кэш не готов. Сохраните проект в файл.'));
   }
 }
 
-init();
+async function start():Promise<void>{
+  try{const stored=location.hash.startsWith('#s=')?undefined:await loadLocal('current');if(stored){currentFile=stored;hostHistory=new ProjectHistory(currentFile);editor.setScene(stored.project.scene,true);}}catch{/* Legacy local storage fallback remains readable. */}
+  init();
+}
+void start();

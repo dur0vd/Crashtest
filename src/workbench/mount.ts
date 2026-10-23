@@ -1320,6 +1320,8 @@ export function mountWorkbench(
           rules: report ?? null,
         }) as JsonValue;
         file.resultInputHash = await inputHash(project());
+        // Saved results record the engine/corpus versions that produced them.
+        if (context.versions) file.versions = structuredClone(context.versions);
         await persist();
       }
       if (!control.isCancelled()) {

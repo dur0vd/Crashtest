@@ -1,0 +1,66 @@
+{
+  "fixedAt": "2026-10-23",
+  "integrationBranch": "codex/parallel-integration",
+  "base": {
+    "ref": "codex/full-simulator-base-v2",
+    "sha": "2e1685b3d6f19e87924388647ddd9d88c655da64",
+    "checks": { "tests": "1115/1115 in 35 files", "build": "ok" }
+  },
+  "inputs": [
+    {
+      "ref": "codex/parallel-physics",
+      "tip": "b4cffdea183bc47509b5fa7ed1b4b6f2c9f0ada7",
+      "mergeBase": "2e1685b3d6f19e87924388647ddd9d88c655da64",
+      "mergeCommit": "8dde404",
+      "handoff": "docs/handoffs/parallel-physics.md",
+      "area": "07.2 dynamic mode/controller/zones/grades, 08 impact/CRASH3/injury risk, 09 pedestrians/two-wheelers, 10 expert parameters/visibility, 12 calculators/inverse/Monte Carlo, 13 video math, createPhysicsPort",
+      "conflicts": "none (no file shared with other inputs)",
+      "readiness": "ready: createPhysicsPort works through simulate/calculate/describe; checked end-to-end after integration",
+      "gaps": [
+        "t1/t2/t3 table values of the methodology not entered — TODO(legal-check)/(source-check); user values with source required",
+        "no class catalogue of dynamic vehicle parameters: 75 of 79 presets are explicitly unsupported in dynamic mode",
+        "class-level CRASH3 A/B stiffness not shipped; Kudlich–Slibar not claimed",
+        "harmFor categories unchanged; injury risk probabilities only in technical trace",
+        "first sources of Searle/Wood/CRASH3 manual not read — TODO(source-check)"
+      ]
+    },
+    {
+      "ref": "codex/parallel-rules",
+      "tip": "1d813833960190352e8f1e38fe5df517132cbd34",
+      "mergeBase": "2e1685b3d6f19e87924388647ddd9d88c655da64",
+      "mergeCommit": "170c93a",
+      "handoff": "docs/handoffs/parallel-rules.md",
+      "area": "06.6 lighting, 06.4/06.5/06.7 gaps, legal part of 10/14/16/18, createRulesPort",
+      "conflicts": "none",
+      "readiness": "ready: createRulesPort evaluates every preset; expert/educational modes; accepts physics proofs through the integration adapter",
+      "gaps": [
+        "schema mismatch with the physics braking records (fixed in integration: adapter + emergency mode for 10.1)",
+        "historical revisions outside checked intervals, moped/12.6 compositions, organiser identification, OSAGO foreign/experimental regimes — TODO(legal-check)",
+        "procedural status of conclusions and personal-data lawfulness not established by the program"
+      ]
+    },
+    {
+      "ref": "codex/parallel-graphics",
+      "tip": "58a57973b09b75fc20b09d14ce60b7e5a0c68069",
+      "mergeBase": "2e1685b3d6f19e87924388647ddd9d88c655da64",
+      "mergeCommit": "bc00a6f",
+      "handoff": "docs/handoffs/parallel-graphics.md",
+      "area": "11 evidence/plan/SVG/PDF, 13 local video/PTS, 14 PDF/DOCX reports, 15 project ZIP/journal/verifier/CLI, 16 mobile commissioner, 18 IndexedDB/encryption/redaction/CSP/offline, mountWorkbench",
+      "conflicts": "none",
+      "readiness": "ready: mountWorkbench and CLI accept real ports; browser tests 3/3 after updating one expectation that described the build without ports",
+      "gaps": [
+        "native Android/iOS builds not produced (no SDK); AR measurement not implemented (optional)",
+        "IndexedDB at rest is not encrypted; only exports are",
+        "stale progress overwrote the cancel status in the reconstruction tab (fixed in integration, d05c3af)",
+        "OSM import, automatic face/plate detection and stage 19 not implemented (optional)"
+      ]
+    }
+  ],
+  "integrationFixes": [
+    { "commit": "5c192ad", "what": "physics→rules braking adapter, emergency braking accepted for collision-avoidance proofs, observed mode in expert.braking" },
+    { "commit": "4fdb430", "what": "▶ and workbench on real ports; explicit unsupported dialog; presets start a new project (stale extensions gave unknown-actor)" },
+    { "commit": "1b4a219", "what": "CLI crashtest-verify with real ports and versions" },
+    { "commit": "d05c3af", "what": "Monte Carlo in Web Worker; late progress no longer overwrites cancel status" },
+    { "commit": "bbff757", "what": "determinism check uses a fixed accident date (presets stamp the current minute)" }
+  ]
+}

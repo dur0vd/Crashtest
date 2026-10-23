@@ -28,9 +28,13 @@ import {
   purePursuitSteer, stanleySteer, validateController, validateHazard,
 } from './physics/controller';
 import {
-  type ImpactSettings, type PostImpactSettings, type SimulationOptions, DEFAULT_POST_IMPACT_SOURCE,
-  validateBraking, validateImpact, validatePostImpact,
+  type Barrier, type ImpactSettings, type PostImpactSettings, type SimulationOptions, DEFAULT_POST_IMPACT_SOURCE,
+  validateBarrier, validateBraking, validateImpact, validatePostImpact,
 } from './physics/extension';
+import { type ImpactBody, type ImpactResult, planarImpact } from './physics/impact';
+
+/** Geometric half-width of a guardrail polyline treated as a thin rigid body, m (model choice). */
+const GUARDRAIL_HALF_WIDTH = 0.1;
 
 export const DT = 0.025;
 const G = 9.81;
@@ -94,7 +98,10 @@ export interface TimelinePhysics {
   hazards?: Record<string, HazardResponse>;
   postImpact?: Record<string, PostImpactSettings>;
   impact?: ImpactSettings;
+  vulnerableImpact?: ImpactSettings;
   zones?: PhysicsZone[];
+  barriers?: Barrier[];
+  rest?: Record<string, RestPose>;
   assumptions: string[];
   limitations: string[];
 }
@@ -133,6 +140,8 @@ export interface Collision {
   /** изменение скорости каждого участника при ударе, м/с */
   dvA: number;
   dvB: number;
+  /** Dynamic mode: planar impulse with rotation (stage 08). */
+  impact?: ImpactRecord;
 }
 
 export interface Timeline {
@@ -144,6 +153,36 @@ export interface Timeline {
   collisions: Collision[];
   /** Selected motion model per actor and its explicit assumptions. */
   physics?: TimelinePhysics;
+}
+
+export interface RestPose { x: number; y: number; heading: number; atRest: boolean }
+
+/** Stage 08 impact record (dynamic mode); dvA/dvB of Collision are |deltaV| over the contact episode. */
+export interface ImpactRecord {
+  method: string;
+  target: 'vehicle' | 'kinematic-vehicle' | 'pedestrian' | 'obstacle' | 'guardrail' | 'curb';
+  /** n-th separate contact episode of this pair (1 = first impact). */
+  sequence: number;
+  restitution: number;
+  contactFriction?: number;
+  settingsSource: ParameterSource;
+  mode: 'full' | 'sliding';
+  impulses: number;
+  impulse: Vec;
+  deltaVA: Vec;
+  deltaVB: Vec;
+  deltaYawRateA: number;
+  deltaYawRateB: number;
+  energyLoss: number;
+  energyNormal: number;
+  energyTangential: number;
+  energyIncrease: boolean;
+  pdofA?: number;
+  clockA?: number;
+  pdofB?: number;
+  clockB?: number;
+  /** Full trace of the first impulse of the episode. */
+  first: ImpactResult;
 }
 
 interface Node {
@@ -660,6 +699,35 @@ export function projectOnPath(path: PathData, p: Vec, sMin: number, sMax: number
   return best;
 }
 
+/**
+ * Guardrail segment as a half-plane on the side of the vehicle CG, thickness
+ * 2*GUARDRAIL_HALF_WIDTH: robust for any penetration depth (no tunnelling
+ * through a thin box). Returns the deepest corner as the contact point.
+ */
+export function barrierContact(box: OBB, cg: Vec, a: Vec, b: Vec): { n: Vec; depth: number; point: Vec } | null {
+  const c = Math.cos(box.a), sn = Math.sin(box.a);
+  const corners = [[box.hl, box.hw], [box.hl, -box.hw], [-box.hl, box.hw], [-box.hl, -box.hw]]
+    .map(([lx, ly]) => ({ x: box.cx + c * lx - sn * ly, y: box.cy + sn * lx + c * ly }));
+  return halfPlaneContact(corners, cg, a, b, GUARDRAIL_HALF_WIDTH);
+}
+
+/** Deepest of the given points beyond a segment's half-plane (offset `half` towards the CG side). */
+export function halfPlaneContact(points: Vec[], cg: Vec, a: Vec, b: Vec, half: number): { n: Vec; depth: number; point: Vec } | null {
+  const d = sub(b, a), L = len(d);
+  if (L < 1e-9) return null;
+  const u = mul(d, 1 / L), m = { x: -u.y, y: u.x };
+  const side = Math.sign(dot(sub(cg, a), m)) || 1;
+  let best: { delta: number; point: Vec } | null = null;
+  for (const p of points) {
+    const along = dot(sub(p, a), u);
+    if (along < 0 || along > L) continue;
+    const delta = side * dot(sub(p, a), m);
+    if (delta < half && (!best || delta < best.delta)) best = { delta, point: p };
+  }
+  if (!best) return null;
+  return { n: mul(m, -side), depth: half - best.delta, point: best.point };
+}
+
 interface DynRt {
   r: Rt;
   p: DynamicVehicleParameters;
@@ -891,14 +959,56 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
       ...(d ? { dynamics: d.samples } : {}) });
   }
   const collisions: Collision[] = [];
+  /** Legacy first-contact suppression, used only for pairs of kinematic actors. */
   const contacts = new Set<string>();
+  /** Contact episodes of pairs involving a dynamic body: a new impact needs prior separation. */
+  const episodes = new Map<string, { inContact: boolean; record?: Collision; sequence: number }>();
+  const barriers = options.barriers ?? [];
+  barriers.forEach(validateBarrier);
+  const guardSegments = barriers.filter(b => b.kind === 'guardrail').flatMap(item => item.points.slice(1).map((q, i) => ({ item, a: item.points[i], b: q })));
+  const curbSegments = barriers.filter(b => b.kind === 'curb').flatMap(item => item.points.slice(1).map((q, i) => ({ item, a: item.points[i], b: q })));
+  const vulnerable: ImpactSettings = options.vulnerableImpact ?? { restitution: 0, source: { kind: 'synthetic',
+    description: 'Допущение пластического контакта с пешеходом/двухколёсным (общая скорость точки удара), как в формуле Wood (1988) по Soica (2018); не измерение.' } };
+  validateImpact(vulnerable);
+  if (barriers.length) assumptions.push('Отбойник — жёсткая тонкая преграда (геометрия 0,2 м); бордюр действует только на точки контакта колёс, наезд на бордюр не моделируется.');
+  const kinPrev = new Map<string, { pos: Vec; h: number }>();
+  const kinPose = (r: Rt, f: number): { pos: Vec; h: number } => {
+    const p0 = kinPrev.get(r.a.id) ?? { pos: r.pos, h: r.h };
+    return { pos: add(p0.pos, mul(sub(r.pos, p0.pos), f)), h: p0.h + f * wrapAngle(r.h - p0.h) };
+  };
+  const boxAtF = (r: Rt, f: number): OBB => {
+    const d = dyn.get(r.a.id);
+    if (d) return { cx: d.state.x + Math.cos(d.state.heading) * r.shift, cy: d.state.y + Math.sin(d.state.heading) * r.shift, hl: r.box.hl, hw: r.box.hw, a: d.state.heading };
+    const q = kinPose(r, f);
+    return { cx: q.pos.x + Math.cos(q.h) * r.shift, cy: q.pos.y + Math.sin(q.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: q.h };
+  };
   const velocityAt = (r: Rt): Vec => {
     const d = dyn.get(r.a.id);
     return d ? { x: d.state.vx, y: d.state.vy } : velocityOf(r);
   };
+  const bodyOf = (r: Rt, f: number): ImpactBody => {
+    const d = dyn.get(r.a.id);
+    if (d) return { mass: d.p.body.mass, yawInertia: d.p.body.yawInertia, position: { x: d.state.x, y: d.state.y },
+      velocity: { x: d.state.vx, y: d.state.vy }, yawRate: d.state.yawRate, heading: d.state.heading };
+    const q = kinPose(r, f), fixed = r.rail && r.mode === 'path';
+    // Kinematic participants are particles (no modelled rotation); a tram on rails is held by them.
+    return { mass: fixed ? Infinity : r.mass, yawInertia: Infinity, position: q.pos, velocity: velocityOf(r), yawRate: 0, heading: q.h };
+  };
+  const settingsFor = (A: Rt, B: Rt | null): ImpactSettings => {
+    if (B && !dyn.has(B.a.id) || !dyn.has(A.a.id)) return vulnerable;
+    const oa = options.vehicles?.[A.a.id]?.impact, ob = B ? options.vehicles?.[B.a.id]?.impact : undefined;
+    if (oa && ob && JSON.stringify(oa) !== JSON.stringify(ob)) {
+      throw new PhysicsUnsupportedError([{ actorId: `${A.a.id}|${B!.a.id}`, code: 'invalid-input', message: 'разные параметры удара у участников пары' }]);
+    }
+    const o = oa ?? ob;
+    const merged = o ? { ...impact, ...o, source: o.source ?? impact.source } as ImpactSettings : impact;
+    validateImpact(merged);
+    return merged;
+  };
 
   for (let k = 0; k < n; k++) {
     const t = k * DT;
+    const integrating = new Set<DynRt>();
     for (const r of rts) {
       const d = dyn.get(r.a.id);
       const wasPresent = r.present;
@@ -906,20 +1016,12 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
       if (!r.present) continue;
       if (d) {
         if (k === 0 || !wasPresent) continue;
-        const t0 = t - DT;
-        if (d.controlled) controlFrame(d, t0);
-        for (let i = 0; i < count; i++) {
-          const ts = t0 + i * dt;
-          const control = substepControl(d, ts);
-          const road = roadFor(d, d.state, zones, fallback);
-          const res = integrateSubstep(d.state, d.p, control, road, dt);
-          d.state = res.state;
-          d.control = control;
-          if (i === count - 1) recordForces(d, k, res.forces, res.staticHold);
-        }
-        r.pos = { x: d.state.x, y: d.state.y };
-        r.h = d.state.heading;
-      } else if (r.mode === 'path') {
+        integrating.add(d);
+        if (d.controlled) controlFrame(d, t - DT);
+        continue;
+      }
+      kinPrev.set(r.a.id, { pos: { ...r.pos }, h: r.h });
+      if (r.mode === 'path') {
         if (k > 0 || r.a.delay > 0) stepPath(r, DT, t);
       } else {
         const sp = len(r.vel);
@@ -932,23 +1034,68 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
         }
       }
     }
-    // Contacts. TODO(stage 08): replaced by the planar impulse model with rotation.
-    for (let i = 0; i < rts.length; i++) {
-      const A = rts[i];
-      if (!A.present) continue;
-      for (let j = i + 1; j < rts.length; j++) {
-        const B = rts[j];
-        if (!B.present || A.a.kind === 'pedestrian' && B.a.kind === 'pedestrian') continue;
-        const c = obbContact(boxOf(A), boxOf(B), sub(velocityAt(A), velocityAt(B)));
-        if (c) resolveLegacy(A, B, c, `${A.a.id}|${B.a.id}`);
+    for (let i = 0; i < count; i++) {
+      const ts = t - DT + i * dt, f = (i + 1) / count;
+      for (const d of integrating) {
+        const control = substepControl(d, ts);
+        const road = roadFor(d, d.state, zones, fallback);
+        const res = integrateSubstep(d.state, d.p, control, road, dt);
+        d.state = res.state;
+        d.control = control;
+        if (i === count - 1) recordForces(d, k, res.forces, res.staticHold);
+      }
+      const touched = new Set<string>();
+      for (let a = 0; a < rts.length; a++) {
+        const A = rts[a];
+        if (!A.present) continue;
+        const dA = dyn.get(A.a.id);
+        for (let b = a + 1; b < rts.length; b++) {
+          const B = rts[b];
+          if (!B.present || !dA && !dyn.has(B.a.id)) continue;
+          // Minimum-overlap axis: with substeps of at most 5 ms overlaps stay shallow,
+          // so the legacy time-of-impact heuristic for deep 25 ms overlaps is not used.
+          const c = obbContact(boxAtF(A, f), boxAtF(B, f));
+          if (c) contactImpulse(A, B, c, `${A.a.id}|${B.a.id}`, ts + dt, k, f, touched);
+        }
+        if (!dA) continue;
+        for (const og of geo.obstacles) {
+          const c = obbContact(boxAtF(A, f), og.box);
+          if (c) contactImpulse(A, null, c, `${A.a.id}|${og.item.id}`, ts + dt, k, f, touched, { id: og.item.id, target: 'obstacle', settings: settingsFor(A, null), position: { x: og.box.cx, y: og.box.cy } });
+        }
+        for (const g of guardSegments) {
+          const c = barrierContact(boxAtF(A, f), { x: dA.state.x, y: dA.state.y }, g.a, g.b);
+          if (c) contactImpulse(A, null, c, `${A.a.id}|${g.item.id}`, ts + dt, k, f, touched, { id: g.item.id, target: 'guardrail',
+            settings: { restitution: g.item.restitution, contactFriction: g.item.contactFriction, source: g.item.source }, position: c.point });
+        }
+        if (curbSegments.length) {
+          const wheels = wheelPoints(dA.state, dA.p), cg = { x: dA.state.x, y: dA.state.y };
+          for (const seg of curbSegments) {
+            const c = halfPlaneContact(wheels, cg, seg.a, seg.b, 0);
+            if (c) contactImpulse(A, null, c, `${A.a.id}|${seg.item.id}`, ts + dt, k, f, touched, { id: seg.item.id, target: 'curb',
+              settings: { restitution: seg.item.restitution, contactFriction: seg.item.contactFriction, source: seg.item.source }, position: c.point });
+          }
+        }
+      }
+      for (const [key, ep] of episodes) if (!touched.has(key)) { ep.inContact = false; ep.record = undefined; }
+    }
+    // Pairs of kinematic actors keep the legacy translational contact of their own model.
+    for (let a = 0; a < rts.length; a++) {
+      const A = rts[a];
+      if (!A.present || dyn.has(A.a.id)) continue;
+      for (let b = a + 1; b < rts.length; b++) {
+        const B = rts[b];
+        if (!B.present || dyn.has(B.a.id) || A.a.kind === 'pedestrian' && B.a.kind === 'pedestrian') continue;
+        const c = obbContact(boxOf(A), boxOf(B), sub(velocityOf(A), velocityOf(B)));
+        if (c) kinematicContact(A, B, c, `${A.a.id}|${B.a.id}`, k);
       }
       for (const og of geo.obstacles) {
-        const c = obbContact(boxOf(A), og.box, velocityAt(A));
-        if (c) resolveLegacy(A, null, c, `${A.a.id}|${og.item.id}`, og.item.id);
+        const c = obbContact(boxOf(A), og.box, velocityOf(A));
+        if (c) kinematicContact(A, null, c, `${A.a.id}|${og.item.id}`, k, og.item.id);
       }
     }
     for (const r of rts) {
       const tr = tracks.get(r.a.id)!, d = dyn.get(r.a.id);
+      if (d) { r.pos = { x: d.state.x, y: d.state.y }; r.h = d.state.heading; }
       tr.x[k] = r.pos.x;
       tr.y[k] = r.pos.y;
       tr.h[k] = r.h;
@@ -970,53 +1117,123 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
         tr.reversing![k] = r.present && (r.mode === 'path' ? r.reverse : dot(r.vel, fromAngle(r.h)) < -1e-6) ? 1 : 0;
       }
     }
+  }
 
-    function resolveLegacy(A: Rt, B: Rt | null, c: { n: Vec; depth: number; point: Vec }, key: string, obstacleId?: string): void {
-      const dA = dyn.get(A.a.id), dB = B ? dyn.get(B.a.id) : undefined;
-      const invA = 1 / A.mass, invB = B ? 1 / B.mass : 0;
-      if (!contacts.has(key)) {
-        contacts.add(key);
-        const vA = velocityAt(A), vB = B ? velocityAt(B) : { x: 0, y: 0 };
-        const rel = dot(sub(vA, vB), c.n);
-        for (const r of B ? [A, B] : [A]) {
-          const d = dyn.get(r.a.id);
-          if (d) { if (d.controlled) { d.controlled = false; d.impactSteer = d.steer; } r.mode = 'free'; }
-          else hit(r, rel);
+  /**
+   * Planar impulse at a detected overlap (stage 08). A pair registers a new
+   * impact only after separating; impulses during one contact episode are
+   * accumulated into the same record. Position projection is numerical.
+   */
+  function contactImpulse(A: Rt, B: Rt | null, c: { n: Vec; depth: number; point: Vec }, key: string, time: number, k: number, f: number,
+    touched: Set<string>, fixed?: { id: string; target: ImpactRecord['target']; settings: ImpactSettings; position: Vec }): void {
+    touched.add(key);
+    const ep = episodes.get(key) ?? { inContact: false, sequence: 0 };
+    episodes.set(key, ep);
+    const bodyA = bodyOf(A, f);
+    const bodyB: ImpactBody = B ? bodyOf(B, f) : { mass: Infinity, yawInertia: Infinity, position: fixed!.position, velocity: { x: 0, y: 0 }, yawRate: 0 };
+    const settings = fixed ? fixed.settings : settingsFor(A, B);
+    // Approach test before any state change (legacy hit() may derail a tram).
+    let res = planarImpact({ a: bodyA, b: bodyB, point: c.point, normal: c.n, restitution: settings.restitution, contactFriction: settings.contactFriction });
+    if (res.mode !== 'separating') {
+      const fresh = !ep.inContact || !ep.record;
+      const preA = velocityAt(A), preB = B ? velocityAt(B) : { x: 0, y: 0 };
+      if (fresh) for (const r of B ? [A, B] : [A]) {
+        const d = dyn.get(r.a.id);
+        if (d) { if (d.controlled) { d.controlled = false; d.impactSteer = d.steer; } r.mode = 'free'; }
+        else {
+          const q = kinPose(r, f);
+          hit(r, res.approachSpeed);
+          if (r.mode === 'free') { r.pos = q.pos; r.h = q.h; kinPrev.set(r.a.id, { pos: { ...q.pos }, h: q.h }); }
         }
-        const railA = !dA && A.rail && A.mode === 'path', railB = !!B && !dB && B.rail && B.mode === 'path';
-        let dvA = 0, dvB = 0;
-        if (rel > 0) {
-          const jn = ((1 + impact.restitution) * rel) / (invA + invB);
-          if (!railA) applyVel(A, mul(c.n, -jn * invA));
-          if (B && !railB) applyVel(B, mul(c.n, jn * invB));
-          dvA = jn * invA;
-          dvB = jn * invB;
-        }
-        if (A.a.kind === 'pedestrian') A.down = true;
-        if (B?.a.kind === 'pedestrian') B.down = true;
-        collisions.push({ idx: collisions.length, t: k * DT, frame: k, a: A.a.id, b: B ? B.a.id : obstacleId!,
+      }
+      // Recompute after a possible derailment changed the constraint of a tram.
+      if (fresh) res = planarImpact({ a: bodyOf(A, f), b: B ? bodyOf(B, f) : bodyB, point: c.point, normal: c.n, restitution: settings.restitution, contactFriction: settings.contactFriction });
+      applyImpact(A, res.a, f);
+      if (B) applyImpact(B, res.b, f);
+      if (A.a.kind === 'pedestrian') A.down = true;
+      if (B?.a.kind === 'pedestrian') B.down = true;
+      if (fresh) {
+        ep.sequence++;
+        const target: ImpactRecord['target'] = fixed ? fixed.target : B!.a.kind === 'pedestrian' ? 'pedestrian' : dyn.has(B!.a.id) ? 'vehicle' : 'kinematic-vehicle';
+        const record: Collision = { idx: collisions.length, t: time, frame: k, a: A.a.id, b: B ? B.a.id : fixed!.id,
           kind: !B ? 'vo' : A.a.kind === 'pedestrian' || B.a.kind === 'pedestrian' ? 'vp' : 'vv',
-          point: c.point, n: c.n, vA, vB, rel: Math.max(0, rel), dvA, dvB });
+          point: c.point, n: c.n, vA: preA, vB: preB, rel: Math.max(0, res.approachSpeed), dvA: 0, dvB: 0,
+          impact: { method: res.method, target, sequence: ep.sequence, restitution: settings.restitution, contactFriction: settings.contactFriction,
+            settingsSource: structuredClone(settings.source), mode: res.mode === 'sliding' ? 'sliding' : 'full', impulses: 0, impulse: { x: 0, y: 0 }, deltaVA: { x: 0, y: 0 }, deltaVB: { x: 0, y: 0 },
+            deltaYawRateA: 0, deltaYawRateB: 0, energyLoss: 0, energyNormal: 0, energyTangential: 0, energyIncrease: false,
+            pdofA: res.a.pdofDeg, clockA: res.a.clock, pdofB: res.b.pdofDeg, clockB: res.b.clock, first: res } };
+        collisions.push(record);
+        ep.record = record;
       }
-      const wA = !dA && A.rail && A.mode === 'path' ? 0 : invA;
-      const wB = B && !dB && B.rail && B.mode === 'path' ? 0 : invB;
-      const tot = wA + wB;
-      if (tot > 0) {
-        movePos(A, mul(c.n, -(c.depth * wA) / tot));
-        if (B) movePos(B, mul(c.n, (c.depth * wB) / tot));
-      }
+      const rec = ep.record!, im = rec.impact!;
+      im.impulses++;
+      im.impulse = add(im.impulse, res.impulse);
+      im.deltaVA = add(im.deltaVA, res.a.deltaV); im.deltaVB = add(im.deltaVB, res.b.deltaV);
+      im.deltaYawRateA += res.a.deltaYawRate; im.deltaYawRateB += res.b.deltaYawRate;
+      im.energyLoss += res.energyLoss; im.energyNormal += res.energyNormal; im.energyTangential += res.energyTangential;
+      im.energyIncrease ||= res.energyIncrease;
+      if (res.mode === 'sliding') im.mode = 'sliding';
+      rec.dvA = len(im.deltaVA); rec.dvB = len(im.deltaVB);
+    }
+    ep.inContact = true;
+    // Separate overlapping bodies by inverse mass (numerical projection, not physics).
+    const wA = Number.isFinite(bodyA.mass) ? 1 / bodyA.mass : 0, wB = Number.isFinite(bodyB.mass) ? 1 / bodyB.mass : 0;
+    const tot = wA + wB;
+    if (tot > 0 && c.depth > 0) {
+      movePos(A, mul(c.n, -(c.depth * wA) / tot));
+      if (B) movePos(B, mul(c.n, (c.depth * wB) / tot));
     }
   }
 
-  function applyVel(r: Rt, dv: Vec): void {
+  function applyImpact(r: Rt, out: { deltaV: Vec; deltaYawRate: number; velocity: Vec }, f: number): void {
     const d = dyn.get(r.a.id);
-    if (d) { d.state = { ...d.state, vx: d.state.vx + dv.x, vy: d.state.vy + dv.y }; return; }
-    r.vel = add(r.vel, dv);
+    if (d) { d.state = { ...d.state, vx: d.state.vx + out.deltaV.x, vy: d.state.vy + out.deltaV.y, yawRate: d.state.yawRate + out.deltaYawRate }; return; }
+    if (r.rail && r.mode === 'path') return;
+    r.vel = { ...out.velocity };
+    // Continue the frame from the impact pose with the new velocity (interpolation stays linear).
+    const q = kinPose(r, f);
+    kinPrev.set(r.a.id, { pos: sub(q.pos, mul(r.vel, f * DT)), h: q.h });
+    r.pos = add(q.pos, mul(r.vel, (1 - f) * DT));
   }
+
+  function kinematicContact(A: Rt, B: Rt | null, c: { n: Vec; depth: number; point: Vec }, key: string, k: number, obstacleId?: string): void {
+    const invA = 1 / A.mass, invB = B ? 1 / B.mass : 0;
+    if (!contacts.has(key)) {
+      contacts.add(key);
+      const vA = velocityOf(A), vB = B ? velocityOf(B) : { x: 0, y: 0 };
+      const rel = dot(sub(vA, vB), c.n);
+      for (const r of B ? [A, B] : [A]) hit(r, rel);
+      const railA = A.rail && A.mode === 'path', railB = !!B && B.rail && B.mode === 'path';
+      let dvA = 0, dvB = 0;
+      if (rel > 0) {
+        const e = 0.12;
+        const j = ((1 + e) * rel) / (invA + invB);
+        if (!railA) A.vel = sub(A.vel, mul(c.n, j * invA));
+        if (B && !railB) B.vel = add(B.vel, mul(c.n, j * invB));
+        dvA = j * invA;
+        dvB = j * invB;
+      }
+      if (A.a.kind === 'pedestrian') A.down = true;
+      if (B?.a.kind === 'pedestrian') B.down = true;
+      collisions.push({ idx: collisions.length, t: k * DT, frame: k, a: A.a.id, b: B ? B.a.id : obstacleId!,
+        kind: !B ? 'vo' : A.a.kind === 'pedestrian' || B.a.kind === 'pedestrian' ? 'vp' : 'vv',
+        point: c.point, n: c.n, vA, vB, rel: Math.max(0, rel), dvA, dvB });
+    }
+    const wA = A.rail && A.mode === 'path' ? 0 : invA;
+    const wB = B && B.rail && B.mode === 'path' ? 0 : invB;
+    const tot = wA + wB;
+    if (tot > 0) {
+      A.pos = sub(A.pos, mul(c.n, (c.depth * wA) / tot));
+      if (B) B.pos = add(B.pos, mul(c.n, (c.depth * wB) / tot));
+    }
+  }
+
   function movePos(r: Rt, dp: Vec): void {
-    r.pos = add(r.pos, dp);
     const d = dyn.get(r.a.id);
-    if (d) d.state = { ...d.state, x: r.pos.x, y: r.pos.y };
+    if (d) { d.state = { ...d.state, x: d.state.x + dp.x, y: d.state.y + dp.y }; return; }
+    r.pos = add(r.pos, dp);
+    const p0 = kinPrev.get(r.a.id);
+    if (p0) kinPrev.set(r.a.id, { pos: add(p0.pos, dp), h: p0.h });
   }
   function recordForces(d: DynRt, k: number, f: { wheels: { normalLoad: number; fx: number; fy: number; ellipseUse: number; mode: string }[] }, held: boolean): void {
     const sm = d.samples;
@@ -1027,13 +1244,22 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
     sm.staticHold[k] = held ? 1 : 0;
   }
 
+  const rest: Record<string, RestPose> = {};
+  for (const r of rts) {
+    const d = dyn.get(r.a.id);
+    rest[r.a.id] = d ? { x: d.state.x, y: d.state.y, heading: d.state.heading, atRest: !d.state.vx && !d.state.vy && !d.state.yawRate }
+      : { x: r.pos.x, y: r.pos.y, heading: r.h, atRest: r.mode === 'free' ? !len(r.vel) : r.v === 0 };
+  }
   const record = <T>(pick: (d: DynRt) => T): Record<string, T> => Object.fromEntries([...dyn].map(([id, d]) => [id, pick(d)]));
   return { dt: DT, n, duration, mu, tracks, collisions, physics: {
     mode: 'dynamic', methods, substepSeconds: dt,
     controllers: record(d => structuredClone(d.ctrl)), brakeTiming: record(d => structuredClone(d.actuator.timing)),
     hazards: Object.fromEntries([...dyn].filter(([, d]) => d.hazard).map(([id, d]) => [id, structuredClone(d.hazard!)])),
-    postImpact: record(d => structuredClone(d.post)), impact: structuredClone(impact), zones: structuredClone(zones),
+    postImpact: record(d => structuredClone(d.post)), impact: structuredClone(impact), vulnerableImpact: structuredClone(vulnerable),
+    zones: structuredClone(zones), barriers: structuredClone(barriers), rest,
     assumptions, limitations: [...DYNAMICS_LIMITATIONS,
+      'Удар: мгновенный импульс твёрдых тел в точке перекрытия контуров (обнаружение на каждом подшаге); деформация кузова — только энергетический итог; раздвижение тел — численная проекция.',
+      'Пешеходы, двухколёсные и рельсовые в ударе — частицы без вращения; трамвай на рельсах — с заданным движением (бесконечная масса) до схода.',
       'Регулятор (pure pursuit/Stanley и P-контур скорости) — численная настройка, не модель конкретного водителя; реакция на опасность только по явно заданному моменту.',
       'Тяга без запаздывания двигателя/трансмиссии; тормоз — чистая задержка t2 и линейное нарастание t3.'] } };
 }

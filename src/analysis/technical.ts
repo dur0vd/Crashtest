@@ -2,6 +2,7 @@ import { passengerFacts } from '../passengers';
 import { type Geo, type RoadHit, buildGeo, roadsAt } from '../geo';
 import { type OBB, type Vec, angDiff, angleOf, rightOf, sub, add, mul, fromAngle, dot, segIntersect, toLocal, kmh, obbCorners, pointInObb, distToSegment } from '../geom';
 import { type Timeline, DT } from '../sim';
+import { AUGENSTEIN_2003_META, TEFFT_2011, TEFFT_2011_META, modeFromPdof, occupantMais3Risk, pedestrianRisk } from '../physics/injury';
 import { type Scene, type VehicleType, VEHICLES, actorLabels, actorTitle, actorSpec, dimsOf, lightPhase, SURFACES, LANE_WIDTH } from '../scene';
 import type { Info, GateEvent } from './context';
 import type { TechAssessment, HarmLevel, TechnicalSection, TechnicalCollision, Trace } from './types';
@@ -197,6 +198,30 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
+/**
+ * Probabilistic risk from published curves (stage 08/09). Occupants: Augenstein
+ * et al. 2003 (MAIS3+ vs total Δv, mode from PDOF when the impulse model gave it).
+ * Pedestrians: Tefft 2011 (AIS4+/death vs impact speed, ages 15+). No curve is
+ * applied to two-wheelers/SIM riders: no verified curve is bundled.
+ */
+function injuryRiskFor(i: Info, col: Timeline['collisions'][number], side: 'a' | 'b'): Trace {
+  const exposed = !i.isVeh || VEHICLES[i.a.type as VehicleType].exposed;
+  const dv = side === 'a' ? col.dvA : col.dvB;
+  if (!i.isVeh) {
+    const other = side === 'a' ? col.vB : col.vA, own = side === 'a' ? col.vA : col.vB;
+    const impactSpeed = Math.hypot(other.x - own.x, other.y - own.y);
+    return { curve: TEFFT_2011_META, impactSpeedMs: impactSpeed, impactSpeedNote: 'Скорость удара = модуль относительной скорости до контакта (для пешехода ≈ скорость ТС).',
+      severe: pedestrianRisk(impactSpeed, 'severe', i.a.age), death: pedestrianRisk(impactSpeed, 'death', i.a.age),
+      ageShift70vs30Mph: TEFFT_2011.ageShift70vs30, ...(i.a.age === undefined ? { ageNote: 'Возраст не задан: средний риск популяции 15+ лет.' } : {}) };
+  }
+  if (exposed) return { unsupported: 'Для водителей двухколёсных ТС/СИМ проверенная кривая риска не подключена; вероятность не рассчитывается.' };
+  const pdof = side === 'a' ? col.impact?.pdofA : col.impact?.pdofB;
+  const modes = pdof === undefined ? { modes: ['all' as const], assumption: 'PDOF не рассчитан (кинематический удар): общая модель всех режимов.' } : modeFromPdof(pdof);
+  return { curve: AUGENSTEIN_2003_META, deltaVMs: dv, pdofDeg: pdof ?? null, modeAssumption: modes.assumption,
+    values: modes.modes.map(mode => occupantMais3Risk(dv, mode)),
+    deltaVSource: col.impact ? 'Δv импульсной модели с вращением (этап 08)' : 'Δv поступательного обмена кинематического режима' };
+}
+
 /** Просвет между двумя прямоугольниками (0 при перекрытии). */
 export function gap(A: OBB, B: OBB): number {
   const ca = obbCorners(A);
@@ -290,7 +315,9 @@ export function analyzeTechnical(scene: Scene, tl: Timeline): TechnicalContext {
       const i = ctx.infos.get(id);
       if (!i) continue;
       const exposed = !i.isVeh || VEHICLES[i.a.type as VehicleType].exposed;
-      harm.push({ actorId: id, level: harmFor(i, dv, col.rel), trace: { actorId: id, dvMs: dv, relMs: col.rel, exposed, speedKmh: kmh(exposed ? col.rel : dv), thresholdsKmh: exposed ? [8, 20, 35, 50] : [10, 25, 40, 55] } });
+      harm.push({ actorId: id, level: harmFor(i, dv, col.rel), trace: { actorId: id, dvMs: dv, relMs: col.rel, exposed, speedKmh: kmh(exposed ? col.rel : dv), thresholdsKmh: exposed ? [8, 20, 35, 50] : [10, 25, 40, 55],
+        levelNote: 'Категория — прежний ориентир по порогам скорости; вероятности ниже — опубликованные популяционные кривые. Тяжесть вреда устанавливает судебно-медицинская экспертиза.',
+        injuryRisk: injuryRiskFor(i, col, id === col.a ? 'a' : 'b') } });
       const other = otherOf(ctx, otherId);
       const assessment = other ? techFor(ctx, i, other, col.frame) : null;
       if (assessment) tech.push(assessment);

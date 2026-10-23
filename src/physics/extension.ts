@@ -45,6 +45,28 @@ export interface ImpactSettings {
   source: ParameterSource;
 }
 
+/**
+ * Line barriers (extensions.physics.barriers). guardrail: rigid thin body
+ * (0.2 m wide geometric model) contacting the vehicle body. curb: line acting on
+ * wheel contact points only; mounting/overriding the curb is NOT modelled.
+ */
+export interface Barrier {
+  id: string;
+  kind: 'curb' | 'guardrail';
+  points: { x: number; y: number }[];
+  restitution: number;
+  contactFriction?: number;
+  source: ParameterSource;
+}
+
+export function validateBarrier(b: Barrier): void {
+  if (!b || typeof b.id !== 'string' || !b.id.trim() || !['curb', 'guardrail'].includes(b.kind)) throw new Error('Преграда: нужен id и вид curb/guardrail');
+  if (!Array.isArray(b.points) || b.points.length < 2 || b.points.some(p => !Number.isFinite(p?.x) || !Number.isFinite(p?.y))) throw new Error(`Преграда ${b.id}: нужна ломаная из ≥2 точек`);
+  finite(b.restitution, `${b.id}.restitution`, 0, 1);
+  if (b.contactFriction !== undefined) finite(b.contactFriction, `${b.id}.contactFriction`, 0, 5);
+  validateSource(b.source);
+}
+
 export interface VehiclePhysicsInput {
   braking?: BrakingParameters;
   controller?: Partial<ControllerSettings>;
@@ -56,8 +78,12 @@ export interface VehiclePhysicsInput {
 /** Options of simulate(scene, options); the port fills them from extensions.physics. */
 export interface SimulationOptions {
   zones?: PhysicsZone[];
+  barriers?: Barrier[];
   vehicles?: Record<string, VehiclePhysicsInput>;
+  /** Vehicle–vehicle and vehicle–obstacle contact; default k=0.12 (legacy value), full impact. */
   impact?: ImpactSettings;
+  /** Vehicle–pedestrian/two-wheeler contact; default plastic (k=0), full impact. */
+  vulnerableImpact?: ImpactSettings;
   /** Fixed substep, s; must divide 25 ms; default 5 ms. For convergence checks only. */
   substepSeconds?: number;
 }

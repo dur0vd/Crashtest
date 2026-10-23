@@ -7,3 +7,6 @@ export * from './actor';
 export * from './zones';
 export * from './controller';
 export * from './extension';
+export * from './impact';
+export * from './crash3';
+export * from './injury';

@@ -224,7 +224,7 @@ function run(project: ProjectEnvelope, control?: RunControl): { tl: Timeline; sc
 
 async function calculateImpl(method: string, project: ProjectEnvelope, parameters: JsonObject, control?: RunControl): Promise<FeatureResult<CalculationRecord[]>> {
   const p: JsonObject = { ...stored(project, method), ...parameters };
-  if (CALCULATORS[method] && !(method === 'expert.braking' && (p.mode === 'scene' || p.mode === 'yellow'))) {
+  if (CALCULATORS[method] && !(method === 'expert.braking' && (p.mode === 'scene' || p.mode === 'yellow' || p.mode === 'observed'))) {
     const r = CALCULATORS[method].run(p);
     return r.status === 'ok' ? ok(r.records) : { status: r.status, issues: r.issues };
   }
@@ -243,6 +243,15 @@ async function calculateImpl(method: string, project: ProjectEnvelope, parameter
       }
       const [t1, t2, t3] = vals.map(([, v]) => v as ExpertValue);
       return ok([yellowServiceStop({ v0: p.v0, distanceToStopLine: p.distanceToStopLine, t1, t2, t3, jService: jService as ExpertValue })]);
+    }
+    if (p.mode === 'observed') {
+      // v0 and the available distance come from an observation, not from a scene run.
+      if (missing.length || typeof p.v0 !== 'number' || typeof p.available !== 'number') {
+        return { status: 'insufficient-data', issues: [...missing.map(([k, v]) => issue('missing-input', (v as { insufficient: string }).insufficient, k)),
+          ...(typeof p.v0 !== 'number' ? [issue('missing-input', 'Нет v0', 'v0')] : []), ...(typeof p.available !== 'number' ? [issue('missing-input', 'Нет расстояния до места конфликта', 'available')] : [])] };
+      }
+      const [t1, t2, t3, j] = vals.map(([, v]) => v as ExpertValue);
+      return ok([assessAvoidability({ v0: p.v0, available: p.available, t1, t2, t3, j, ...(typeof p.criterion === 'string' ? { hazardCriterion: p.criterion } : {}) })]);
     }
     if (!vehicleId || typeof p.otherId !== 'string') return { status: 'insufficient-data', issues: [issue('missing-input', 'Нужны vehicleId и otherId', 'vehicleId')] };
     if (missing.length) return { status: 'insufficient-data', issues: missing.map(([k, v]) => issue('missing-input', (v as { insufficient: string }).insufficient, `/extensions/physics/vehicles/${vehicleId}/braking/${k}`)) };

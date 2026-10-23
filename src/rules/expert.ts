@@ -55,7 +55,9 @@ export function readExpertEvidence(project: ProjectEnvelope, timeline: Timeline,
     const values = object(observation.values), result = object(record.result), units = object(record.units), inputs = object(record.inputs);
     const stoppingRangeM = range(result.stoppingDistanceRangeM), availableRangeM = range(values.availableDistanceRangeM);
     const valid = record.method === 'expert.braking' && inputs.actorId === binding.actorId && values.actorId === binding.actorId
-      && inputs.observationId === observation.id && inputs.brakingMode === 'service'
+      // Yellow (6.14) needs service braking; collision avoidance (10.1) is assessed with emergency braking.
+      && inputs.observationId === observation.id
+      && (inputs.brakingMode === 'service' || inputs.brakingMode === 'emergency' && observation.kind === 'collision-avoidance')
       && ['t1', 't2', 't3'].every(key => number(inputs[key]) !== null && units[key] === 's')
       && units.stoppingDistanceRangeM === 'm' && object(observation.uncertainty).availableDistanceUnit === 'm'
       && nonempty(record.formula) && hasSource(record.sources) && hasSource(record.assumptions)

@@ -562,3 +562,45 @@ triangular (обратная функция). ГПСЧ mulberry32 по сиду,
   по 4 точкам, шум 0,5 px по 8 точкам; равнозамедленное движение с переменной
   частотой кадров и шумом 1 px — скорость и ускорение в пределах 3σ (≥90 %/85 %
   выборок), средняя скорость в пределах 3σ; регистратор 15 м/с по шагу 12 м и 30 к/с.
+
+## Порт `createPhysicsPort()` (`src/physics/port.ts`)
+
+Реализует `PhysicsPort` контракта v1 из `src/parallel/contracts.ts` (без его
+изменения). Проект не изменяется; расчётные наблюдения имеют собственное
+происхождение (`calculated-*`, «рассчитано, не наблюдение»).
+
+- `describe(project)`: `physics.simulate` (режим, зоны, преграды, параметры удара,
+  по участникам — динамика, t2/t3, регулятор, момент опасности, послеударное
+  состояние, параметры отброса/падения) и 12 методов. `available=false` с причиной,
+  если динамический режим неприменим или нет наблюдений видео. Пути — RFC 6901
+  внутри конверта, в основном `/extensions/physics/...`.
+- `simulate(project)`: `extensions.physics` → `SimulationOptions`; динамика по
+  участнику из `extensions.physics.vehicles[id].dynamics` подставляется в копию
+  сцены (единая масса для actorSpec/technical/удара); расхождение со сценой — ошибка.
+  Неподдержанные участники → `unsupported` с путями `/scene/actors/i`. Выход:
+  Timeline, записи удара (`physics.impact`), technical (метод, допущения, риск,
+  Δv), наблюдения (конечные позы, точки удара), `renderData` (колёса, силы,
+  занос, μ/зоны, ездоки, конечные позы, преграды).
+- `calculate(method, project, parameters)`: параметры перекрывают сохранённые в
+  `/extensions/physics/calculators/<id>`. Методы: `expert.braking` (по следу; режим
+  `scene` — кандидаты момента опасности и техвозможность по t1–t3/j из параметров или
+  `extensions.physics.vehicles[id].braking`; режим `yellow` — служебное торможение),
+  `expert.skid`, `expert.lateral`, `expert.critical-speed`, `expert.throw`,
+  `expert.momentum`, `expert.ees`, `reconstruction.inverse` (impact/scene),
+  `reconstruction.monte-carlo` (с прогрессом/отменой), `video.homography`,
+  `video.trajectory` (статичная/движущаяся камера, наблюдения скорости с σ),
+  `visibility.assess`. Неизвестный метод → `unsupported`; нет обязательных
+  входов → `insufficient-data` с путями.
+
+Формат наблюдений `evidence`, который читает порт (предложение для графики/интегратора):
+
+| kind | geometry | values / uncertainty |
+| --- | --- | --- |
+| `video-calibration` | `points: [{id?, image:{u,v}, plane:{x,y}}]` (≥4) | `pixelSigma` |
+| `video-track` | `clicks: [{pts, u, v}]` — истинные PTS, контакт колеса | `pixelSigma`, `calibrationId`, `actorId?` |
+| `video-mark-crossings` | `crossings: [{pts, index}]` | `spacing`, `spacingSigma`, `frameInterval?`; `source` обязателен |
+| `rest-pose` | `x, y, heading?` | `actorId`; uncertainty `position`, `heading` (σ) |
+
+Проверка в Chromium: `tools/check-physics-parallel-browser.mjs` (dev-сервер на 5174):
+динамический `simulate`, явный `unsupported`, калькулятор, Монте-Карло в модульном
+Worker совпадает с прямым расчётом, отмена.

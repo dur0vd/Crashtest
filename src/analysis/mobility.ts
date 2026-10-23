@@ -5,6 +5,7 @@ import { kmh, pointInObb, angDiff } from '../geom';
 import { roadsAt } from '../geo';
 import { posAt, sampleTrace, tOf } from './technical';
 import { lawRef } from '../law';
+import { dm } from '../dmath';
 
 /** Observed route and explicit facts; no synthetic trace is evidence of field validation. */
 export function checkMobility(ctx: Ctx, add: (f: FindingInput) => unknown, limitAt: (i: Info, k: number) => { limit: number; refs: string[] } | null): void {
@@ -50,9 +51,9 @@ export function checkMobility(ctx: Ctx, add: (f: FindingInput) => unknown, limit
         if (a.type === 'sim' && c.leftBypass === true) emit('left-bypass', k, false, 'СИМ: обгон или объезд слева', 'По правому краю проезжей части обгон или объезд транспортного средства слева запрещён.', ['pdd:24.5']);
       }
       for (const cw of ctx.geo.crosswalks) {
-        if (!pointInObb(p, cw.box) || Math.abs(Math.cos(angDiff(i.tr.h[k], cw.item.angle))) < 0.7) continue;
+        if (!pointInObb(p, cw.box) || Math.abs(dm.cos(angDiff(i.tr.h[k], cw.item.angle))) < 0.7) continue;
         // Require actual travel across the road, not mere proximity to a zebra.
-        const local = (frame: number) => (i.tr.x[frame] - cw.item.x) * Math.cos(cw.item.angle) + (i.tr.y[frame] - cw.item.y) * Math.sin(cw.item.angle);
+        const local = (frame: number) => (i.tr.x[frame] - cw.item.x) * dm.cos(cw.item.angle) + (i.tr.y[frame] - cw.item.y) * dm.sin(cw.item.angle);
         const before = local(i.k0), after = local(i.kEnd);
         const entered = before < -cw.item.length / 2 && after > -cw.item.length / 2 + 0.5 || before > cw.item.length / 2 && after < cw.item.length / 2 - 0.5;
         if (entered || before * after < 0 && Math.abs(before - after) >= 1) emit(`crosswalk:${cw.item.id}`, k, false, 'пересечение дороги по переходу верхом', 'По наблюдаемому движению ездок начал пересекать дорогу по пешеходному переходу. Ведущий устройство пешеход оценивается по разделу 4.', ['pdd:24.8'], { crosswalkId: cw.item.id, beforeM: before, afterM: after, minimumEntryProgressM: 0.5, methodLimit: 'Требуется направленный въезд в коридор либо пересечение его середины; одного касания недостаточно' });

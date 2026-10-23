@@ -6,6 +6,7 @@ import { AUGENSTEIN_2003_META, TEFFT_2011, TEFFT_2011_META, modeFromPdof, occupa
 import { type Scene, type VehicleType, VEHICLES, actorLabels, actorTitle, actorSpec, dimsOf, lightPhase, SURFACES, LANE_WIDTH } from '../scene';
 import type { Info, GateEvent } from './context';
 import type { TechAssessment, HarmLevel, TechnicalSection, TechnicalCollision, Trace } from './types';
+import { dm } from '../dmath';
 
 export interface TechnicalContext {
   scene: Scene;
@@ -23,7 +24,7 @@ export const tOf = (k: number): number => k * DT;
 
 export function boxAt(i: Info, k: number): OBB {
   const h = i.tr.h[k];
-  return { cx: i.tr.x[k] + Math.cos(h) * i.shift, cy: i.tr.y[k] + Math.sin(h) * i.shift, hl: i.hl, hw: i.hw, a: h };
+  return { cx: i.tr.x[k] + dm.cos(h) * i.shift, cy: i.tr.y[k] + dm.sin(h) * i.shift, hl: i.hl, hw: i.hw, a: h };
 }
 export const posAt = (i: Info, k: number): Vec => ({ x: i.tr.x[k], y: i.tr.y[k] });
 export const frontAt = (i: Info, k: number): Vec => add(posAt(i, k), mul(fromAngle(i.tr.h[k]), i.hl + i.shift));
@@ -43,7 +44,7 @@ export function prepare(scene: Scene, tl: Timeline): TechnicalContext {
     for (const c of tl.collisions) if ((c.a === a.id || c.b === a.id) && c.frame < kEnd) kEnd = c.frame;
     const trav = new Float32Array(tl.n);
     for (let k = Math.max(1, k0 + 1); k < tl.n; k++) {
-      trav[k] = trav[k - 1] + Math.hypot(tr.x[k] - tr.x[k - 1], tr.y[k] - tr.y[k - 1]);
+      trav[k] = trav[k - 1] + dm.hypot(tr.x[k] - tr.x[k - 1], tr.y[k] - tr.y[k - 1]);
     }
     const isVeh = a.kind === 'vehicle';
     const vs = isVeh ? VEHICLES[a.type as VehicleType] : null;
@@ -209,7 +210,7 @@ function injuryRiskFor(i: Info, col: Timeline['collisions'][number], side: 'a' |
   const dv = side === 'a' ? col.dvA : col.dvB;
   if (!i.isVeh) {
     const other = side === 'a' ? col.vB : col.vA, own = side === 'a' ? col.vA : col.vB;
-    const impactSpeed = Math.hypot(other.x - own.x, other.y - own.y);
+    const impactSpeed = dm.hypot(other.x - own.x, other.y - own.y);
     return { curve: TEFFT_2011_META, impactSpeedMs: impactSpeed, impactSpeedNote: 'Скорость удара = модуль относительной скорости до контакта (для пешехода ≈ скорость ТС).',
       severe: pedestrianRisk(impactSpeed, 'severe', i.a.age), death: pedestrianRisk(impactSpeed, 'death', i.a.age),
       ageShift70vs30Mph: TEFFT_2011.ageShift70vs30, ...(i.a.age === undefined ? { ageNote: 'Возраст не задан: средний риск популяции 15+ лет.' } : {}) };

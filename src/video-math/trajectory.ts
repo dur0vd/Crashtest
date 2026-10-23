@@ -1,5 +1,6 @@
 import { type Homography, type ImagePoint, type PlanePoint, planeWithCovariance } from './homography';
 import { type Matrix, inverse } from './linalg';
+import { dm } from '../dmath';
 
 /** One annotated frame: true presentation timestamp (s) and the wheel–road contact pixel. */
 export interface TrackClick { pts: number; image: ImagePoint }
@@ -69,7 +70,7 @@ export function fitTrajectory(h: Homography, clicks: TrackClick[], pixelSigma: n
       return { beta, cov };
     };
     const fx = fit(0), fy = fit(1);
-    const vx = fx.beta[1], vy = fy.beta[1], speed = Math.hypot(vx, vy);
+    const vx = fx.beta[1], vy = fy.beta[1], speed = dm.hypot(vx, vy);
     const ux = speed > 0 ? vx / speed : 1, uy = speed > 0 ? vy / speed : 0;
     const ax = 2 * fx.beta[2], ay = 2 * fy.beta[2];
     // Tangential acceleration and its σ (projection on the velocity direction).
@@ -94,7 +95,7 @@ export function averageSpeed(h: Homography, clicks: TrackClick[], pixelSigma: nu
   checkPts(clicks.map(c => c.pts));
   const obs = clicks.map(c => ({ t: c.pts, ...planeWithCovariance(h, c.image, pixelSigma) }));
   const first = obs[0].point, last = obs[obs.length - 1].point;
-  const len = Math.hypot(last.x - first.x, last.y - first.y);
+  const len = dm.hypot(last.x - first.x, last.y - first.y);
   const u = len > 0 ? { x: (last.x - first.x) / len, y: (last.y - first.y) / len } : { x: 1, y: 0 };
   let Sw = 0, St = 0, Ss = 0, Stt = 0, Sts = 0;
   for (const o of obs) {

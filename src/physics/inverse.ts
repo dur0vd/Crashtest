@@ -6,6 +6,7 @@ import { type Bounds, multiStart } from './optimize';
 import type { Scene } from '../scene';
 import type { SimulationOptions } from './extension';
 import { simulate } from '../sim';
+import { dm } from '../dmath';
 
 /** Observed rest pose with its stated uncertainty (1σ). Never overwritten by results. */
 export interface RestEvidence {
@@ -72,7 +73,7 @@ export function impactForward(problem: ImpactProblem, values: Partial<Record<Imp
   const body = (i: 0 | 1) => {
     const a = v[i].travelAngle ?? v[i].heading;
     return { mass: v[i].parameters.body.mass, yawInertia: v[i].parameters.body.yawInertia, position: { x: v[i].x, y: v[i].y },
-      velocity: { x: speed[i]! * Math.cos(a), y: speed[i]! * Math.sin(a) }, yawRate: 0, heading: v[i].heading };
+      velocity: { x: speed[i]! * dm.cos(a), y: speed[i]! * dm.sin(a) }, yawRate: 0, heading: v[i].heading };
   };
   const impact = planarImpact({ a: body(0), b: body(1), point, normal: n, restitution: values.restitution ?? problem.restitution,
     contactFriction: values.contactFriction ?? problem.contactFriction });

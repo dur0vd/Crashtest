@@ -32,6 +32,7 @@ import {
   validateBarrier, validateBraking, validateImpact, validatePostImpact, validateVulnerable,
 } from './physics/extension';
 import { type ImpactBody, type ImpactResult, planarImpact } from './physics/impact';
+import { dm } from './dmath';
 
 /** Geometric half-width of a guardrail polyline treated as a thin rigid body, m (model choice). */
 const GUARDRAIL_HALF_WIDTH = 0.1;
@@ -376,7 +377,7 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
 }
 
 function boxOf(r: Rt): OBB {
-  return { cx: r.pos.x + Math.cos(r.h) * r.shift, cy: r.pos.y + Math.sin(r.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: r.h };
+  return { cx: r.pos.x + dm.cos(r.h) * r.shift, cy: r.pos.y + dm.sin(r.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: r.h };
 }
 
 /** Reconnect the still-unvisited route after a friction-limited gear-change stop.
@@ -687,7 +688,7 @@ export function projectOnPath(path: PathData, p: Vec, sMin: number, sMax: number
     const dd = dist(p, q);
     if (!best || dd < dist(p, best.point)) {
       const right = { x: -dir.y, y: dir.x };
-      best = { s: s0 + t, d: dot(sub(p, q), right), angle: Math.atan2(dir.y, dir.x), point: q };
+      best = { s: s0 + t, d: dot(sub(p, q), right), angle: dm.atan2(dir.y, dir.x), point: q };
     }
   };
   for (let i = 0; i < pts.length - 1; i++) {
@@ -713,7 +714,7 @@ export function projectOnPath(path: PathData, p: Vec, sMin: number, sMax: number
  * through a thin box). Returns the deepest corner as the contact point.
  */
 export function barrierContact(box: OBB, cg: Vec, a: Vec, b: Vec): { n: Vec; depth: number; point: Vec } | null {
-  const c = Math.cos(box.a), sn = Math.sin(box.a);
+  const c = dm.cos(box.a), sn = dm.sin(box.a);
   const corners = [[box.hl, box.hw], [box.hl, -box.hw], [-box.hl, box.hw], [-box.hl, -box.hw]]
     .map(([lx, ly]) => ({ x: box.cx + c * lx - sn * ly, y: box.cy + sn * lx + c * ly }));
   return halfPlaneContact(corners, cg, a, b, GUARDRAIL_HALF_WIDTH);
@@ -740,7 +741,7 @@ interface ThrownBody { pos: Vec; vel: Vec; thrown?: ThrowState }
 
 /** Flight from height h with vertical launch speed |v_h|·tan(angle); horizontal speed unchanged until landing. */
 function startFlight(b: ThrownBody, angle: number, h: number, friction: number): void {
-  const vh = len(b.vel), vz0 = vh * Math.tan(angle), vz = Math.sqrt(vz0 * vz0 + 2 * G * h);
+  const vh = len(b.vel), vz0 = vh * dm.tan(angle), vz = Math.sqrt(vz0 * vz0 + 2 * G * h);
   b.thrown = { mode: 'flight', remaining: (vz0 + vz) / G, landingVz: vz, friction };
 }
 
@@ -808,7 +809,7 @@ const IDEAL_ACTUATOR: ParameterSource = {
 };
 
 function wheelPoints(st: DynamicState, p: DynamicVehicleParameters): Vec[] {
-  const c = Math.cos(st.heading), sn = Math.sin(st.heading), b = p.body;
+  const c = dm.cos(st.heading), sn = dm.sin(st.heading), b = p.body;
   return ([[b.lf, -b.trackFront / 2], [b.lf, b.trackFront / 2], [-b.lr, -b.trackRear / 2], [-b.lr, b.trackRear / 2]] as const)
     .map(([x, y]) => ({ x: st.x + c * x - sn * y, y: st.y + sn * x + c * y }));
 }
@@ -829,7 +830,7 @@ function roadFor(d: DynRt, st: DynamicState, zones: PhysicsZone[], fallback: { m
 /** Controller evaluation at frame start t: progress, waypoint events, intent profile, commands. */
 function controlFrame(d: DynRt, t: number): void {
   const r = d.r, st = d.state, p = d.p, c = d.ctrl, nodes = r.nodes;
-  const speed = Math.hypot(st.vx, st.vy);
+  const speed = dm.hypot(st.vx, st.vy);
   const proj = projectOnPath(r.path, { x: st.x, y: st.y }, Math.max(d.sFloor, d.s - 2), d.s + Math.max(5, 2 * speed * DT + 2));
   d.s = Math.max(d.sFloor, proj.s);
   let brake = 0, drive = 0;
@@ -1041,9 +1042,9 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
   };
   const boxAtF = (r: Rt, f: number): OBB => {
     const d = dyn.get(r.a.id);
-    if (d) return { cx: d.state.x + Math.cos(d.state.heading) * r.shift, cy: d.state.y + Math.sin(d.state.heading) * r.shift, hl: r.box.hl, hw: r.box.hw, a: d.state.heading };
+    if (d) return { cx: d.state.x + dm.cos(d.state.heading) * r.shift, cy: d.state.y + dm.sin(d.state.heading) * r.shift, hl: r.box.hl, hw: r.box.hw, a: d.state.heading };
     const q = kinPose(r, f);
-    return { cx: q.pos.x + Math.cos(q.h) * r.shift, cy: q.pos.y + Math.sin(q.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: q.h };
+    return { cx: q.pos.x + dm.cos(q.h) * r.shift, cy: q.pos.y + dm.sin(q.h) * r.shift, hl: r.box.hl, hw: r.box.hw, a: q.h };
   };
   const velocityAt = (r: Rt): Vec => {
     const d = dyn.get(r.a.id);
@@ -1175,12 +1176,12 @@ function simulateDynamic(scene: Scene, options: SimulationOptions): Timeline {
       tr.present[k] = r.present ? 1 : 0;
       if (d) {
         const { u, v } = bodyVelocity(d.state);
-        tr.v[k] = Math.hypot(d.state.vx, d.state.vy);
+        tr.v[k] = dm.hypot(d.state.vx, d.state.vy);
         tr.free[k] = d.controlled ? 0 : 1;
         tr.reversing![k] = r.present && u < -1e-6 ? 1 : 0;
         const sm = d.samples;
         sm.vx[k] = d.state.vx; sm.vy[k] = d.state.vy; sm.yawRate[k] = d.state.yawRate;
-        sm.sideslip[k] = Math.hypot(u, v) > 1e-6 ? Math.atan2(v, Math.abs(u)) : 0;
+        sm.sideslip[k] = dm.hypot(u, v) > 1e-6 ? dm.atan2(v, Math.abs(u)) : 0;
         sm.steering[k] = d.control.steering; sm.drive[k] = d.control.drive; sm.brake[k] = d.control.brake;
         sm.mu[k] = d.surface?.mu ?? mu; sm.muKnown[k] = d.surface?.muKnown ? 1 : 0; sm.gradeKnown[k] = d.surface?.gradeKnown ? 1 : 0;
         sm.zone[k] = d.surface?.muZoneId ?? null;

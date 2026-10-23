@@ -1,5 +1,6 @@
 import { finite } from './parameters';
 import { GRAVITY } from './dynamics';
+import { dm } from '../dmath';
 
 /**
  * Walking-speed reference values. Only verified entries are bundled; anything
@@ -70,7 +71,7 @@ export function searleThrow(v: number, theta: number, mu: number, h = 0, g = GRA
   finite(theta, 'theta', -Math.PI / 2, Math.PI / 2);
   finite(mu, 'mu', Number.MIN_VALUE, 3);
   finite(h, 'h', 0, 5);
-  const vx = v * Math.cos(theta), vz0 = v * Math.sin(theta);
+  const vx = v * dm.cos(theta), vz0 = v * dm.sin(theta);
   const vz = Math.sqrt(vz0 * vz0 + 2 * g * h);
   const tf = (vz0 + vz) / g;
   const flight = vx * tf;
@@ -87,7 +88,7 @@ export function searleLaunchSpeed(distance: number, theta: number, mu: number, h
   finite(distance, 'distance', 0, 500);
   const reduced = distance - mu * h;
   if (reduced <= 0) return null;
-  const v = Math.sqrt(2 * mu * g * reduced) / (Math.cos(theta) + mu * Math.sin(theta));
+  const v = Math.sqrt(2 * mu * g * reduced) / (dm.cos(theta) + mu * dm.sin(theta));
   // Valid only if the sliding condition holds for this solution.
   return searleThrow(v, theta, mu, h, g).slides ? v : null;
 }
@@ -101,7 +102,7 @@ export function searleSpeedRange(distance: number, mu: number, h = 0, g = GRAVIT
   const reduced = distance - mu * h;
   if (reduced <= 0) return null;
   const base = Math.sqrt(2 * mu * g * reduced);
-  return { min: base / Math.sqrt(1 + mu * mu), max: base, minAngle: Math.atan(mu), maxAngleRange: [0, 2 * Math.atan(mu)] };
+  return { min: base / Math.sqrt(1 + mu * mu), max: base, minAngle: dm.atan(mu), maxAngleRange: [0, 2 * dm.atan(mu)] };
 }
 
 /**

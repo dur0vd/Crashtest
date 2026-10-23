@@ -1,6 +1,7 @@
 import type { DynamicControl, DynamicRoad, DynamicState, DynamicStepTrace, DynamicVehicleParameters, ForceEvaluation, WheelForce, WheelId } from './types';
 import { finite, validateDynamicParameters, validateSource } from './parameters';
 import { dugoffTyre, elasticDemand, lockedTyre } from './tyre';
+import { dm } from '../dmath';
 
 export const GRAVITY = 9.81;
 export const DYNAMIC_FRAME_DT = 0.025;
@@ -24,7 +25,7 @@ export const DYNAMICS_LIMITATIONS = [
 ];
 
 export function bodyVelocity(s: DynamicState): { u: number; v: number } {
-  const c = Math.cos(s.heading), sn = Math.sin(s.heading);
+  const c = dm.cos(s.heading), sn = dm.sin(s.heading);
   return { u: c * s.vx + sn * s.vy, v: -sn * s.vx + c * s.vy };
 }
 
@@ -90,7 +91,7 @@ function forces(s: DynamicState, p: DynamicVehicleParameters, control: DynamicCo
     const mu = road.wheelMu?.[index] ?? road.mu;
     const muX = mu * tyres.frictionScaleX, muY = mu * tyres.frictionScaleY;
     const front = index < 2, delta = front ? control.steering : 0;
-    const cs = Math.cos(delta), sn = Math.sin(delta);
+    const cs = dm.cos(delta), sn = dm.sin(delta);
     const ux = u - s.yawRate * y, uy = v + s.yawRate * x;
     const vx = cs * ux + sn * uy, vy = -sn * ux + cs * uy;
     const direction = (vx < 0 ? -1 : 1) as 1 | -1;
@@ -133,7 +134,7 @@ function forces(s: DynamicState, p: DynamicVehicleParameters, control: DynamicCo
     const bodyFx = cs * fx - sn * fy, bodyFy = sn * fx + cs * fy;
     return { id, x, y, normalLoad, vx, vy, fx, fy, bodyFx, bodyFy,
       moment: x * bodyFy - y * bodyFx, longitudinalDemand, kappa, tanAlpha, lambda, mode,
-      ellipseUse: capacity && muY ? Math.hypot(fx / capacity, fy / (muY * normalLoad)) : 0,
+      ellipseUse: capacity && muY ? dm.hypot(fx / capacity, fy / (muY * normalLoad)) : 0,
       power: fx * vx + fy * vy };
   });
   return { fx: wheels.reduce((v, w) => v + w.bodyFx, 0), fy: wheels.reduce((v, w) => v + w.bodyFy, 0),
@@ -163,7 +164,7 @@ export function staticHold(s: DynamicState, p: DynamicVehicleParameters, control
   const g = slopeOf(p, road);
   if (!g.gx && !g.gy) return true;
   if (control.drive !== 0) return false;
-  const c = Math.cos(s.heading), sn = Math.sin(s.heading), m = p.body.mass;
+  const c = dm.cos(s.heading), sn = dm.sin(s.heading), m = p.body.mass;
   const gxBody = c * g.gx + sn * g.gy, gyBody = -sn * g.gx + c * g.gy;
   const { loads } = normalLoads(p, -gxBody / m, -gyBody / m, g.weight);
   let fxCap = 0, fyCap = 0;
@@ -205,14 +206,14 @@ export function integrateSubstep(state: DynamicState, p: DynamicVehicleParameter
   const atRest = !state.vx && !state.vy && !state.yawRate;
   if (sloped && atRest && staticHold(state, p, control, road)) {
     const f = forces(state, p, control, road, g.weight);
-    const c = Math.cos(state.heading), sn = Math.sin(state.heading), m = p.body.mass;
+    const c = dm.cos(state.heading), sn = dm.sin(state.heading), m = p.body.mass;
     // Tyres balance the slope force; their specific force drives load transfer.
     const held = { ...state, ax: -(c * g.gx + sn * g.gy) / m, ay: -(-sn * g.gx + c * g.gy) / m };
     return { state: held, forces: f, impulseScale: 0, motionSeconds: 0, energyBefore,
       energyAfter: energyBefore, staticHold: true, gravity: { x: g.gx, y: g.gy } };
   }
   const f = forces(state, p, control, road, g.weight);
-  const cs = Math.cos(state.heading), sn = Math.sin(state.heading);
+  const cs = dm.cos(state.heading), sn = dm.sin(state.heading);
   const fx = cs * f.fx - sn * f.fy, fy = sn * f.fx + cs * f.fy;
   const power = fx * state.vx + fy * state.vy + f.moment * state.yawRate;
   const q = (fx ** 2 + fy ** 2) / p.body.mass + f.moment ** 2 / p.body.yawInertia;
@@ -220,7 +221,7 @@ export function integrateSubstep(state: DynamicState, p: DynamicVehicleParameter
   let vx = state.vx + dt * scale * fx / p.body.mass;
   let vy = state.vy + dt * scale * fy / p.body.mass;
   let yawRate = state.yawRate + dt * scale * f.moment / p.body.yawInertia;
-  const tyreStopped = power < 0 && control.drive === 0 && Math.hypot(vx, vy) < REST_EPSILON && Math.abs(yawRate) < REST_EPSILON;
+  const tyreStopped = power < 0 && control.drive === 0 && dm.hypot(vx, vy) < REST_EPSILON && Math.abs(yawRate) < REST_EPSILON;
   let stopped = tyreStopped;
   let held = false;
   if (sloped) {
@@ -244,8 +245,8 @@ export function integrateSubstep(state: DynamicState, p: DynamicVehicleParameter
   const next = {
     x: state.x + motionSeconds * (state.vx + vx) / 2, y: state.y + motionSeconds * (state.vy + vy) / 2,
     heading, vx, vy, yawRate,
-    ax: Math.cos(heading) * axWorld + Math.sin(heading) * ayWorld,
-    ay: -Math.sin(heading) * axWorld + Math.cos(heading) * ayWorld,
+    ax: dm.cos(heading) * axWorld + dm.sin(heading) * ayWorld,
+    ay: -dm.sin(heading) * axWorld + dm.cos(heading) * ayWorld,
   };
   return { state: next, forces: f, impulseScale: scale, motionSeconds, energyBefore, energyAfter: kineticEnergy(next, p),
     staticHold: held, ...(sloped ? { gravity: { x: g.gx, y: g.gy } } : {}) };

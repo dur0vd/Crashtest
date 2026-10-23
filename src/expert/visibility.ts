@@ -1,4 +1,5 @@
 import type { OBB, Vec } from '../geom';
+import { dm } from '../dmath';
 
 /**
  * 2D line of sight (stage 10). Occluders are opaque rectangles (buildings,
@@ -32,7 +33,7 @@ const wrapDeg = (d: number) => ((d + 180) % 360 + 360) % 360 - 180;
 
 /** Liang–Barsky clip of segment p→q against the OBB in its local frame. */
 export function segmentHitsObb(p: Vec, q: Vec, o: OBB): boolean {
-  const c = Math.cos(o.a), s = Math.sin(o.a);
+  const c = dm.cos(o.a), s = dm.sin(o.a);
   const loc = (v: Vec) => ({ x: (v.x - o.cx) * c + (v.y - o.cy) * s, y: -(v.x - o.cx) * s + (v.y - o.cy) * c });
   const a = loc(p), b = loc(q), d = { x: b.x - a.x, y: b.y - a.y };
   let t0 = 0, t1 = 1;
@@ -45,7 +46,7 @@ export function segmentHitsObb(p: Vec, q: Vec, o: OBB): boolean {
 }
 
 export function obbPoints(o: OBB): Vec[] {
-  const c = Math.cos(o.a), s = Math.sin(o.a);
+  const c = dm.cos(o.a), s = dm.sin(o.a);
   return [[0, 0], [o.hl, o.hw], [o.hl, -o.hw], [-o.hl, o.hw], [-o.hl, -o.hw]]
     .map(([x, y]) => ({ x: o.cx + c * x - s * y, y: o.cy + s * x + c * y }));
 }
@@ -57,8 +58,8 @@ export function lineOfSight(i: SightInput): SightResult {
   const blocked = new Set<string>(), reasons = new Set<string>();
   let visible = 0;
   for (const pt of points) {
-    const dx = pt.x - i.eye.x, dy = pt.y - i.eye.y, dist = Math.hypot(dx, dy);
-    const bearing = wrapDeg((Math.atan2(dy, dx) - i.heading) * 180 / Math.PI);
+    const dx = pt.x - i.eye.x, dy = pt.y - i.eye.y, dist = dm.hypot(dx, dy);
+    const bearing = wrapDeg((dm.atan2(dy, dx) - i.heading) * 180 / Math.PI);
     if (i.visibilityDistance !== undefined && dist > i.visibilityDistance) { reasons.add('дальше измеренной дальности видимости'); continue; }
     const pillar = (i.pillars ?? []).find(p => wrapDeg(bearing - p.fromDeg) >= 0 && wrapDeg(p.toDeg - bearing) >= 0);
     if (pillar) { reasons.add(`в секторе стойки ${pillar.fromDeg}…${pillar.toDeg}°`); continue; }
@@ -67,6 +68,6 @@ export function lineOfSight(i: SightInput): SightResult {
     visible++;
   }
   const centre = points[0];
-  return { visible: visible > 0, visibleFraction: visible / points.length, distance: Math.hypot(centre.x - i.eye.x, centre.y - i.eye.y),
-    bearingDeg: wrapDeg((Math.atan2(centre.y - i.eye.y, centre.x - i.eye.x) - i.heading) * 180 / Math.PI), blockedBy: [...blocked], reasons: [...reasons] };
+  return { visible: visible > 0, visibleFraction: visible / points.length, distance: dm.hypot(centre.x - i.eye.x, centre.y - i.eye.y),
+    bearingDeg: wrapDeg((dm.atan2(centre.y - i.eye.y, centre.x - i.eye.x) - i.heading) * 180 / Math.PI), blockedBy: [...blocked], reasons: [...reasons] };
 }

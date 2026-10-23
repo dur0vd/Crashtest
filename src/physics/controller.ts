@@ -1,5 +1,6 @@
 import type { ParameterSource } from './types';
 import { finite, validateSource } from './parameters';
+import { dm } from '../dmath';
 
 /** Planar point; local type avoids a dependency on the scene geometry module. */
 export interface CtrlPoint { x: number; y: number }
@@ -77,12 +78,12 @@ export function validateController(c: ControllerSettings): void {
  */
 export function purePursuitSteer(rearAxle: CtrlPoint, heading: number, target: CtrlPoint, wheelbase: number, reverse: boolean): { steering: number; alpha: number; lookahead: number } {
   const dx = target.x - rearAxle.x, dy = target.y - rearAxle.y;
-  const ld = Math.hypot(dx, dy);
+  const ld = dm.hypot(dx, dy);
   if (ld < 1e-9) return { steering: 0, alpha: 0, lookahead: 0 };
   const travel = reverse ? heading + Math.PI : heading;
-  const alpha = wrap(Math.atan2(dy, dx) - travel);
-  const curvature = 2 * Math.sin(alpha) / ld;
-  const steering = Math.atan(wheelbase * curvature) * (reverse ? -1 : 1);
+  const alpha = wrap(dm.atan2(dy, dx) - travel);
+  const curvature = 2 * dm.sin(alpha) / ld;
+  const steering = dm.atan(wheelbase * curvature) * (reverse ? -1 : 1);
   return { steering, alpha, lookahead: ld };
 }
 
@@ -93,7 +94,7 @@ export function purePursuitSteer(rearAxle: CtrlPoint, heading: number, target: C
  */
 export function stanleySteer(heading: number, pathHeading: number, crossTrack: number, speed: number, gain: number, softening: number): { steering: number; headingError: number } {
   const headingError = wrap(pathHeading - heading);
-  return { steering: headingError - Math.atan(gain * crossTrack / (softening + Math.abs(speed))), headingError };
+  return { steering: headingError - dm.atan(gain * crossTrack / (softening + Math.abs(speed))), headingError };
 }
 
 export function lookahead(c: ControllerSettings, speed: number): number {

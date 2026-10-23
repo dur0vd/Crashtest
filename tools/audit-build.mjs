@@ -20,6 +20,8 @@ export const ALLOWED = {
   '14.mchs.gov.ru': 'source link', 'pmc.ncbi.nlm.nih.gov': 'source link', 'aaafoundation.org': 'source link',
   // Strings inside bundled third-party libraries (comments/error messages).
   'github.com': 'library text', 'stuk.github.io': 'library text', 'rolldown.rs': 'library text', 'answers.microsoft.com': 'library text',
+  // Licence/provenance comments of the stdlib fdlibm ports (src/dmath.ts).
+  'www.apache.org': 'library licence', 'svnweb.freebsd.org': 'library provenance', 'www.netlib.org': 'library provenance', 'golang.org': 'library provenance',
 };
 
 async function* files(dir) {

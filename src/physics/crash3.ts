@@ -1,5 +1,6 @@
 import type { ParameterSource } from './types';
 import { finite, validateSource } from './parameters';
+import { dm } from '../dmath';
 
 /**
  * CRASH3-type crush energy. Per unit width the absorbed energy for residual
@@ -75,7 +76,7 @@ export function crushEnergy(profile: CrushProfile, stiffness: StiffnessCoefficie
   ];
   if (profile.forceAngleDeg !== undefined) {
     finite(profile.forceAngleDeg, 'forceAngleDeg', -89, 89);
-    factor = 1 + Math.tan(profile.forceAngleDeg * Math.PI / 180) ** 2;
+    factor = 1 + dm.tan(profile.forceAngleDeg * Math.PI / 180) ** 2;
     assumptions.push('Поправка (1+tan²α) на косое направление силы относительно нормали поверхности повреждения; пределы применимости по источнику — TODO(source-check).');
   }
   return {

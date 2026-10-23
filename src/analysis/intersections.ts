@@ -9,6 +9,7 @@ import type { Ctx, Info } from './context';
 import type { FindingInput, Trace } from './types';
 import { boxAt, posAt, tOf } from './technical';
 import { specialDeparture, specialPairState, specialPriority } from './special-signals';
+import { dm } from '../dmath';
 
 /** These are observation windows, not numerical requirements imposed by the PDD. */
 const APPROACH_WINDOW_SECONDS = 6;
@@ -64,7 +65,7 @@ export function insideBoundary(p: Vec, boundary: Vec[]): boolean {
 
 function routePoints(i: Info): Vec[] {
   const points: Vec[] = [{ x: i.a.x, y: i.a.y }, ...i.a.path];
-  if (points.length === 1 && i.a.speed > 0) points.push({ x: i.a.x + Math.cos(i.a.heading) * i.a.speed / 3.6 * 30, y: i.a.y + Math.sin(i.a.heading) * i.a.speed / 3.6 * 30 });
+  if (points.length === 1 && i.a.speed > 0) points.push({ x: i.a.x + dm.cos(i.a.heading) * i.a.speed / 3.6 * 30, y: i.a.y + dm.sin(i.a.heading) * i.a.speed / 3.6 * 30 });
   return points;
 }
 
@@ -178,7 +179,7 @@ function crossesDestination(ctx: Ctx, turning: IntersectionParticipant, other: I
   const route = routePoints(o);
   const crossesAxis = road?.pts.some((r, k) => k > 0 && route.some((p, n) => n > 0 && !!segIntersect(route[n - 1], p, road.pts[k - 1], r)));
   return !!turning.exitRoadId && !!crossesAxis
-    && Math.abs(Math.sin(angDiff(turning.exitHeading, other.entryHeading))) > 0.5;
+    && Math.abs(dm.sin(angDiff(turning.exitHeading, other.entryHeading))) > 0.5;
 }
 
 function edge(ctx: Ctx, a: IntersectionParticipant, b: IntersectionParticipant, refs: string[], explain: string): PriorityEdge {
@@ -252,7 +253,7 @@ function compare(ctx: Ctx, j: IntersectionGeo, a: IntersectionParticipant, b: In
   }
   if (regulated) return null;
   // Compare approach directions, not positions already displaced by a collision.
-  const cross = Math.sin(angDiff(a.entryHeading, b.entryHeading));
+  const cross = dm.sin(angDiff(a.entryHeading, b.entryHeading));
   if (Math.abs(cross) < 0.5) return null;
   const mainChanges = ctx.scene.signs.some(s => s.mainDirections?.length && dist(s, j.center) < 60);
   const refs = [...(mainChanges ? ['pdd:13.10'] : []), 'pdd:13.11', 'rule:intersection-priority'];
@@ -362,7 +363,7 @@ export function checkIntersectionObservations(ctx: Ctx, add: (f: FindingInput) =
         const q = toLocal(posAt(o, kBefore), { cx: junction.center.x, cy: junction.center.y, a: p.exitHeading });
         return q.x > 0 && q.x < 35 && Math.abs(q.y) < i.hw + o.hw + 1;
       });
-      const crossTraffic = [...ctx.infos.values()].some(o => o !== i && o.isVeh && !o.a.railwayTrain && routeTouches(o, junction, ctx) && Math.abs(Math.sin(angDiff(p.entryHeading, o.a.heading))) > 0.5);
+      const crossTraffic = [...ctx.infos.values()].some(o => o !== i && o.isVeh && !o.a.railwayTrain && routeTouches(o, junction, ctx) && Math.abs(dm.sin(angDiff(p.entryHeading, o.a.heading))) > 0.5);
       const turningException = ['left', 'right'].includes(p.maneuver);
       // TODO(legal-check): применимость исключения 13.2 к конкретному повороту требует установления предусмотренного Правилами случая; одно направление манёвра не доказывает разрешение.
       if (queue && crossTraffic) add({ actorId: p.actorId, severity: turningException ? 'contributing' : 'violation', t: tOf(p.entryFrame), title: turningException ? 'Затор на выходе после поворота: требуется проверка исключения п. 13.2' : 'Выезд на перекрёсток при существовавшем заторе',

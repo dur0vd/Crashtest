@@ -46,6 +46,7 @@ import { movementPermission } from '../traffic-control';
 import { buildPriorityGraphs, checkIntersectionObservations, controllerAt, graphPriority, turningVulnerablePriority, movementFor } from './intersections';
 import type { FindingInput, DraftFinding, TechAssessment, CollisionReport, Finding, RulesSection, ActorVerdict } from './types';
 import { type TechnicalContext, boxAt, posAt, tOf, leftmostLat, stoppingCalculation, regionOf, sampleTrace } from './technical';
+import { dm } from '../dmath';
 
 function addFinding(ctx: Ctx, f: FindingInput): DraftFinding {
   const full: DraftFinding = { causal: false, ...applySpecialDeparture(ctx, f) };
@@ -881,7 +882,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
 }
 
 function len2(a: Vec, b: Vec): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  return dm.hypot(a.x - b.x, a.y - b.y);
 }
 
 function obstacleName(k: string): string {

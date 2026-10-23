@@ -1,4 +1,5 @@
 import { type Matrix, det3, inverse, matmul, symmetricEigen, transpose } from './linalg';
+import { dm } from '../dmath';
 
 export interface ImagePoint { u: number; v: number }
 export interface PlanePoint { x: number; y: number }
@@ -22,7 +23,7 @@ export interface Homography {
 
 function normaliser(pts: { a: number; b: number }[]): Matrix {
   const ca = pts.reduce((s, p) => s + p.a, 0) / pts.length, cb = pts.reduce((s, p) => s + p.b, 0) / pts.length;
-  const d = pts.reduce((s, p) => s + Math.hypot(p.a - ca, p.b - cb), 0) / pts.length;
+  const d = pts.reduce((s, p) => s + dm.hypot(p.a - ca, p.b - cb), 0) / pts.length;
   const k = d > 0 ? Math.SQRT2 / d : 1;
   return [[k, 0, -k * ca], [0, k, -k * cb], [0, 0, 1]];
 }
@@ -57,7 +58,7 @@ export function fitHomography(pairs: Correspondence[]): Homography {
   for (const p of pairs) if (![p.image.u, p.image.v, p.plane.x, p.plane.y].every(Number.isFinite)) throw new Error('Гомография: неверные координаты');
   const img = pairs.map(p => ({ a: p.image.u, b: p.image.v })), pl = pairs.map(p => ({ a: p.plane.x, b: p.plane.y }));
   for (const [pts, name] of [[img, 'изображении'], [pl, 'плане']] as const) {
-    const scale = Math.max(...pts.map(p => Math.hypot(p.a, p.b)), 1);
+    const scale = Math.max(...pts.map(p => dm.hypot(p.a, p.b)), 1);
     if (pairs.length === 4) for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) for (let k = j + 1; k < 4; k++) {
       if (collinear(pts[i], pts[j], pts[k], scale)) throw new Error(`Гомография: три точки на одной прямой в ${name}`);
     }
@@ -80,7 +81,7 @@ export function fitHomography(pairs: Correspondence[]): Homography {
   const Hinv = inverse(H);
   const residuals = pairs.map(p => {
     const [x, y] = apply(H, p.image.u, p.image.v), [u, v] = apply(Hinv, p.plane.x, p.plane.y);
-    return { ...(p.id ? { id: p.id } : {}), planeError: Math.hypot(x - p.plane.x, y - p.plane.y), imageError: Math.hypot(u - p.image.u, v - p.image.v) };
+    return { ...(p.id ? { id: p.id } : {}), planeError: dm.hypot(x - p.plane.x, y - p.plane.y), imageError: dm.hypot(u - p.image.u, v - p.image.v) };
   });
   const rms = (xs: number[]) => Math.sqrt(xs.reduce((s, e) => s + e * e, 0) / xs.length);
   const dof = 2 * pairs.length - 8;

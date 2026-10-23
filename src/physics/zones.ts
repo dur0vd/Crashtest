@@ -1,5 +1,6 @@
 import type { ParameterSource, SurfaceGrade } from './types';
 import { finite, validateSource } from './parameters';
+import { dm } from '../dmath';
 
 /** Planar point in scene metres. Local type keeps the physics package free of geom imports. */
 export interface ZonePoint { x: number; y: number }
@@ -103,7 +104,7 @@ export function pointInZone(p: ZonePoint, boundary: ZonePoint[]): boolean {
     const a = boundary[i], b = boundary[j];
     const abx = b.x - a.x, aby = b.y - a.y, l2 = abx * abx + aby * aby;
     const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / l2)) : 0;
-    if (Math.hypot(p.x - a.x - t * abx, p.y - a.y - t * aby) <= 1e-9) return true;
+    if (dm.hypot(p.x - a.x - t * abx, p.y - a.y - t * aby) <= 1e-9) return true;
     if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
   }
   return inside;
@@ -114,7 +115,7 @@ export function zoneGradient(z: PhysicsZone): { x: number; y: number } | undefin
   if (z.gradeLongitudinal === undefined && z.gradeCross === undefined) return undefined;
   const gl = z.gradeLongitudinal ?? 0, gc = z.gradeCross ?? 0, a = z.direction!;
   // A zone defining only one component declares the other as zero for that plane.
-  return { x: gl * Math.cos(a) - gc * Math.sin(a), y: gl * Math.sin(a) + gc * Math.cos(a) };
+  return { x: gl * dm.cos(a) - gc * dm.sin(a), y: gl * dm.sin(a) + gc * dm.cos(a) };
 }
 
 function pick<T>(field: string, point: ZonePoint, candidates: { zone: PhysicsZone; value: T }[], same: (a: T, b: T) => boolean): { zone: PhysicsZone; value: T } | undefined {

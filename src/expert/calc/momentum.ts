@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from '../../parallel/contracts';
 import { type CalcSpec, type Calculator, MissingInput, fmt, guard } from './common';
+import { dm } from '../../dmath';
 
 const G = 9.81;
 
@@ -41,9 +42,9 @@ function readVehicles(p: JsonObject): [VehicleInput, VehicleInput] {
 
 export function solveMomentum(v: [VehicleInput, VehicleInput]) {
   const u = v.map(x => x.postSpeed ?? Math.sqrt(2 * x.postSlide!.mu * G * x.postSlide!.distance));
-  const P = { x: v[0].mass * u[0] * Math.cos(v[0].postAngle) + v[1].mass * u[1] * Math.cos(v[1].postAngle),
-    y: v[0].mass * u[0] * Math.sin(v[0].postAngle) + v[1].mass * u[1] * Math.sin(v[1].postAngle) };
-  const d1 = { x: Math.cos(v[0].approachAngle), y: Math.sin(v[0].approachAngle) }, d2 = { x: Math.cos(v[1].approachAngle), y: Math.sin(v[1].approachAngle) };
+  const P = { x: v[0].mass * u[0] * dm.cos(v[0].postAngle) + v[1].mass * u[1] * dm.cos(v[1].postAngle),
+    y: v[0].mass * u[0] * dm.sin(v[0].postAngle) + v[1].mass * u[1] * dm.sin(v[1].postAngle) };
+  const d1 = { x: dm.cos(v[0].approachAngle), y: dm.sin(v[0].approachAngle) }, d2 = { x: dm.cos(v[1].approachAngle), y: dm.sin(v[1].approachAngle) };
   const det = d1.x * d2.y - d1.y * d2.x;
   const v1 = (P.x * d2.y - P.y * d2.x) / (det * v[0].mass);
   const v2 = (d1.x * P.y - d1.y * P.x) / (det * v[1].mass);
@@ -55,7 +56,7 @@ export const momentumCalculator: Calculator = {
   run: (p: JsonObject) => guard(momentumInputs, p, () => {
     const v = readVehicles(p);
     const base = solveMomentum(v);
-    if (Math.abs(base.det) < Math.sin(5 * Math.PI / 180)) throw new Error('Направления до удара почти коллинеарны (|sin| < sin 5°): система плохо обусловлена, нужен иной метод (энергия/CRASH3)');
+    if (Math.abs(base.det) < dm.sin(5 * Math.PI / 180)) throw new Error('Направления до удара почти коллинеарны (|sin| < sin 5°): система плохо обусловлена, нужен иной метод (энергия/CRASH3)');
     const da = typeof p.angleUncertainty === 'number' ? p.angleUncertainty : 0, ds = typeof p.speedUncertainty === 'number' ? p.speedUncertainty : 0;
     // Linear sensitivity: worst-case sum of |∂v/∂x|·Δx over all inputs.
     const perturb = (f: (c: [VehicleInput, VehicleInput]) => void) => { const c = structuredClone(v); f(c); return solveMomentum(c); };
@@ -76,9 +77,9 @@ export const momentumCalculator: Calculator = {
       result: { v1: base.v1, v2: base.v2, v1Kmh: base.v1 * 3.6, v2Kmh: base.v2 * 3.6, postSpeeds: base.u, momentum: base.P,
         bounds: { v1: [base.v1 - e1, base.v1 + e1], v2: [base.v2 - e2, base.v2 + e2] }, sensitivity: terms,
         energyBefore: ke(v[0].mass, base.v1) + ke(v[1].mass, base.v2), energyAfter: ke(v[0].mass, base.u[0]) + ke(v[1].mass, base.u[1]),
-        diagram: { P: base.P, pre: [{ x: v[0].mass * base.v1 * Math.cos(v[0].approachAngle), y: v[0].mass * base.v1 * Math.sin(v[0].approachAngle) },
-          { x: v[1].mass * base.v2 * Math.cos(v[1].approachAngle), y: v[1].mass * base.v2 * Math.sin(v[1].approachAngle) }],
-          post: v.map((x, i) => ({ x: x.mass * base.u[i] * Math.cos(x.postAngle), y: x.mass * base.u[i] * Math.sin(x.postAngle) })) },
+        diagram: { P: base.P, pre: [{ x: v[0].mass * base.v1 * dm.cos(v[0].approachAngle), y: v[0].mass * base.v1 * dm.sin(v[0].approachAngle) },
+          { x: v[1].mass * base.v2 * dm.cos(v[1].approachAngle), y: v[1].mass * base.v2 * dm.sin(v[1].approachAngle) }],
+          post: v.map((x, i) => ({ x: x.mass * base.u[i] * dm.cos(x.postAngle), y: x.mass * base.u[i] * dm.sin(x.postAngle) })) },
         substitution: `v1 = ${fmt(base.v1)} м/с (${fmt(base.v1 * 3.6, 1)} км/ч), v2 = ${fmt(base.v2)} м/с (${fmt(base.v2 * 3.6, 1)} км/ч)` } as unknown as JsonObject,
       units: { speed: 'm/s', mass: 'kg', momentum: 'kg m/s', angle: 'rad', energy: 'J' },
       sources: ['Закон сохранения импульса системы двух тел (внешние импульсы за время удара пренебрежимы)'],

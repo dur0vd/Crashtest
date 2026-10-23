@@ -4,6 +4,7 @@ import { nearestOnPolyline } from '../geom';
 import { type Scene, LANE_WIDTH, dimsOf } from '../scene';
 import type { Timeline } from '../sim';
 import { type BlindSector, lineOfSight } from './visibility';
+import { dm } from '../dmath';
 
 export interface VisibilityOptions {
   /** Driver eye point in the observer body frame (x forward, y right) from the track reference point, m. */
@@ -16,7 +17,7 @@ export interface VisibilityOptions {
 
 function boxAt(scene: Scene, tl: Timeline, id: string, k: number): OBB {
   const a = scene.actors.find(x => x.id === id)!, tr = tl.tracks.get(id)!, d = dimsOf(a), h = tr.h[k];
-  return { cx: tr.x[k] + Math.cos(h) * d.shift, cy: tr.y[k] + Math.sin(h) * d.shift, hl: d.length / 2, hw: d.width / 2, a: h };
+  return { cx: tr.x[k] + dm.cos(h) * d.shift, cy: tr.y[k] + dm.sin(h) * d.shift, hl: d.length / 2, hw: d.width / 2, a: h };
 }
 
 /** Per-frame 2D visibility of target from observer, with the moment it could first be detected. */
@@ -29,7 +30,7 @@ export function visibilityTimeline(scene: Scene, tl: Timeline, observerId: strin
   for (let k = 0; k < tl.n; k++) {
     if (!obs.present[k] || !tgt.present[k]) continue;
     const h = obs.h[k], off = opts.eyeOffset ?? { x: 0, y: 0 };
-    const eye: Vec = { x: obs.x[k] + Math.cos(h) * off.x - Math.sin(h) * off.y, y: obs.y[k] + Math.sin(h) * off.x + Math.cos(h) * off.y };
+    const eye: Vec = { x: obs.x[k] + dm.cos(h) * off.x - dm.sin(h) * off.y, y: obs.y[k] + dm.sin(h) * off.x + dm.cos(h) * off.y };
     const occluders = geo.obstacles.map(o => ({ id: o.item.id, kind: o.item.kind as string, box: o.box }));
     if (mode !== 'none') for (const a of scene.actors) {
       if (a.id === observerId || a.id === targetId || a.kind !== 'vehicle') continue;
@@ -79,14 +80,14 @@ export function hazardMoments(scene: Scene, tl: Timeline, vehicleId: string, oth
   if (conflict < 0) {
     let best = Infinity;
     for (let k = 0; k < tl.n; k++) if (v.present[k] && o.present[k]) {
-      const d = Math.hypot(v.x[k] - o.x[k], v.y[k] - o.y[k]);
+      const d = dm.hypot(v.x[k] - o.x[k], v.y[k] - o.y[k]);
       if (d < best) { best = d; conflict = k; }
     }
   }
   if (conflict < 0) throw new Error('Опасность: участники не присутствуют одновременно');
   const travelled = (k0: number) => {
     let s = 0;
-    for (let k = k0 + 1; k <= conflict; k++) s += Math.hypot(v.x[k] - v.x[k - 1], v.y[k] - v.y[k - 1]);
+    for (let k = k0 + 1; k <= conflict; k++) s += dm.hypot(v.x[k] - v.x[k - 1], v.y[k] - v.y[k - 1]);
     return s;
   };
   const cand = (criterion: HazardCriterion, k: number, explanation: string): HazardCandidate =>

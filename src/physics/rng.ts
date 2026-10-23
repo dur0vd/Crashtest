@@ -2,6 +2,7 @@
  * Deterministic 32-bit generator mulberry32 (Tommy Ettinger, public-domain
  * algorithm). Not cryptographic; used only for reproducible sampling by seed.
  */
+import { dm } from '../dmath';
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -52,7 +53,7 @@ export function sample(d: Distribution, rnd: () => number): number {
     case 'normal': {
       for (let i = 0; i < 100000; i++) {
         const u1 = 1 - rnd(), u2 = rnd();
-        const x = d.mean + d.sd * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        const x = d.mean + d.sd * Math.sqrt(-2 * dm.log(u1)) * dm.cos(2 * Math.PI * u2);
         if (x >= d.min && x <= d.max) return x;
       }
       throw new Error('Нормальное распределение: границы усечения отсекают почти всю массу');

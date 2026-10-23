@@ -3,6 +3,7 @@ import type {
   JsonObject,
   ProjectEnvelope,
 } from '../parallel/contracts';
+import { dm } from '../dmath';
 export const EVIDENCE_KINDS = {
   braking: 'След торможения',
   skid: 'Юз',
@@ -74,7 +75,7 @@ export function evidenceIssues(
         a &&
         b &&
         Number.isFinite(sigma) &&
-        Math.hypot(a.x - b.x, a.y - b.y) > sigma
+        dm.hypot(a.x - b.x, a.y - b.y) > sigma
       )
         issues.push(
           `${e.id}: модель расходится с измерением более чем на указанную погрешность; наблюдение сохранено`,

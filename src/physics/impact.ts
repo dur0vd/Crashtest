@@ -1,5 +1,6 @@
 import type { ParameterSource } from './types';
 import { finite } from './parameters';
+import { dm } from '../dmath';
 
 /** Planar vector, m or m/s or N s depending on use. */
 export interface V2 { x: number; y: number }
@@ -102,7 +103,7 @@ function validateBody(b: ImpactBody, name: string): void {
 function pdof(body: ImpactBody, force: V2): { pdofDeg?: number; clock?: number } {
   if (body.heading === undefined || !(force.x || force.y)) return {};
   // Direction from which the force comes = -force; express in the body frame.
-  const from = Math.atan2(-force.y, -force.x) - body.heading;
+  const from = dm.atan2(-force.y, -force.x) - body.heading;
   let deg = from * 180 / Math.PI;
   deg = ((deg + 180) % 360 + 360) % 360 - 180;
   if (deg === -180) deg = 180;
@@ -123,7 +124,7 @@ export function planarImpact(input: ImpactInput): ImpactResult {
   finite(point.x, 'point.x'); finite(point.y, 'point.y');
   finite(k, 'restitution', 0, 1);
   if (input.contactFriction !== undefined) finite(input.contactFriction, 'contactFriction', 0, 10);
-  const nl = Math.hypot(input.normal.x, input.normal.y);
+  const nl = dm.hypot(input.normal.x, input.normal.y);
   if (!(nl > 0) || !Number.isFinite(nl)) throw new Error('Удар: нормаль не определена');
   if (!Number.isFinite(a.mass) && !Number.isFinite(b.mass)) throw new Error('Удар: оба тела неподвижны');
   const n = { x: input.normal.x / nl, y: input.normal.y / nl }, t = perp(n);
@@ -172,8 +173,8 @@ export function planarImpact(input: ImpactInput): ImpactResult {
   return {
     method: 'planar-rigid-impulse-newton-coulomb-v1', mode, impulse: P, normalImpulse: Pn, tangentialImpulse: Pt,
     criticalRatio: critical, approachSpeed: un, tangentialSpeed: ut, separationSpeed: -u2n, tangent: t,
-    a: { deltaV: dvA, deltaVMagnitude: Math.hypot(dvA.x, dvA.y), deltaYawRate: dwA, velocity: vA, yawRate: wA, ...pdof(a, { x: -P.x, y: -P.y }) },
-    b: { deltaV: dvB, deltaVMagnitude: Math.hypot(dvB.x, dvB.y), deltaYawRate: dwB, velocity: vB, yawRate: wB, ...pdof(b, P) },
+    a: { deltaV: dvA, deltaVMagnitude: dm.hypot(dvA.x, dvA.y), deltaYawRate: dwA, velocity: vA, yawRate: wA, ...pdof(a, { x: -P.x, y: -P.y }) },
+    b: { deltaV: dvB, deltaVMagnitude: dm.hypot(dvB.x, dvB.y), deltaYawRate: dwB, velocity: vB, yawRate: wB, ...pdof(b, P) },
     energyBefore: eBefore, energyAfter: eAfter, energyLoss: loss, energyNormal: eNormal, energyTangential: eTangential,
     energyIncrease: loss < -1e-9 * Math.max(1, eBefore),
     formulas: {

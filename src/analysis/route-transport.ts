@@ -7,6 +7,7 @@ import type { Ctx, Info } from './context';
 import { boxAt, posAt, sampleTrace, tOf } from './technical';
 import type { FindingInput, Trace } from './types';
 import { specialPairState, specialPriority } from './special-signals';
+import { dm } from '../dmath';
 
 type Add = (finding: FindingInput) => unknown;
 // Detection settings, not statutory dimensions or times for yielding.
@@ -48,7 +49,7 @@ export function effectiveRouteLaneStations(sceneSigns: Sign[], road: RoadGeo, la
   for (const sign of sceneSigns.filter(sign => lane.signIds.includes(sign.id) && sign.kind === '5.14.3')) {
     const stop = nearestOnPolyline(road.pts, sign);
     if (stop.s < from || stop.s > to || stop.beyond) continue;
-    const course = Math.atan2(stop.tangent.y, stop.tangent.x) + (lane.direction === 'reverse' ? Math.PI : 0);
+    const course = dm.atan2(stop.tangent.y, stop.tangent.x) + (lane.direction === 'reverse' ? Math.PI : 0);
     if (Math.abs(angDiff(sign.angle, course)) > 0.6) continue;
     if (lane.direction === 'forward') to = Math.min(to, stop.s);
     else from = Math.max(from, stop.s);
@@ -286,7 +287,7 @@ export function routePriority(ctx: Ctx, a: string, b: string, col: Collision): R
   const [tram, other] = tramA ? [A, B] : [B, A];
   if (other.rail || tram.a.routeContext?.depotExit === true) return null;
   const k = Math.max(tram.k0, other.k0, col.frame - 1);
-  const crosses = Math.abs(Math.sin(tram.tr.h[k] - other.tr.h[k])) > 0.3;
+  const crosses = Math.abs(dm.sin(tram.tr.h[k] - other.tr.h[k])) > 0.3;
   const rails = ctx.geo.tracks.some(track => track.item.kind !== 'railway' && track.pts.length >= 2
     && nearestOnPolyline(track.pts, col.point).dist <= tram.hw + other.hw + 1);
   if (!crosses || !rails || !roadsAt(ctx.geo, col.point, other.hw).length) return null;
@@ -351,7 +352,7 @@ function temporaryManeuver(ctx: Ctx, i: Info, hit: RouteLaneHit, frame: number):
       const near = nearestOnPolyline(hit.road.pts, posAt(i, k));
       const width = widthsAt(hit.road, near.s);
       const outside = near.beyond || near.d < -width.l - i.hw || near.d > width.r + i.hw;
-      if (outside && Math.abs(angDiff(i.tr.h[k], Math.atan2(near.tangent.y, near.tangent.x))) > 0.4) return true;
+      if (outside && Math.abs(angDiff(i.tr.h[k], dm.atan2(near.tangent.y, near.tangent.x))) > 0.4) return true;
     }
     return false;
   }

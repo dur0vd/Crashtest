@@ -1,4 +1,5 @@
 import { finite } from './parameters';
+import { dm } from '../dmath';
 
 /**
  * Published population risk functions. Outputs are probabilities for the study
@@ -46,7 +47,7 @@ export const AUGENSTEIN_2003_META: PublishedCurve = {
 };
 
 const MPH = 0.44704;
-const logistic = (x: number) => 1 / (1 + Math.exp(-x));
+const logistic = (x: number) => 1 / (1 + dm.exp(-x));
 
 /** PDOF (deg, 0 = from the front, clockwise positive) to a crash mode; side needs the occupant side. */
 export function modeFromPdof(pdofDeg: number, occupantSide?: 'left' | 'right'): { modes: OccupantMode[]; assumption: string } {
@@ -117,7 +118,7 @@ export function pedestrianRisk(impactSpeedMs: number, outcome: 'severe' | 'death
   const formula = 'logit(P) линейно по скорости между соседними опубликованными точкам (10/25/50/75/90 %)';
   if (mph < speeds[0]) return { curveId: TEFFT_2011_META.id, probability: null, bound: { below: levels[0] }, input, formula };
   if (mph > speeds[speeds.length - 1]) return { curveId: TEFFT_2011_META.id, probability: null, bound: { above: levels[levels.length - 1] }, input, formula };
-  const logit = (p: number) => Math.log(p / (1 - p));
+  const logit = (p: number) => dm.log(p / (1 - p));
   let i = 0;
   while (i < speeds.length - 2 && mph > speeds[i + 1]) i++;
   const f = (mph - speeds[i]) / (speeds[i + 1] - speeds[i]);

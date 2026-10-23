@@ -7,6 +7,7 @@ import { isSmallRider, mobilityPlaceAt } from '../mobility';
 import { VEHICLES, type VehicleType } from '../scene';
 import type { FeatureDescriptor, FeatureIssue, InputDescriptor, JsonObject, ProjectEnvelope } from '../parallel/contracts';
 import { all, any, bool, compliance, isObject, not, number, object, pointer, severity, validateFields, type Known } from './facts';
+import { dm } from '../dmath';
 
 const BOOLEANS = ['hasHandlebar', 'handOnHandlebar', 'loadObstructsControl', 'passengerDesignPermitted', 'childSeatEquipped',
   'trailerDesignedForDevice', 'reflectorsPresent', 'reflectorsVisible', 'columnGroupsSeparated', 'crossesOutsideIntersection',
@@ -94,7 +95,7 @@ export function checkMobilitySupplement(ctx: Ctx, input: JsonObject, lighting: J
       if (turn.intersectionId || !['left', 'uturn'].includes(turn.kind)) continue;
       const road = ctx.scene.roads.find(r => r.id === turn.roadId);
       const place = mobilityPlaceAt(ctx.geo, posAt(i, turn.frame), turn.heading);
-      const trams = ctx.geo.tracks.some(t => t.item.kind !== 'railway' && t.pts.some(p => road && ctx.geo.roads.some(r => r.road === road && r.pts.some(q => Math.hypot(p.x - q.x, p.y - q.y) < r.half))));
+      const trams = ctx.geo.tracks.some(t => t.item.kind !== 'railway' && t.pts.some(p => road && ctx.geo.roads.some(r => r.road === road && r.pts.some(q => dm.hypot(p.x - q.x, p.y - q.y) < r.half))));
       if ((road && road.lanes > 1 || trams) && !place.cycleZone) emit('24.8', 'outside-turn', 'Ограничение поворота налево/разворота вне перекрёстка', bool(c.leftTurnPermittedFromRight), 'rule:mobility', turn.frame,
         { maneuver: turn, geometryLimit: 'Параметры распознавания манёвра — модельный фильтр, не законодательный порог' });
     }

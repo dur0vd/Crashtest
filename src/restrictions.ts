@@ -23,6 +23,7 @@ import { VALUE_SIGNS, signTitle } from './signs';
 import { DT } from './sim';
 import { routeSignException } from './analysis/route-transport';
 import { lawRef } from './law';
+import { dm } from './dmath';
 
 export interface Kit {
   add: (f: FindingInput) => DraftFinding;
@@ -338,7 +339,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
           const near = nearestOnPolyline(dense, c);
           let straddle = false;
           if (near.dist < 4 && !near.beyond) {
-            const r = rightOf(Math.atan2(near.tangent.y, near.tangent.x));
+            const r = rightOf(dm.atan2(near.tangent.y, near.tangent.x));
             const ds = obbCorners(kit.boxAt(i, k)).map((p) => dot({ x: p.x - near.point.x, y: p.y - near.point.y }, r));
             straddle = Math.min(...ds) < -0.05 && Math.max(...ds) > 0.05;
             if (!straddle && near.dist < 3.5) before = Math.sign(near.d) || before;

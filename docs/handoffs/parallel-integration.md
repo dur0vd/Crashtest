@@ -21,7 +21,10 @@
 | `3fb3a8f` | этап 17: валидация CRASH3 по NHTSA, `npm run validation-report` |
 | `bbff757` | одинаковые входы в проверке детерминизма |
 | `7f8df67` | этап 18/17: аудит сборки, тесты безопасности, CI |
-| финальный | документы: INTEGRATION, README, FULL-SIMULATOR, этот отчёт |
+| `fd39db1` | итоговые документы |
+| `304e478` | CI: pdftotext; диагностика расхождения Node ↔ Chromium |
+| `53de1b4` | детерминированные sin/cos/exp (fdlibm) во всех расчётных путях |
+| финальный | документы: статус CI и исправление математики |
 
 ## Что сделано
 
@@ -34,6 +37,8 @@
 - Экспертный режим не показывает правовую оценку; новая ситуация главного окна — явный учебный.
 - Версии: движок 0.3.0, хэш корпуса норм; сохраняются вместе с результатом.
 - Валидация CRASH3 на 150 открытых испытаниях: 9,3 % средняя ошибка EES (цель ≤ 15 %).
+- Воспроизводимость между движками: расчёт не использует `Math.sin/cos/exp/…` (на CI они
+  расходились в 1 ulp между Node 22 и Chromium 156) — `src/dmath.ts`, порты fdlibm.
 - CI на PR и отдельный workflow валидации.
 
 ## Публичные экспорты (интегратор)
@@ -41,6 +46,7 @@
 - `src/integration/ports.ts`: `createPorts`, `runProject`, `currentVersions`, `deriveBrakingProofs`,
   `rulesMode`, `issueText`, `ENGINE_VERSION`, типы `IntegratedPorts`, `ProjectRun`, `RulesMode`.
 - `src/integration/browser.ts`: `workerMonteCarlo`.
+- `src/dmath.ts`: `dm` — sin, cos, tan, atan, atan2, acos, exp, log, hypot (fdlibm, stdlib).
 - `src/physics/port.ts`: `createPhysicsPort({monteCarlo?})`, тип `MonteCarloRunner`.
 - `tools/audit-build.mjs`: `auditBuild`, `ALLOWED`.
 
@@ -48,14 +54,16 @@
 
 | Команда | Результат |
 | --- | --- |
-| `npm test` | 1557/1557, 61 файл (база 1115/35 сохранена) |
+| `npm test` | 1564/1564, 62 файла (база 1115/35 сохранена) |
 | `npm run build` | успешно; прежнее предупреждение о чанках > 500 кБ |
 | `node tools/audit-build.mjs dist` | внешних адресов вне списка нет |
 | `npm audit --omit=dev` / `npm audit --audit-level=high` | 0 уязвимостей / 0 high и critical (3 moderate в dev-цепочке Capacitor CLI) |
 | `CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser` | 7/7, повторено несколько раз |
 | `npm run validation-data && npm run validation-report` | 150 испытаний; верификация и валидация пройдены |
 
-Удалённый запуск workflow этим не подтверждается — смотреть статус CI в PR.
+Удалённый CI (`ci.yml`) на `53de1b4`: оба задания зелёные (Node 22, Chromium 156).
+Первые запуски упали из-за отсутствия `pdftotext` и расхождения математики — исправлено.
+`validation.yml` удалённо ещё не запускался.
 Один ранний прогон Playwright дал сбой теста удаления в мобильном мастере; в последующих
 прогонах (более 6) не воспроизвёлся, причина не установлена.
 
@@ -65,7 +73,8 @@
 `src/main.ts`, `src/ui.ts`, `src/workbench/mount.ts`, `src/cli/bin.mjs`, `playwright.config.ts`,
 `package.json` (скрипты `validation-*`), `.gitignore`, `tests/browser/graphics.spec.ts`
 (ожидание сборки без портов), `src/physics/port.ts` (режим `observed`, исполнитель МК),
-`src/rules/expert.ts` (экстренное торможение для `collision-avoidance`). README и
+`src/rules/expert.ts` (экстренное торможение для `collision-avoidance`), замена `Math.*` → `dm.*`
+в 34 расчётных файлах physics/rules/analysis/sim/geom/presets, зависимости `@stdlib/math-base-special-*`. README и
 FULL-SIMULATOR.md обновлены. Чужие handoff не менялись.
 
 ## Источники

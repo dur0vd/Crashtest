@@ -4,7 +4,10 @@
   "base": {
     "ref": "codex/full-simulator-base-v2",
     "sha": "2e1685b3d6f19e87924388647ddd9d88c655da64",
-    "checks": { "tests": "1115/1115 in 35 files", "build": "ok" }
+    "checks": {
+      "tests": "1115/1115 in 35 files",
+      "build": "ok"
+    }
   },
   "inputs": [
     {
@@ -57,10 +60,33 @@
     }
   ],
   "integrationFixes": [
-    { "commit": "5c192ad", "what": "physics→rules braking adapter, emergency braking accepted for collision-avoidance proofs, observed mode in expert.braking" },
-    { "commit": "4fdb430", "what": "▶ and workbench on real ports; explicit unsupported dialog; presets start a new project (stale extensions gave unknown-actor)" },
-    { "commit": "1b4a219", "what": "CLI crashtest-verify with real ports and versions" },
-    { "commit": "d05c3af", "what": "Monte Carlo in Web Worker; late progress no longer overwrites cancel status" },
-    { "commit": "bbff757", "what": "determinism check uses a fixed accident date (presets stamp the current minute)" }
+    {
+      "commit": "5c192ad",
+      "what": "physics→rules braking adapter, emergency braking accepted for collision-avoidance proofs, observed mode in expert.braking"
+    },
+    {
+      "commit": "4fdb430",
+      "what": "▶ and workbench on real ports; explicit unsupported dialog; presets start a new project (stale extensions gave unknown-actor)"
+    },
+    {
+      "commit": "1b4a219",
+      "what": "CLI crashtest-verify with real ports and versions"
+    },
+    {
+      "commit": "d05c3af",
+      "what": "Monte Carlo in Web Worker; late progress no longer overwrites cancel status"
+    },
+    {
+      "commit": "bbff757",
+      "what": "determinism check uses a fixed accident date (presets stamp the current minute)"
+    },
+    {
+      "commit": "304e478",
+      "what": "CI: poppler-utils for the PDF test; determinism diff diagnostics"
+    },
+    {
+      "commit": "53de1b4",
+      "what": "deterministic sin/cos/exp/… (fdlibm via stdlib) in all calculation paths; Node 22 and Chromium 156 differed by 1 ulp"
+    }
   ]
 }

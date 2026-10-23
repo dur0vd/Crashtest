@@ -1,9 +1,10 @@
 import { corpus, resolveRef, revisionsFor } from './corpus';
 import type { LawRevision, LawSource } from './law-version';
 import { defaultAccidentDate } from './scene';
+import { supplementalAt, supplementalNorm } from './law-supplement';
 // Метаданные ссылок разбора. Текст и санкция выбранной редакции — только из корпуса.
 
-export type LawCode = 'ПДД' | 'КоАП' | 'УК' | 'ГК' | 'ОСАГО';
+export type LawCode = 'ПДД' | 'КоАП' | 'УК' | 'ГК' | 'ОСАГО' | 'ФЗ' | 'УПК' | 'ПП';
 
 export interface LawRef {
   id: string;
@@ -110,11 +111,15 @@ const L: LawMetadata[] = [
 
 /** Метаданные справочника. Дословные тексты и санкции берём только из корпуса. */
 export const LAW: Record<string, LawMetadata & { revisions: LawRevision[]; readonly sanction?: string }> = Object.fromEntries(L.map((r) => [r.id, {
-  ...r, revisions: revisionsFor(r.id),
+  ...r, revisions: supplementalNorm(r.id)?.revisions ?? revisionsFor(r.id),
   get sanction() { return lawRef(r.id, defaultAccidentDate()).sanction; },
 }]));
 
 export function lawRef(id: string, date: string): LawRef {
+  const supplement = supplementalAt(id, date);
+  if (supplement) return { id, code: supplement.code, cite: supplement.cite, title: supplement.title,
+    text: supplement.revision?.text ?? '', revision: supplement.revision, source: supplement.revision?.source,
+    warning: supplement.revision ? supplement.revision.legalCheck : `TODO(legal-check): нет проверенной редакции ${id} на дату ${date}.` };
   const full = resolveRef(corpus, id, date);
   const meta = L.find((r) => r.id === id);
   const d = describeRef(id);
@@ -133,6 +138,8 @@ export function refLabel(id: string): string {
 
 /** Подпись нормы для любой ссылки, в том числе той, которой нет в кратком справочнике выше. */
 export function describeRef(id: string): { cite: string; code: LawCode | '' } {
+  const supplement = supplementalNorm(id);
+  if (supplement) return { cite: supplement.cite, code: supplement.code };
   const known = LAW[id];
   if (known) return { cite: known.cite, code: known.code };
   const kind = id.slice(0, id.indexOf(':'));

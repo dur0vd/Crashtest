@@ -4,6 +4,7 @@ import { isCycleRider, isSmallRider, mobilityPlaceAt, mobilityPlacePermission, a
 import { kmh, pointInObb, angDiff } from '../geom';
 import { roadsAt } from '../geo';
 import { posAt, sampleTrace, tOf } from './technical';
+import { lawRef } from '../law';
 
 /** Observed route and explicit facts; no synthetic trace is evidence of field validation. */
 export function checkMobility(ctx: Ctx, add: (f: FindingInput) => unknown, limitAt: (i: Info, k: number) => { limit: number; refs: string[] } | null): void {
@@ -14,10 +15,12 @@ export function checkMobility(ctx: Ctx, add: (f: FindingInput) => unknown, limit
     const emit = (key: string, k: number, allowed: boolean | null, title: string, detail: string, refs: string[], extra: Record<string, unknown> = {}) => {
       if (seen.has(key)) return;
       seen.add(key);
+      const sources = refs.filter(ref => !ref.startsWith('rule:')).map(ref => lawRef(ref, ctx.scene.env.accidentDate));
+      if (sources.some(source => !source.revision)) allowed = null;
       add({ actorId: a.id, severity: allowed === true ? 'info' : allowed === false ? 'violation' : 'contributing', t: tOf(k), title, detail,
         refs: [...refs, ...(allowed === false ? ['rule:mobility'] : [])], trace: { ...sampleTrace(ctx, i, k),
           mobilityContext: structuredClone(c), simParameters: structuredClone(a.simParameters), age: a.age,
-          ...extra, compliance: allowed === true ? 'выполнено' : allowed === false ? 'нарушено' : 'не определить' } });
+          ...extra, sources, compliance: allowed === true ? 'выполнено' : allowed === false ? 'нарушено' : 'не определить' } });
     };
     for (let k = i.k0; k <= i.kEnd; k++) {
       if (!i.tr.present[k] || Math.abs(i.tr.v[k]) < 0.1) continue;

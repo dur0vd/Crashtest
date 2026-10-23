@@ -1,5 +1,11 @@
 import { checkStopping } from './stopping';
+import { lawRef } from '../law';
 import { checkPassengers } from './passengers';
+import { checkLighting } from '../rules/lighting';
+import { checkMobilitySupplement } from '../rules/mobility';
+import { checkPassengerSupplement } from '../rules/passengers';
+import { refineStopping } from '../rules/stopping';
+import type { JsonObject } from '../parallel/contracts';
 import {
   roadsAt,
   intersectionAt,
@@ -76,12 +82,12 @@ function ordinarySpeedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; re
   const hits = roadsAt(ctx.geo, posAt(i, k), 1);
   const active = activeSigns(ctx, i.a.id, k, 100000);
   const sign = active.filter((s) => s.kind === '3.24').pop();
-  if (sign?.value && signApplies(sign, classOf(i)) && !uncertainMobilityPlate(sign)) return { limit: sign.value, refs: ['sign:3.24'] };
+  if (sign?.value && signApplies(sign, classOf(i)) && !uncertainMobilityPlate(sign, classOf(i), ctx.scene.env.accidentDate)) return { limit: sign.value, refs: ['sign:3.24'] };
   // знаки зон: 5.21 (жилая зона), 5.23.1/5.24.1 (начало населённого пункта / выезд), 5.31 (зона с ограничением скорости)
   const zoneSign = active.filter((s) => ['5.21', '5.23.1', '5.24.1', '5.31'].includes(s.kind)).pop();
   if (zoneSign) {
     const type = i.a.type as VehicleType;
-    if (zoneSign.kind === '5.31' && zoneSign.value && !uncertainMobilityPlate(zoneSign)) return { limit: zoneSign.value, refs: ['sign:5.31'] };
+    if (zoneSign.kind === '5.31' && zoneSign.value && !uncertainMobilityPlate(zoneSign, classOf(i), ctx.scene.env.accidentDate)) return { limit: zoneSign.value, refs: ['sign:5.31'] };
     if (zoneSign.kind === '5.21') return { limit: 20, refs: ['sign:5.21', 'pdd:17.1'] };
     const z = zoneLimit(type, zoneSign.kind === '5.23.1' ? 'city' : 'outside');
     if (z) return { limit: z.limit, refs: [`sign:${zoneSign.kind}`, z.ref] };
@@ -96,8 +102,8 @@ export function speedLimitAt(ctx: Ctx, i: Info, k: number): { limit: number; ref
   if (i.a.type !== 'sim') return ordinary;
   const candidates = [{ limit: 25, refs: ['pdd:24.6'] }, ...(ordinary ? [ordinary] : [])];
   if (roadsAt(ctx.geo, posAt(i, k)).some(h => h.rg.road.zone === 'residential')) candidates.push({ limit: 20, refs: ['pdd:10.2'] });
-  const zone = activeSigns(ctx, i.a.id, k, 100000).filter(s => s.kind === '5.31' && s.value && !uncertainMobilityPlate(s) && signApplies(s, 'sim')).at(-1);
-  if (activeSigns(ctx, i.a.id, k, 100000).some(s => s.kind === '5.21' && !uncertainMobilityPlate(s))) candidates.push({ limit: 20, refs: ['sign:5.21', 'pdd:17.1'] });
+  const zone = activeSigns(ctx, i.a.id, k, 100000).filter(s => s.kind === '5.31' && s.value && !uncertainMobilityPlate(s, classOf(i), ctx.scene.env.accidentDate) && signApplies(s, 'sim')).at(-1);
+  if (activeSigns(ctx, i.a.id, k, 100000).some(s => s.kind === '5.21' && !uncertainMobilityPlate(s, classOf(i), ctx.scene.env.accidentDate))) candidates.push({ limit: 20, refs: ['sign:5.21', 'pdd:17.1'] });
   if (zone?.value) candidates.push({ limit: zone.value, refs: ['sign:5.31'] });
   return candidates.sort((a, b) => a.limit - b.limit)[0];
 }
@@ -256,6 +262,23 @@ function checkLights(ctx: Ctx, i: Info): void {
     let note = '';
     // 6.14 concerns the transition to yellow, not a permanently disabled extra section.
     if (!controller && phase === 'yellow' && (!light.kind || light.kind === 'vehicle') && !light.extraSection?.directions.includes(movement as 'straight' | 'right' | 'left' | 'uturn')) {
+      if (evidence?.trace.expertRules === true) {
+        const proof = evidence.trace.expertYellow as { canStop: boolean | null } | null;
+        const available = !!lawRef('pdd:6.14', ctx.scene.env.accidentDate).revision;
+        if (!available || !proof || proof.canStop === null) {
+          addFinding(ctx, { actorId: i.a.id, severity: 'contributing', t, causal: false, title: 'Применимость исключения для жёлтого сигнала не установлена',
+            detail: 'Для 6.14 требуется служебный расчёт с t1–t3, диапазоном и подтверждённым моментом включения жёлтого. Упрощённая формула не используется.',
+            refs: ['pdd:6.2', 'pdd:6.13', 'pdd:6.14'], trace: { ...evidence.trace, compliance: 'не определить' } });
+          continue;
+        }
+        if (proof.canStop === false) {
+          addFinding(ctx, { actorId: i.a.id, severity: 'info', t, causal: false, title: 'Продолжение движения по исключению 6.14',
+            detail: 'Во всём переданном диапазоне служебного торможения остановка до установленной границы невозможна. Вывод ограничен предпосылками расчёта.',
+            refs: ['pdd:6.14'], trace: { ...evidence.trace, compliance: 'выполнено' } });
+          continue;
+        }
+        note = ' Переданное научное доказательство устанавливает возможность остановки во всём диапазоне служебного торможения (6.14).';
+      } else {
       const yellow = evidence?.trace.yellow as { frame: number; v0: number; available: number; S: number } | undefined;
       if (yellow) {
         if (yellow.S <= yellow.available) note = ` При включении жёлтого скорость ${Math.round(kmh(yellow.v0))} км/ч, до стоп-линии ${yellow.available.toFixed(0)} м — остановиться служебным торможением было возможно.`;
@@ -264,13 +287,14 @@ function checkLights(ctx: Ctx, i: Info): void {
           addFinding(ctx, { actorId: i.a.id, severity: 'info', t, trace: { ...evidence?.trace, compliance: 'выполнено' }, title: 'проезд на жёлтый сигнал', detail: 'Остановиться без экстренного торможения уже было нельзя, поэтому дальнейшее движение допустимо (п. 6.14).', refs: ['pdd:6.14'] });
         }
       }
+      }
     }
     if (bad) {
       const finding = addFinding(ctx, { actorId: i.a.id, severity: 'violation', t,
         trace: { ...evidence?.trace, permission, light: controlling },
         title: controlling.kind === 'controller' ? 'не выполнено требование регулировщика' : phase === 'red' ? 'проезд на красный сигнал светофора' : 'проезд при запрещённом направлении или сигнале',
         detail: `${permission.reason}. Скорость ${Math.round(kmh(i.tr.v[g.frame]))} км/ч.${note}`,
-        refs: [...permission.refs, 'pdd:6.13', ...(prior && light.stopLine !== false ? ['pdd:13.7'] : []), 'rule:signal'] });
+        refs: [...permission.refs, 'pdd:6.13', ...(evidence?.trace.expertRules === true && phase === 'yellow' ? ['pdd:6.14'] : []), ...(prior && light.stopLine !== false ? ['pdd:13.7'] : []), 'rule:signal'] });
       if (finding.severity === 'violation') {
         const list = ctx.lightViolations.get(i.a.id) ?? [];
         list.push({ light: controlling, frame: g.frame });
@@ -952,7 +976,7 @@ function missedWrongSide(ctx: Ctx): void {
 // Правовая оценка
 
 
-export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
+export function analyzeRules(technical: TechnicalContext, options: { lighting?: JsonObject; mobility?: JsonObject; passengers?: JsonObject; stopping?: JsonObject } = {}): { ctx: Ctx; section: RulesSection; events: { t: number; text: string }[] } {
   const ctx: Ctx = { ...technical, gates: technical.gates.map(g => ({ ...g })), findings: [], events: [], priorityGraphs: [], onc: new Map(), lightViolations: new Map(), stopSkipped: new Map(), pedEntry: new Map() };
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
@@ -1024,6 +1048,12 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
   }
 
 
+  // These observations do not establish a cause. Evaluate after the legacy
+  // collision heuristic so a contact cannot turn a lamp violation into one.
+  if (options.lighting) checkLighting(ctx, options.lighting, finding => addFinding(ctx, finding));
+  if (options.mobility) checkMobilitySupplement(ctx, options.mobility, options.lighting ?? {}, finding => addFinding(ctx, finding));
+  if (options.passengers) checkPassengerSupplement(ctx, options.passengers, finding => addFinding(ctx, finding));
+  if (options.stopping) refineStopping(ctx, options.stopping, finding => addFinding(ctx, finding));
   const findings: Finding[] = ctx.findings.map(f => {
     const i = ctx.infos.get(f.actorId)!;
     const frame = Math.round((f.t ?? tOf(i.k0)) / DT);
@@ -1032,7 +1062,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
     const speedAssessment = f.refs.includes('rule:speed') ? assessments.find(t => t.avoidableAtLimit !== undefined) : undefined;
     const prevention = speedAssessment ? !!speedAssessment.avoidableAtLimit : f.causal && f.refs.includes('pdd:10.1') && assessments.some(t => t.avoidable) ? true : null;
     return { ...f, refs, requirement: `Требование ${refs.map(r => r.startsWith('pdd:') ? `п. ${r.slice(4)}` : r.startsWith('sign:') ? `знак ${r.slice(5)}` : `разметка ${r.slice(8)}`).join(', ')}`,
-      compliance: f.severity === 'violation' ? 'не выполнено' : f.trace?.compliance === 'выполнено' || f.refs.includes('pdd:6.14') ? 'выполнено' : 'не определить',
+      compliance: f.severity === 'violation' ? 'не выполнено' : f.trace?.compliance === 'выполнено' ? 'выполнено' : 'не определить',
       prevention,
       trace: { ...sampleTrace(ctx, i, frame), ...f.trace, ruleCodes: f.refs.filter(r => r.startsWith('rule:')),
         gates: ctx.technical.events.filter(e => e.actorId === i.a.id && e.t <= (f.t ?? Infinity)).map(e => e.trace),
@@ -1046,7 +1076,7 @@ export function analyzeRules(technical: TechnicalContext): { ctx: Ctx; section: 
     };
   });
   const actors = ctx.scene.actors.map(a => {
-    const mine = findings.filter(f => f.actorId === a.id);
+    const mine = findings.filter(f => f.actorId === a.id && (!f.trace.legalSubject || f.trace.legalSubject === 'driver'));
     const viol = mine.filter(f => f.severity === 'violation');
     const causal = viol.filter(f => f.causal);
     const i = ctx.infos.get(a.id)!;

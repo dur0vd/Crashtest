@@ -22,6 +22,7 @@ import { type Sign, VEHICLES, dimsOf, type VehicleType } from './scene';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { DT } from './sim';
 import { routeSignException } from './analysis/route-transport';
+import { lawRef } from './law';
 
 export interface Kit {
   add: (f: FindingInput) => DraftFinding;
@@ -65,12 +66,14 @@ export function classOf(i: Info): VClass {
 }
 
 // Таблички 8.4.x: какие из них однозначно привязаны к виду ТС по тексту приложения 1.
-const PLATE_ONLY: Record<string, VClass[]> = { '8.4.1': ['truck'], '8.4.3': ['car'] };
-const PLATE_EXCEPT: Record<string, VClass[]> = { '8.4.9': ['truck'], '8.4.11': ['car'] };
+const PLATE_ONLY: Record<string, VClass[]> = { '8.4.1': ['truck'], '8.4.3': ['car'], '8.4.7.1': ['bicycle'], '8.4.7.2': ['sim'] };
+const PLATE_EXCEPT: Record<string, VClass[]> = { '8.4.9': ['truck'], '8.4.11': ['car'], '8.4.16': ['sim'] };
 
-/** TODO(source-check): corpus/artwork disagree for 8.4.7/15/16; no inferred exemption. */
-export function uncertainMobilityPlate(sign: Sign): boolean {
-  return (sign.plates ?? []).some(p => ['8.4.7', '8.4.7.1', '8.4.15', '8.4.16'].includes(p));
+/** Unnumbered legacy artwork remains ambiguous. 8.4.15 depicts a plug-in car,
+ * never a bicycle/SIM exemption; propulsion is not represented by VClass. */
+export function uncertainMobilityPlate(sign: Sign, cls?: VClass, date?: string): boolean {
+  return (sign.plates ?? []).some(p => p === '8.4.7' || p === '8.4.15' && !['sim', 'bicycle', 'moped', 'cart', 'pedestrian'].includes(cls ?? '')
+    || ['8.4.7.1', '8.4.7.2', '8.4.16'].includes(p) && date !== undefined && !lawRef(`sign:${p}`, date).revision);
 }
 
 /** Распространяется ли знак на участника с учётом табличек «вид ТС» и «кроме». */
@@ -89,7 +92,7 @@ const BAN: Record<string, (c: VClass) => boolean> = {
   '3.5': (c) => c === 'motorcycle',
   '3.8': (c) => c === 'cart',
   '3.9': (c) => c === 'bicycle' || c === 'moped',
-  '3.10': (c) => c === 'pedestrian',
+  '3.10': (c) => c === 'pedestrian' || c === 'sim',
   '3.35': (c) => c === 'sim',
   '3.34': (c) => c === 'bus',
   '5.1': (c) => ['bicycle', 'sim', 'cart', 'moped'].includes(c),
@@ -219,17 +222,18 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
     if (i.a.railwayTrain || !i.isVeh && g.sign.kind !== '3.10') continue;
     const cls = classOf(i);
     const s = g.sign;
-    if (uncertainMobilityPlate(s)) kit.add({ actorId: i.a.id, severity: 'contributing', t: tOf(g.frame), title: 'применимость таблички 8.4 не подтверждена',
-      detail: 'TODO(source-check): обозначения и изображения табличек 8.4.7/15/16 противоречивы; исключение из действия знака не предоставлено.', refs: [`sign:${s.kind}`], trace: { plates: s.plates, compliance: 'не определить' } });
-    if (!signApplies(s, cls)) continue;
+    const uncertain = uncertainMobilityPlate(s, cls, ctx.scene.env.accidentDate);
+    if (uncertain) kit.add({ actorId: i.a.id, severity: 'contributing', t: tOf(g.frame), title: 'применимость таблички 8.4 не подтверждена',
+      detail: 'TODO(source-check): нужен точный номер legacy-таблички 8.4.7, тип силовой установки для 8.4.15 либо редакция на дату события. Льгота не предполагается.', refs: [`sign:${s.kind}`], trace: { plates: s.plates, compliance: 'не определить' } });
+    if (!uncertain && !signApplies(s, cls)) continue;
     const label = `знаку ${s.kind} «${signTitle(s.kind)}»`;
     const t = tOf(g.frame);
     const dims = dimsOf(i.a);
     const ref = `sign:${s.kind}`;
     const signKit: Kit = { ...kit, add: finding => {
       if (finding.severity !== 'violation') return kit.add(finding);
-      if (uncertainMobilityPlate(s) || s.kind === '3.35') return kit.add({ ...finding, severity: 'contributing', causal: false,
-        detail: finding.detail + ' TODO(source-check): противоречивые таблички 8.4 или склеенный текст 3.35 требуют сверки первоисточника; льгота не предоставлена.',
+      if (uncertain || ['3.35', '3.10'].includes(s.kind) && !lawRef(ref, ctx.scene.env.accidentDate).revision) return kit.add({ ...finding, severity: 'contributing', causal: false,
+        detail: finding.detail + ' TODO(source-check): применимость таблички или редакция нормы не установлены; льгота не предполагается.',
         trace: { ...finding.trace, compliance: 'не определить', originalRequirement: finding.refs } });
       const frame = Math.max(i.k0, Math.min(i.kEnd, Math.round((finding.t ?? t) / DT)));
       const exception = routeSignException(ctx, i, s, frame);

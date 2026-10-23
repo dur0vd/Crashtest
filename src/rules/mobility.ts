@@ -4,6 +4,7 @@ import { observedManeuvers } from '../analysis/maneuvers';
 import { posAt, tOf } from '../analysis/technical';
 import { lawRef } from '../law';
 import { isSmallRider, mobilityPlaceAt } from '../mobility';
+import { VEHICLES, type VehicleType } from '../scene';
 import type { FeatureDescriptor, FeatureIssue, InputDescriptor, JsonObject, ProjectEnvelope } from '../parallel/contracts';
 import { all, any, bool, compliance, isObject, not, number, object, pointer, severity, validateFields, type Known } from './facts';
 
@@ -101,7 +102,7 @@ export function checkMobilitySupplement(ctx: Ctx, input: JsonObject, lighting: J
       const place = mobilityPlaceAt(ctx.geo, posAt(i, moving), i.tr.h[moving]);
       if (place.cycleZone) {
         const other = typeof f.zoneMechanicalActorId === 'string' ? ctx.infos.get(f.zoneMechanicalActorId) : undefined;
-        const mechanical = other?.isVeh && !isSmallRider(other.a) && other.a.type !== 'cart';
+        const mechanical = other?.isVeh && !other.a.railwayTrain && VEHICLES[other.a.type as VehicleType]?.motorized === true;
         const source = lawRef('pdd:24.11', ctx.scene.env.accidentDate);
         const result = mechanical && source.revision ? bool(f.zonePriorityRespected) : null;
         add({ actorId: mechanical ? other.a.id : a.id, t: tOf(moving), severity: severity(result), causal: false,

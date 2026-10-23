@@ -51,11 +51,12 @@ describe('6.14 uses external service braking evidence, not legacy v²/2j', () =>
       expect(r.value.findings.flatMap(f => f.refs)).not.toContain('koap:12.12.1');
     }
   });
-  it.each(['units', 't3', 'sources', 'onset', 'duplicate', 'timeline'] as const)('invalid %s cannot qualify yellow violation', async defect => {
+  it.each(['units', 't3', 'sources', 'malformed-source', 'onset', 'duplicate', 'timeline'] as const)('invalid %s cannot qualify yellow violation', async defect => {
     const f = yellowFixture();
     if (defect === 'units') f.record.units.t1 = 'ms';
     if (defect === 't3') delete f.record.inputs.t3;
     if (defect === 'sources') f.record.sources = [];
+    if (defect === 'malformed-source') f.record.sources = [123 as unknown as string];
     if (defect === 'onset') f.observation.values.yellowOnsetEstablished = false;
     if (defect === 'duplicate') f.project.evidence.push({ ...f.observation, source: 'Conflicting observation with same ID' });
     if (defect === 'timeline') f.physical.timeline = { ...f.timeline, duration: 200 };
@@ -81,6 +82,7 @@ describe('technical possibility and injury are distinct from law and fault', () 
     const r = await report(f);
     expect(r.value.technical.collisions[0].harm).toEqual([]); expect(r.value.collisions[0].tech).toEqual([]);
     expect(r.value.findings.filter(f => f.refs.includes('pdd:10.1')).every(f => f.compliance === 'не определить')).toBe(true);
+    expect(r.value.findings.filter(f => f.refs.includes('pdd:10.1')).every(f => f.trace.compliance === 'не определить')).toBe(true);
     expect(r.value.legal.duties.some(d => d.text.includes('Наличие пострадавших требуется установить'))).toBe(true);
     expect(r.value.verdicts.flatMap(v => v.legal.flatMap(l => l.refs)).some(ref => /^koap:12\.24|^uk:264/.test(ref))).toBe(false);
   });

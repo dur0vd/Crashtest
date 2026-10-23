@@ -65,4 +65,9 @@ describe('06.4 — personal stopping duties without repeated geometry', () => {
     expect(d.flatMap(d => d.inputs).some(i => i.path === '/scene/actors/0/doorContext/operator')).toBe(true);
     expect(JSON.stringify(f.project)).toBe(snapshot);
   });
+  it.each([false, [], { actors: [] }, { actors: { a: false } }, { actors: { a: { doorPassengerId: 3 } } }])('invalid stopping namespace %j is rejected rather than erased', async stopping => {
+    const f = rest(); f.project.extensions.rules.stopping = stopping;
+    const result = await port.evaluate(f.project, f.timeline);
+    expect(result.status).toBe('insufficient-data'); expect(result.issues.length).toBeGreaterThan(0);
+  });
 });

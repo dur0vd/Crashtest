@@ -16,6 +16,16 @@ const requirement = async (facts: JsonObject, key: string, adjust?: (f: ReturnTy
   (await run(facts, adjust)).findings.find(f => f.trace.passengerRequirement === key)!;
 const platform = { truckBodyKind: 'board-platform', bodyEquippedForPeople: true, militaryDriver: false,
   licenseCOrC1: true, truckLicenseYears: 3, passengersBriefed: true, safetyCheckedBeforeStart: true, bodySeatingPlaces: 20 };
+it('malformed personal facts are rejected without replacing them by unknown objects', async () => {
+  const f = rulesFixture(); f.project.extensions.rules.passengers = { actors: { a: { people: { p: false } } } };
+  const result = await port.evaluate(f.project, f.timeline);
+  expect(result.status).toBe('insufficient-data'); expect(result.issues.some(i => i.path?.endsWith('/people/p'))).toBe(true);
+});
+it('the described passenger places match the existing Scene vocabulary', () => {
+  const f = rulesFixture({}, { passengers: [{ id: 'p', place: 'cab' }] });
+  const field = port.describe(f.project).flatMap(d => d.inputs).find(i => i.path === '/scene/actors/0/passengers/0/place');
+  expect(field?.choices?.map(c => c.value)).toEqual(['front', 'rear', 'cab', 'body', 'outside', 'motorcycle-rear', 'other']);
+});
 describe('22.1–22.5 independently specified tables', () => {
   it.each([2.999, 3, 3.001])('C/C1 holding years %s', async years => {
     const f = await requirement({ ...platform, truckLicenseYears: years }, 'truck-license');

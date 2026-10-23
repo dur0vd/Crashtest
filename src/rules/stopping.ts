@@ -4,7 +4,7 @@ import { lawRef } from '../law';
 import { vehicleSignalAt } from '../maneuver-signals';
 import { tOf } from '../analysis/technical';
 import type { FeatureDescriptor, FeatureIssue, InputDescriptor, JsonObject, ProjectEnvelope } from '../parallel/contracts';
-import { bool, compliance, object, pointer, severity, validateFields } from './facts';
+import { bool, compliance, isObject, object, pointer, severity, validateFields } from './facts';
 
 export function describeStopping(project: ProjectEnvelope): FeatureDescriptor {
   const inputs: InputDescriptor[] = [{ path: '/scene/env/federalCity', label: 'Установлено: Москва, Санкт-Петербург или другое место', kind: 'enum', choices: ['moscow', 'saint-petersburg', 'other'].map(value => ({ value, label: value })) }];
@@ -21,7 +21,18 @@ export function describeStopping(project: ProjectEnvelope): FeatureDescriptor {
   return { id: 'rules.stopping-personal', title: 'Дверь, уход, ребёнок и меры вынужденной остановки', available: true, inputs };
 }
 export function validateStoppingSupplement(raw: unknown): FeatureIssue[] {
-  return Object.entries(object(object(raw).actors)).flatMap(([id, facts]) => validateFields(object(facts), `/extensions/rules/stopping/actors/${pointer(id)}`, ['triangleAttachedRear'], []));
+  if (raw == null) return [];
+  const path = '/extensions/rules/stopping';
+  if (!isObject(raw as JsonObject)) return [{ code: 'rules.invalid-stopping', path, message: 'Требуется объект фактов остановки.' }];
+  const input = object(raw), issues: FeatureIssue[] = [];
+  if (input.actors != null && !isObject(input.actors)) issues.push({ code: 'rules.invalid-stopping-actors', path: `${path}/actors`, message: 'Требуется объект по ID ТС.' });
+  for (const [id, value] of Object.entries(object(input.actors))) {
+    const actorPath = `${path}/actors/${pointer(id)}`;
+    if (!isObject(value)) { issues.push({ code: 'rules.invalid-stopping-actor', path: actorPath, message: 'Требуется объект фактов остановки.' }); continue; }
+    const facts = object(value); issues.push(...validateFields(facts, actorPath, ['triangleAttachedRear'], []));
+    if (facts.doorPassengerId != null && typeof facts.doorPassengerId !== 'string') issues.push({ code: 'rules.invalid-door-passenger', path: `${actorPath}/doorPassengerId`, message: 'ID пассажира должен быть строкой.' });
+  }
+  return issues;
 }
 
 /** Refine the existing observations instead of repeating the parking geometry.

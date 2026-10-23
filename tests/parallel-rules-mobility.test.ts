@@ -90,6 +90,17 @@ describe('observed missing paragraphs of section 24', () => {
     expect(r.findings.flatMap(f => f.refs).some(ref => /^koap:12\.(29|30)/.test(ref))).toBe(false);
     expect(r.findings.flatMap(f => f.refs)).toContain('koap:12.21#1');
   });
+  it.each(['moped', 'car', 'bicycle', 'cart'] as const)('cycle-zone priority duty belongs to a mechanical driver: %s', async type => {
+    const r = await supplement({ zoneConflictObserved: true, zonePriorityRespected: false, zoneMechanicalActorId: 'other' }, ({ project, actor, timeline, track }) => {
+      project.scene.sidewalks = [{ id: 'zone', mobilityKind: 'cycle-zone', source: 'Surveyed zone boundary', pts: [{ x: -5, y: 0 }, { x: 10, y: 0 }], width: 20, smooth: false }];
+      project.scene.actors.push({ ...actor, id: 'other', type, y: 4 });
+      timeline.tracks.set('other', { ...structuredClone(track), id: 'other', y: new Float32Array(timeline.n).fill(4) });
+    });
+    const priority = r.findings.find(f => f.trace.mobilityRequirement === 'zone-priority')!;
+    expect(priority.actorId).toBe(['moped', 'car'].includes(type) ? 'other' : 'a');
+    expect(priority.compliance).toBe(['moped', 'car'].includes(type) ? 'не выполнено' : 'не определить');
+    expect(priority.causal).toBe(false);
+  });
   it.each(['light', 'medium'] as const)('a confirmed %s consequence selects 12.30 instead of 12.29 for that act', async negligentHarm => {
     const r = await supplement({ hasHandlebar: true, handOnHandlebar: false }, ({ actor }) => {
       actor.mobilityContext = { negligentHarm, consequenceRuleRef: 'pdd:24.8', source: 'Independent confirmed harm and causal mechanism' };

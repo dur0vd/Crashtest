@@ -11,6 +11,8 @@ export interface BrakingProof {
 }
 export interface ExpertEvidence { proofs: BrakingProof[]; issues: FeatureIssue[] }
 const range = (value: unknown): [number, number] | null => Array.isArray(value) && value.length === 2 && value.every(v => number(v) !== null) && value[0] <= value[1] ? value as [number, number] : null;
+const nonempty = (value: unknown): boolean => typeof value === 'string' && !!value.trim();
+const hasSource = (value: unknown): boolean => Array.isArray(value) && value.some(nonempty);
 
 export function describeExpert(_project: ProjectEnvelope): FeatureDescriptor {
   return { id: 'rules.expert-evidence', title: 'Правила с переданными научными доказательствами', available: true,
@@ -50,14 +52,14 @@ export function readExpertEvidence(project: ProjectEnvelope, timeline: Timeline,
     const unique = [...new Map(observations.map(o => [JSON.stringify(o), o])).values()];
     const record = records[0], observation = unique[0];
     if (records.length !== 1 || unique.length !== 1 || !record || !observation) { fail('Расчёт/наблюдение отсутствует или его ID неоднозначен.'); continue; }
-    const values = object(observation.values), result = object(record.result), units = record.units;
+    const values = object(observation.values), result = object(record.result), units = object(record.units), inputs = object(record.inputs);
     const stoppingRangeM = range(result.stoppingDistanceRangeM), availableRangeM = range(values.availableDistanceRangeM);
-    const valid = record.method === 'expert.braking' && record.inputs.actorId === binding.actorId && values.actorId === binding.actorId
-      && record.inputs.observationId === observation.id && record.inputs.brakingMode === 'service'
-      && ['t1', 't2', 't3'].every(key => number(record.inputs[key]) !== null && units[key] === 's')
+    const valid = record.method === 'expert.braking' && inputs.actorId === binding.actorId && values.actorId === binding.actorId
+      && inputs.observationId === observation.id && inputs.brakingMode === 'service'
+      && ['t1', 't2', 't3'].every(key => number(inputs[key]) !== null && units[key] === 's')
       && units.stoppingDistanceRangeM === 'm' && object(observation.uncertainty).availableDistanceUnit === 'm'
-      && !!record.formula.trim() && record.sources.some(s => !!s.trim()) && record.assumptions.some(s => !!s.trim())
-      && !!observation.source?.trim() && stoppingRangeM && availableRangeM
+      && nonempty(record.formula) && hasSource(record.sources) && hasSource(record.assumptions)
+      && nonempty(observation.source) && stoppingRangeM && availableRangeM
       && Number.isInteger(values.frame) && Number(values.frame) >= 0 && Number(values.frame) < timeline.n;
     if (!valid || !stoppingRangeM || !availableRangeM || typeof binding.actorId !== 'string' || !project.scene.actors.some(a => a.id === binding.actorId)) { fail('Нужен служебный расчёт expert.braking с t1–t3, диапазоном пути, единицами SI, формулой, источниками/предпосылками и связанным наблюдением.'); continue; }
     const canStop: Known = stoppingRangeM[1] <= availableRangeM[0] ? true : stoppingRangeM[0] > availableRangeM[1] ? false : null;
@@ -100,7 +102,7 @@ export function applyExpertResults(project: ProjectEnvelope, rules: RulesSection
       if (independent) { f.refs = remaining; f.requirement = `Требование ${remaining.join(', ')}`; }
       else { f.severity = 'contributing'; f.compliance = 'не определить'; f.title = 'Недостаточно научных данных для технически зависимого вывода';
         f.detail = 'Контакт и упрощённый расчёт не устанавливают возможность остановки, момент обнаружения опасности и нарушение 10.1.';
-        f.trace.ruleCodes = []; }
+        f.trace.ruleCodes = []; f.trace.compliance = 'не определить'; }
       f.causal = false; f.prevention = null;
       f.trace = { ...f.trace, technicalDependency: 'external-proof-required', causal: false };
     }

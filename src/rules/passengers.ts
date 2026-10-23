@@ -30,7 +30,11 @@ export function validatePassengerSupplement(raw: unknown): FeatureIssue[] {
     if (!isObject(value)) { issues.push({ code: 'rules.invalid-passengers-actor', path: actorPath, message: 'Требуется объект фактов.' }); continue; }
     const f = object(value); issues.push(...validateFields(f, actorPath, BOOLS, NUMS, ENUMS));
     if (f.people != null && !isObject(f.people)) issues.push({ code: 'rules.invalid-passengers-people', path: `${actorPath}/people`, message: 'Требуется объект дополнительных фактов по ID из Actor.passengers.' });
-    for (const [pid, person] of Object.entries(object(f.people))) issues.push(...validateFields(object(person), `${actorPath}/people/${pointer(pid)}`, PERSON_BOOLS, [], PERSON_ENUMS));
+    for (const [pid, person] of Object.entries(object(f.people))) {
+      const personPath = `${actorPath}/people/${pointer(pid)}`;
+      if (!isObject(person)) issues.push({ code: 'rules.invalid-passenger-person', path: personPath, message: 'Требуется объект фактов о пассажире.' });
+      else issues.push(...validateFields(object(person), personPath, PERSON_BOOLS, [], PERSON_ENUMS));
+    }
   }
   return issues;
 }
@@ -49,6 +53,7 @@ export function describePassengerSupplement(project: ProjectEnvelope): FeatureDe
     for (const [pi, person] of (a.passengers ?? []).entries()) {
       const personPath = `${path}/people/${pointer(person.id)}`, scenePath = `/scene/actors/${index}/passengers/${pi}`;
       inputs.push({ path: `${scenePath}/age`, label: `${person.id}: полных лет`, kind: 'number', minimum: 0, maximum: 120, unit: 'years' });
+      inputs.push({ path: `${scenePath}/place`, label: `${person.id}: место пассажира`, kind: 'enum', choices: ['front', 'rear', 'cab', 'body', 'outside', 'motorcycle-rear', 'other'].map(value => ({ value, label: value })) });
       for (const key of ['beltUsed', 'helmetFastened', 'restraintUsed', 'restraintFits', 'restraintInstalledCorrectly']) inputs.push({ path: `${scenePath}/${key}`, label: `${person.id}: ${key} (null — неизвестно)`, kind: 'boolean' });
       for (const key of PERSON_BOOLS) inputs.push({ path: `${personPath}/${key}`, label: `${person.id}: ${key} (null — неизвестно)`, kind: 'boolean' });
       inputs.push({ path: `${personPath}/boardingSide`, label: `${person.id}: сторона посадки/высадки`, kind: 'enum', choices: PERSON_ENUMS.boardingSide.map(value => ({ value, label: value })) });

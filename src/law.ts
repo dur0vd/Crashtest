@@ -111,7 +111,7 @@ const L: LawMetadata[] = [
 
 /** Метаданные справочника. Дословные тексты и санкции берём только из корпуса. */
 export const LAW: Record<string, LawMetadata & { revisions: LawRevision[]; readonly sanction?: string }> = Object.fromEntries(L.map((r) => [r.id, {
-  ...r, revisions: revisionsFor(r.id),
+  ...r, revisions: supplementalNorm(r.id)?.revisions ?? revisionsFor(r.id),
   get sanction() { return lawRef(r.id, defaultAccidentDate()).sanction; },
 }]));
 

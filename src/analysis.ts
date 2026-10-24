@@ -42,6 +42,7 @@ import {
   dimsOf,
   lightPhase,
   pedestrianGreen,
+  hasEmergencySignals,
   SURFACES,
 } from './scene';
 
@@ -452,6 +453,13 @@ function checkLights(ctx: Ctx, i: Info): void {
     const t = tOf(g.frame);
     const phase = lightPhase(light, t);
     if (phase === 'green') continue;
+    if (hasEmergencySignals(i.a)) {
+      addFinding(ctx, { actorId: i.a.id, severity: 'info', t,
+        title: 'спецтранспорт пересёк запрещающий сигнал',
+        detail: 'При срочном задании с синим маячком и сиреной допускается отступить от сигнала только при обеспечении безопасности. Преимущество можно использовать, убедившись, что дорогу уступают.',
+        refs: ['pdd:3.1', 'pdd:3.2'] });
+      continue;
+    }
     let bad = phase === 'red';
     let note = '';
     if (phase === 'yellow') {
@@ -771,7 +779,7 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
-type Reason = 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
+type Reason = 'emergency' | 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
 
 interface Priority {
   yielder: Info | null;
@@ -798,6 +806,15 @@ function signScore(ctx: Ctx, i: Info, frame: number): { score: number; kinds: st
 
 function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   const frame = col.frame;
+  // Спецсигналы требуют уступить и при разрешающем сигнале у другого ТС.
+  const ea = hasEmergencySignals(A.a);
+  const eb = hasEmergencySignals(B.a);
+  if (ea !== eb) {
+    const P = ea ? A : B;
+    const Y = ea ? B : A;
+    return { yielder: Y, other: P, reason: 'emergency',
+      explain: `${Y.label} должен уступить спецтранспорту ${P.label} с одновременно включёнными синим маячком и сиреной. ${P.label} вправе использовать преимущество, лишь убедившись, что ему уступают, и обеспечив безопасность (п. 3.1–3.2).` };
+  }
   // 1. светофор
   const recent = (id: string) => (ctx.lightViolations.get(id) ?? []).filter((x) => x.frame <= frame && frame - x.frame < 40 * 15);
   const la = recent(A.a.id);
@@ -854,6 +871,7 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
 }
 
 const REASON_REFS: Record<Reason, string[]> = {
+  emergency: ['pdd:3.1', 'pdd:3.2', 'koap:12.17.2'],
   light: ['pdd:6.2', 'pdd:6.13', 'koap:12.12.1'],
   'sign-giveway': ['sign:2.4', 'pdd:13.9', 'koap:12.13.2'],
   'sign-stop': ['sign:2.5', 'pdd:13.9', 'koap:12.13.2'],
@@ -1110,7 +1128,7 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           }
         }
       }
-    } else if (atInter) {
+    } else if (atInter || hasEmergencySignals(A.a) !== hasEmergencySignals(B.a)) {
       // ---- пересечение на перекрёстке
       title = 'Столкновение на перекрёстке';
       description = `${A.label} и ${B.label} столкнулись на пересечении дорог, скорость сближения около ${impactKmh} км/ч.`;
@@ -1120,6 +1138,13 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
         const Y = pr.yielder;
         const P = pr.other!;
         const refs = REASON_REFS[pr.reason];
+        if (pr.reason === 'emergency') {
+          const departed = ctx.gates.some((g) => g.actorId === P.a.id && g.light && g.frame <= frame && frame - g.frame < 600 && lightPhase(g.light, tOf(g.frame)) !== 'green');
+          addFinding(ctx, { actorId: P.a.id, severity: departed ? 'violation' : 'info', t, causal: departed,
+            title: departed ? 'не обеспечил безопасность отступления от сигнала' : 'преимущество спецтранспорта требует обеспечения безопасности',
+            detail: departed ? 'Спецтранспорт продолжил движение на запрещающий сигнал, хотя конфликтующая траектория другого ТС не освободилась. По п. 3.1 отступление допустимо только при обеспечении безопасности; включённые сигналы сами по себе не освобождают от этой обязанности.' : 'По модели подтверждена обязанность другого ТС уступить. Возможность использовать преимущество возникает только после того, как водитель убедился в уступке; выполнение этой обязанности требует отдельной оценки.',
+            refs: ['pdd:3.1'] });
+        }
         if (pr.reason === 'light') {
           for (const f of ctx.findings) if (f.actorId === Y.a.id && f.refs.includes('koap:12.12.1')) f.causal = true;
         } else if (pr.reason === 'sign-stop' && ctx.stopSkipped.has(Y.a.id)) {
@@ -1485,11 +1510,15 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
     if (i.isVeh) {
-      checkSpeed(ctx, i);
-      checkPosition(ctx, i);
+      if (!hasEmergencySignals(i.a)) {
+        checkSpeed(ctx, i);
+        checkPosition(ctx, i);
+      }
       checkLights(ctx, i);
-      checkSigns(ctx, i);
-      checkTurnSignals(ctx, i, (f) => addFinding(ctx, f));
+      if (!hasEmergencySignals(i.a)) {
+        checkSigns(ctx, i);
+        checkTurnSignals(ctx, i, (f) => addFinding(ctx, f));
+      }
     } else {
       checkPedestrian(ctx, i);
     }

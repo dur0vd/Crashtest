@@ -268,6 +268,8 @@ export interface Actor {
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
   derail?: boolean;
+  /** Спецтранспорт с цветографической схемой выполняет срочное задание: синий маячок И сирена. */
+  emergency?: boolean;
 }
 
 export interface Env {
@@ -505,6 +507,7 @@ export function normalizeScene(raw: unknown): Scene {
       for (const key of ['mass', 'front', 'rear', 'left', 'right', 'height'] as const) a.cargo[key] = Math.max(0, number(a.cargo[key], 0));
       for (const key of ['marked', 'secured', 'blocksView', 'dangerous'] as const) a.cargo[key] = a.cargo[key] === true;
     } else delete a.cargo;
+    a.emergency = a.emergency === true && a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type);
   }
   return scene;
 }
@@ -523,4 +526,9 @@ export function dimsOf(a: Actor): { length: number; width: number; height: numbe
     mass: sp.mass + c.mass,
     shift: (c.front - c.rear) / 2,
   };
+}
+
+/** Одиночный маячок, сирена и неподходящий тип ТС не создают преимущества. */
+export function hasEmergencySignals(a: Actor): boolean {
+  return a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type) && a.emergency === true;
 }

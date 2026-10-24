@@ -17,6 +17,7 @@ import {
   actorSpec,
   lightPhase,
   pedestrianGreen,
+  hasEmergencySignals,
 } from './scene';
 import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
@@ -859,6 +860,13 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
+        if (hasEmergencySignals(a)) {
+          ctx.fillStyle = v.mode !== 'play' || Math.floor(v.t * 5) % 2 === 0 ? '#3bbcff' : '#153c9b';
+          ctx.shadowColor = '#39b5ff';
+          ctx.shadowBlur = 12;
+          ctx.fillRect(-0.25, -spec.width * 0.35, 0.5, spec.width * 0.7);
+          ctx.shadowBlur = 0;
+        }
         const signal = signalAtPosition(a, pose.p);
         if (!pose.free && signal !== 'none' && (v.mode !== 'play' || Math.floor(v.t * 2) % 2 === 0)) {
           ctx.fillStyle = '#ffae00';

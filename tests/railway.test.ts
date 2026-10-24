@@ -26,6 +26,24 @@ describe('железнодорожный переезд', () => {
     s.actors.push(actor('car'));
     expect(findings(s).some((f) => f.refs.includes('pdd:15.3') && f.refs.includes('koap:12.10.1'))).toBe(true);
   });
+  it.each([-1, 1])('удаляющийся поезд (%i) не запрещает въезд на открытый переезд', (direction) => {
+    const s = scene(); s.env.duration = 5;
+    s.actors.push(actor('car', { x: -12 }), actor('train', { railwayId: 'j1', x: 0, y: 40 * direction, heading: direction * Math.PI / 2, speed: 36, path: [{ x: 0, y: 120 * direction, v: 36 }] }));
+    expect(findings(s).filter((f) => f.refs.includes('pdd:15.3'))).toHaveLength(0);
+  });
+  it.each([-1, 1])('приближающийся поезд (%i) требует уступить и при открытом шлагбауме', (direction) => {
+    const s = scene(); s.env.duration = 3;
+    s.actors.push(actor('car', { x: -12 }), actor('train', { railwayId: 'j1', x: 0, y: -40 * direction, heading: direction * Math.PI / 2, speed: 36, path: [{ x: 0, y: 120 * direction, v: 36 }] }));
+    expect(findings(s).some((f) => f.refs.includes('pdd:15.3'))).toBe(true);
+  });
+  it('повторный въезд после разворота оценивается по новому сигналу', () => {
+    const s = scene(); s.env.duration = 16;
+    s.railways[0].trainWindows = [{ start: 7, end: 16 }];
+    s.actors.push(actor('car', { x: -20, speed: 20, path: [{ x: 20, y: 1.75, v: 20 }, { x: 25, y: 1.75, v: 0, hold: 2 }, { x: 20, y: 1.75, v: 20 }, { x: -30, y: 1.75, v: 20 }] }));
+    const f = findings(s).filter((f) => f.refs.includes('pdd:15.3'));
+    expect(f).toHaveLength(1);
+    expect(f[0].t).toBeGreaterThan(7);
+  });
   it('открытый переезд без поезда не даёт нарушения раздела 15', () => {
     const s = scene(); s.actors.push(actor('car'));
     expect(findings(s)).toHaveLength(0);

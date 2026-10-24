@@ -37,9 +37,15 @@ export function checkRailwayRules(ctx: Ctx, kit: Kit): void {
         const approachingTrain = [...ctx.infos.values()].some((train) => {
           if (train.a.type !== 'train' || train.a.railwayId !== r.id || !train.tr.present[k]) return false;
           const q = local(kit.posAt(train, k));
-          return Math.abs(q.x) <= train.hl + 50 && train.tr.v[k] > 0.1;
+          const alongSpeed = dot(fromAngle(train.tr.h[k]), along) * train.tr.v[k];
+          const occupiesCrossing = Math.abs(q.x) <= train.hl + r.width / 2;
+          const approaches = q.x * alongSpeed < 0 && Math.abs(q.x) <= train.hl + 50;
+          return train.tr.v[k] > 0.1 && (occupiesCrossing || approaches);
         });
-        // Въезд фиксируем только при первом достижении границы переезда; смена
+        // После полного выезда следующее пересечение проверяется заново.
+        // Пока кузов внутри границы переезда, смена сигнала не создаёт нового въезда.
+        if (!overlaps && nearRail >= 5.1) entered = false;
+        // Въезд фиксируем только при достижении границы переезда; смена
         // сигнала после законного въезда не превращает его в нарушение задним числом.
         if (!entered && (overlaps || nearRail < 5) && inWidth && i.tr.v[k] > 0.1) {
           entered = true;

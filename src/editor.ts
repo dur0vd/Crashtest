@@ -1,3 +1,4 @@
+import { railwayPoints } from './railway';
 import { buildGeo, roadsAt, widthsAt } from './geo';
 import { MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS } from './signs';
@@ -42,6 +43,7 @@ export type Tool =
   | 'road'
   | 'sidewalk'
   | 'track'
+  | 'railway'
   | 'crosswalk'
   | 'light'
   | 'sign'
@@ -73,7 +75,7 @@ export interface Brush {
 }
 
 export const POLY_TOOLS: Tool[] = ['road', 'sidewalk', 'track'];
-export const PLACE_TOOLS: Tool[] = ['crosswalk', 'light', 'sign', 'obstacle', 'vehicle', 'ped'];
+export const PLACE_TOOLS: Tool[] = ['railway', 'crosswalk', 'light', 'sign', 'obstacle', 'vehicle', 'ped'];
 
 /** Разметка рисуется ломаной (линия, площадка) или ставится значком (стрелы и т. п.). */
 export const markingNeedsPoints = (kind: string): boolean => MARKING_BY_ID[kind]?.form !== 'symbol';
@@ -264,6 +266,7 @@ export class Editor {
     const arr = this.scene[col] as { id: string }[];
     const i = arr.findIndex((x) => x.id === id);
     if (i >= 0) arr.splice(i, 1);
+    if (col === 'railways') for (const a of this.scene.actors) if (a.railwayId === id) delete a.railwayId;
     if (col === 'lights') for (const c of this.scene.crosswalks) if (c.lightId === id) delete c.lightId;
     this.sel = null;
     this.selWp = null;
@@ -362,6 +365,7 @@ export class Editor {
     for (const r of s.roads) pts.push(...r.pts);
     for (const r of s.sidewalks) pts.push(...r.pts);
     for (const r of s.tracks) pts.push(...r.pts);
+    for (const r of s.railways) pts.push(...railwayPoints(r));
     for (const a of s.actors) {
       pts.push({ x: a.x, y: a.y });
       for (const w of a.path) pts.push(w);
@@ -476,7 +480,7 @@ export class Editor {
         } else if (this.sel.col === 'markings' && MARKING_BY_ID[(it as { kind: string }).kind]?.form === 'symbol') {
           const m = it as unknown as { pts: Vec[]; angle?: number };
           if (dist(p, add(m.pts[0], mul({ x: Math.cos(m.angle ?? 0), y: Math.sin(m.angle ?? 0) }, 3.2))) < 14 * px) return { sel: this.sel, part: 'rot', index: 0 };
-        } else if (['crosswalks', 'lights', 'signs', 'obstacles'].includes(this.sel.col)) {
+        } else if (['railways', 'crosswalks', 'lights', 'signs', 'obstacles'].includes(this.sel.col)) {
           if (dist(p, rotateHandle(it as { x: number; y: number; angle: number })) < 14 * px) return { sel: this.sel, part: 'rot', index: 0 };
         }
       }
@@ -502,6 +506,10 @@ export class Editor {
       else if (spec.form === 'area') hit = polygonContains(m.pts, p) || m.pts.some((q, k) => distToSegment(p, q, m.pts[(k + 1) % m.pts.length]) < 6 * px);
       else hit = m.pts.some((q, k) => k < m.pts.length - 1 && distToSegment(p, q, m.pts[k + 1]) < Math.max(0.5, 8 * px));
       if (hit) return { sel: { col: 'markings', id: m.id }, part: 'body', index: 0 };
+    }
+    for (const r of s.railways) {
+      const pts = railwayPoints(r);
+      if (distToSegment(p, pts[0], pts[1]) < Math.max(1.2, 8 * px)) return { sel: { col: 'railways', id: r.id }, part: 'body', index: 0 };
     }
     for (const c of s.crosswalks) {
       if (pointInObb(p, { cx: c.x, cy: c.y, hl: c.length / 2, hw: c.width / 2, a: c.angle }, 4 * px)) return { sel: { col: 'crosswalks', id: c.id }, part: 'body', index: 0 };
@@ -959,9 +967,13 @@ export class Editor {
     let col: Collection = 'actors';
     if (t === 'vehicle') {
       const spec = VEHICLES[this.brush.vehicle];
+      const railway = this.brush.vehicle === 'train' ? s.railways.reduce((best, r) => dist(at, r) < dist(at, best) ? r : best, s.railways[0]) : undefined;
       let pos = at;
       let heading = angle ?? 0;
-      if (angle === null && frame && !frame.road.oneWay) {
+      if (railway) {
+        pos = nearestOnPolyline(railwayPoints(railway), at).point;
+        heading = angle ?? railway.angle;
+      } else if (angle === null && frame && !frame.road.oneWay) {
         // встаём в центр полосы по ходу движения; ширина полосы зависит от местного сужения
         const fwd = frame.near.d >= 0;
         const sideW = fwd ? frame.wr : frame.wl;
@@ -984,6 +996,7 @@ export class Editor {
         id,
         kind: 'vehicle',
         type: this.brush.vehicle,
+        ...(railway ? { railwayId: railway.id } : {}),
         x: pos.x,
         y: pos.y,
         heading: wrapAngle(heading),
@@ -1009,6 +1022,10 @@ export class Editor {
         path: [],
         flags: { drunk: false, noLicense: false, flees: false },
       });
+    } else if (t === 'railway') {
+      id = newId(s, 'railways');
+      col = 'railways';
+      s.railways.push({ id, x: at.x, y: at.y, angle: angle ?? ((frame?.angle ?? 0) + Math.PI / 2), length: 200, width: frame ? frame.wl + frame.wr : 7, barrier: 'open', red: false, trainWindows: [] });
     } else if (t === 'crosswalk') {
       id = newId(s, 'crosswalks');
       col = 'crosswalks';

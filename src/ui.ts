@@ -116,6 +116,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
     roads: 'Дорога',
     sidewalks: 'Тротуар',
     tracks: 'Трамвайный путь',
+    railways: 'Железнодорожный переезд',
     crosswalks: 'Пешеходный переход',
     lights: 'Светофор',
     signs: 'Дорожный знак',
@@ -159,6 +160,24 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         h('small', {}, 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
       );
       break;
+    case 'railways': {
+      box.append(
+        field('Направление рельсов, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 })),
+        field('Длина пути, м', num(it.length, set((v) => (it.length = v)), { min: 10, max: 5000 })),
+        field('Ширина автомобильного проезда, м', num(it.width, set((v) => (it.width = v)), { min: 3, max: 100, step: 0.5 })),
+        field('Шлагбаум', select([['none', 'Нет'], ['open', 'Открыт'], ['closed', 'Закрыт']], it.barrier, set((v) => (it.barrier = v)))),
+        check('Мигающий красный сигнал', it.red, set((v) => (it.red = v))),
+        h('h4', {}, 'Расписание приближения и проезда поезда'),
+        h('small', {}, 'В эти интервалы включается красный и закрывается имеющийся шлагбаум. Движение поезда задайте отдельным участником; время появления и маршрут согласуйте с интервалами.'),
+      );
+      it.trainWindows.forEach((w: { start: number; end: number }, idx: number) => box.append(h('div', { class: 'group' },
+        field('С, с', num(w.start, set((v: number) => { w.start = v; w.end = Math.max(v + 0.1, w.end); }), { min: 0, step: 0.5 })),
+        field('До, с', num(w.end, set((v) => (w.end = v)), { min: w.start + 0.1, step: 0.5 })),
+        button('Удалить интервал', () => app.edit(() => it.trainWindows.splice(idx, 1), true)),
+      )));
+      box.append(button('Добавить интервал', () => app.edit(() => it.trainWindows.push({ start: 0, end: 20 }), true)));
+      break;
+    }
     case 'crosswalks': {
       const lights = app.scene().lights;
       box.append(
@@ -336,7 +355,11 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       check('Синий маячок и сирена (срочное задание)', !!a.emergency, set((v) => (a.emergency = v))),
       h('small', {}, 'Спецтранспорт с цветографической схемой. Преимущество используется только убедившись, что уступают; безопасность обязательна (п. 3.1–3.2 ПДД).')));
   }
-  if (isVeh && VEHICLES[a.type as VehicleType].rail) {
+  if (isVeh && a.type === 'train') {
+    box.append(field('Железнодорожный путь', select([['', 'Не выбран — поезд стоит'], ...app.scene().railways.map((r, i) => [r.id, `Переезд ${i + 1}`] as [string, string])], a.railwayId ?? '', set((v: string) => { a.railwayId = v || undefined; }))),
+      h('p', { class: 'hint' }, 'Поезд следует только по выбранным рельсам. Поставьте его не дальше 4 м от оси. Тормозное замедление локомотива ограничено 0,8 м/с²; сход не моделируется.'));
+  }
+  if (isVeh && a.type !== 'train' && VEHICLES[a.type as VehicleType].rail) {
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Рельсы'),

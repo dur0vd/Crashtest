@@ -1,4 +1,5 @@
 import { signalAtPosition } from './indicators';
+import { railwayState } from './railway';
 import { type Geo, buildGeo, densify, roadOutlinePoly, widthsAt } from './geo';
 import { ARROW_VARIANTS, MARKING_BY_ID, type MarkingSpec } from './markings';
 import { VALUE_SIGNS, markingFile, signFile } from './signs';
@@ -31,7 +32,7 @@ export interface Camera {
 }
 
 export interface Selection {
-  col: 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
+  col: 'roads' | 'sidewalks' | 'tracks' | 'railways' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
   id: string;
 }
 
@@ -174,6 +175,7 @@ export class Renderer {
     this.drawSidewalks(geo);
     this.drawRoads(geo);
     this.drawTracks(geo);
+    this.drawRailways(v);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
@@ -355,6 +357,38 @@ export class Renderer {
         ctx.lineWidth = 0.12;
         ctx.stroke();
       }
+    }
+  }
+
+  private drawRailways(v: ViewState): void {
+    const { ctx } = this;
+    for (const r of v.scene.railways ?? []) {
+      const state = railwayState(r, v.t);
+      ctx.save();
+      ctx.translate(r.x, r.y);
+      ctx.rotate(r.angle);
+      ctx.strokeStyle = '#8b7355';
+      ctx.lineWidth = 0.3;
+      for (let x = -r.length / 2; x <= r.length / 2; x += 1.2) {
+        ctx.beginPath(); ctx.moveTo(x, -1.3); ctx.lineTo(x, 1.3); ctx.stroke();
+      }
+      ctx.strokeStyle = '#c5ced8';
+      ctx.lineWidth = 0.15;
+      for (const y of [-GAUGE / 2, GAUGE / 2]) { ctx.beginPath(); ctx.moveTo(-r.length / 2, y); ctx.lineTo(r.length / 2, y); ctx.stroke(); }
+      for (const side of [-1, 1]) {
+        const y = side * (GAUGE / 2 + 5);
+        ctx.fillStyle = '#202630';
+        ctx.fillRect(r.width / 2 + 0.5, y - 0.7, 1.4, 1.4);
+        for (const j of [0, 1]) {
+          ctx.beginPath(); ctx.arc(r.width / 2 + 0.85 + j * 0.7, y, 0.25, 0, 2 * Math.PI);
+          ctx.fillStyle = state.red && (Math.floor(v.t * 2) + j) % 2 === 0 ? '#ff4444' : '#601c25'; ctx.fill();
+        }
+        if (r.barrier !== 'none') {
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.35; ctx.beginPath(); ctx.moveTo(-r.width / 2, y); ctx.lineTo(state.closed ? r.width / 2 : -r.width / 2 + 0.5, state.closed ? y : y + side * r.width); ctx.stroke();
+          ctx.strokeStyle = '#e5484d'; ctx.setLineDash([0.7, 0.7]); ctx.stroke(); ctx.setLineDash([]);
+        }
+      }
+      ctx.restore();
     }
   }
 
@@ -903,6 +937,7 @@ export class Renderer {
         ctx.fillStyle = 'rgba(20,24,30,0.85)';
         ctx.fill();
         break;
+      case 'train':
       case 'tram':
         for (let i = 1; i < 3; i++) {
           ctx.fillRect(-L / 2 + (i * L) / 3 - 0.08, -W / 2, 0.16, W);
@@ -1149,6 +1184,7 @@ export class Renderer {
         if (!a.path.length || v.pathActor !== a.id) handle(rotateHandle(a), 6);
         break;
       }
+      case 'railways':
       case 'crosswalks':
       case 'lights':
       case 'signs':

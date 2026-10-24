@@ -16,6 +16,13 @@ describe('спецтранспорт с синим маячком и сирен�
     expect(ambulance.flatMap((f) => f.refs)).not.toContain('koap:12.12.1');
     expect(ambulance.some((f) => f.refs.includes('pdd:3.1') && f.causal)).toBe(true);
   });
+  it('вне перекрёстка не называет пересечение траекторий перекрёстком', () => {
+    const s = scene();
+    s.roads = [];
+    const report = analyze(s, simulate(s));
+    expect(report.collisions[0].title).toBe('Столкновение со спецтранспортом');
+    expect(report.findings.some((f) => f.actorId === s.actors[1].id && f.refs.includes('koap:12.17.2'))).toBe(true);
+  });
   it('без конфликтующего транспорта проезд на красный не становится нарушением', () => {
     const s = scene();
     s.actors.splice(1);

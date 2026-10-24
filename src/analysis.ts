@@ -1130,8 +1130,8 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
       }
     } else if (atInter || hasEmergencySignals(A.a) !== hasEmergencySignals(B.a)) {
       // ---- пересечение на перекрёстке
-      title = 'Столкновение на перекрёстке';
-      description = `${A.label} и ${B.label} столкнулись на пересечении дорог, скорость сближения около ${impactKmh} км/ч.`;
+      title = atInter ? 'Столкновение на перекрёстке' : 'Столкновение со спецтранспортом';
+      description = `${A.label} и ${B.label} столкнулись ${atInter ? 'на пересечении дорог' : 'при пересечении траекторий'}, скорость сближения около ${impactKmh} км/ч.`;
       const pr = resolvePriority(ctx, A, B, col);
       notes.push(pr.explain);
       if (pr.yielder && pr.reason) {

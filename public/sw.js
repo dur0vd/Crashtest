@@ -1,27 +1,42 @@
-// Простой офлайн-кэш: приложение целиком работает без сети.
-const CACHE = 'crashtest-v1';
+// Список ресурсов и версия автоматически подставляются после сборки Vite.
+const VERSION = '__CACHE_VERSION__';
+const PRECACHE = [/* __PRECACHE_URLS__ */].flat();
+const SCOPE = new URL(self.registration.scope);
+const PREFIX = `crashtest-${encodeURIComponent(SCOPE.pathname)}-`;
+const CACHE = PREFIX + VERSION;
 
-self.addEventListener('install', (e) => {
-  self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest', './icon.svg'])));
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await cache.addAll(PRECACHE);
+    // Новая версия активируется лишь после успешной загрузки ВСЕХ ресурсов.
+    await self.skipWaiting();
+  })());
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
-  );
-  self.clients.claim();
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key !== CACHE && (key.startsWith(PREFIX) || /^crashtest-v\d+$/.test(key))).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(
-    fetch(e.request)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(e.request)),
-  );
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
+  const navigation = event.request.mode === 'navigate' || url.pathname === SCOPE.pathname || url.pathname === SCOPE.pathname + 'index.html';
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    if (navigation) {
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) await cache.put(event.request, response.clone());
+        return response;
+      } catch {
+        return (await cache.match(event.request)) || (await cache.match(new URL('index.html', SCOPE).href)) || Response.error();
+      }
+    }
+    return (await cache.match(event.request)) || fetch(event.request);
+  })());
 });

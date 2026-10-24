@@ -384,7 +384,7 @@ export function cloneScene<T>(s: T): T {
 /** Достраивает отсутствующие поля при загрузке сохранённой сцены. */
 export function normalizeScene(raw: unknown): Scene {
   const base = emptyScene();
-  if (!raw || typeof raw !== 'object') throw new Error('Неверный формат файла');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Неверный формат файла');
   const r = raw as Partial<Scene>;
   const scene: Scene = {
     ...base,
@@ -402,10 +402,22 @@ export function normalizeScene(raw: unknown): Scene {
   };
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
-    if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
+    if (Array.isArray(arr)) (scene[c] as unknown[]) = structuredClone(arr.filter((x) => x && typeof x === 'object' && !Array.isArray(x) && typeof x.id === 'string'));
   }
+  const point = (p: unknown): p is Vec => !!p && typeof p === 'object' && Number.isFinite((p as Vec).x) && Number.isFinite((p as Vec).y);
+  const number = (v: unknown, fallback: number): number => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  scene.env.surface = SURFACES[scene.env.surface] ? scene.env.surface : base.env.surface;
+  scene.env.duration = Math.max(0.1, Math.min(3600, number(scene.env.duration, base.env.duration)));
+  for (const col of ['roads', 'sidewalks', 'tracks', 'markings'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(item => Array.isArray(item.pts) && item.pts.every(point) && item.pts.length >= (col === 'markings' ? 1 : 2));
+  }
+  for (const col of ['crosswalks', 'lights', 'signs', 'obstacles', 'actors'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(point);
+  }
+  scene.signs = scene.signs.filter(g => typeof g.kind === 'string');
+  scene.actors = scene.actors.filter(a => a.kind === 'vehicle' ? Object.hasOwn(VEHICLES, a.type) : a.kind === 'pedestrian' && Object.hasOwn(PEDESTRIANS, a.type));
   for (const road of scene.roads) {
-    road.lanes = road.lanes ?? 1;
+    road.lanes = Math.max(1, Math.min(10, Math.round(number(road.lanes, 1))));
     road.center = road.center ?? 'dashed';
     road.oneWay = !!road.oneWay;
     road.zone = road.zone ?? 'city';
@@ -423,9 +435,16 @@ export function normalizeScene(raw: unknown): Scene {
   }
   scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
   for (const a of scene.actors) {
-    a.path = a.path ?? [];
-    a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
-    a.delay = a.delay ?? 0;
+    a.path = Array.isArray(a.path) ? a.path.filter(point).map(p => ({ ...p, v: Math.max(0, number((p as Waypoint).v, 0)), hold: Math.max(0, number((p as Waypoint).hold, 0)) })) : [];
+    a.flags = { drunk: a.flags?.drunk === true, noLicense: a.flags?.noLicense === true, flees: a.flags?.flees === true };
+    a.delay = Math.max(0, number(a.delay, 0));
+    a.speed = Math.max(0, number(a.speed, 0));
+    a.heading = number(a.heading, 0);
+    a.color = typeof a.color === 'string' ? a.color : '#3e9bff';
+    if (a.cargo) {
+      a.cargo = { ...NO_CARGO, ...a.cargo };
+      for (const key of ['mass', 'front', 'rear', 'left', 'right', 'height'] as const) a.cargo[key] = Math.max(0, number(a.cargo[key], 0));
+    }
   }
   return scene;
 }

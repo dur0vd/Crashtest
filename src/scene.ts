@@ -406,7 +406,7 @@ export function normalizeScene(raw: unknown): Scene {
   }
   const point = (p: unknown): p is Vec => !!p && typeof p === 'object' && Number.isFinite((p as Vec).x) && Number.isFinite((p as Vec).y);
   const number = (v: unknown, fallback: number): number => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
-  scene.env.surface = SURFACES[scene.env.surface] ? scene.env.surface : base.env.surface;
+  scene.env.surface = typeof scene.env.surface === 'string' && Object.hasOwn(SURFACES, scene.env.surface) ? scene.env.surface : base.env.surface;
   scene.env.duration = Math.max(0.1, Math.min(3600, number(scene.env.duration, base.env.duration)));
   for (const col of ['roads', 'sidewalks', 'tracks', 'markings'] as const) {
     (scene[col] as unknown[]) = scene[col].filter(item => Array.isArray(item.pts) && item.pts.every(point) && item.pts.length >= (col === 'markings' ? 1 : 2));

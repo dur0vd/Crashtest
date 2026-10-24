@@ -45,4 +45,19 @@ describe('совместимость сохранений и ссылок', () =
     expect(scene.actors).toEqual([]);
     expect(() => analyze(scene, simulate(scene))).not.toThrow();
   });
+
+  it.each(['toString', '__proto__', 'constructor'])('отбрасывает свойство прототипа вместо покрытия: %s', surface => {
+    const raw = { ...PRESETS.find(p => p.id === 'head-on')!.build(), env: { surface, duration: 8 } };
+    const scene = normalizeScene(raw);
+    expect(scene.env.surface).toBe('dry');
+    expect(raw.env.surface).toBe(surface);
+    const timeline = simulate(scene);
+    expect(timeline.mu).toBe(0.7);
+    expect(timeline.collisions.length).toBeGreaterThan(0);
+    for (const track of timeline.tracks.values()) expect(Array.from(track.v).every(Number.isFinite)).toBe(true);
+  });
+
+  it('отбрасывает объект вместо названия покрытия без преобразования ключа', () => {
+    expect(normalizeScene({ env: { surface: { toString: null } } }).env.surface).toBe('dry');
+  });
 });

@@ -13,6 +13,10 @@ import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
 import { encodeShare, sceneFromHash } from './share';
 import { reloadOnWorkerUpdate } from './updates';
+import { loadCorpus } from './corpus';
+import { reportDiagram } from './report-diagram';
+import { reportHtml } from './report-export';
+import { shareReport } from './report-share';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -58,6 +62,7 @@ const api: AppApi = {
   editor,
   scene: () => editor.scene,
   report: () => report,
+  exportReport: () => { void exportReport(); },
   edit(fn, rebuild) {
     editor.checkpoint();
     fn();
@@ -458,6 +463,23 @@ function download(name: string, text: string, type: string): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+let exporting = false;
+async function exportReport(): Promise<void> {
+  if (!report || !tl || exporting) return;
+  exporting = true;
+  // Данные фиксируются до ожидания картинок: редактирование не смешает два расчёта.
+  const scene = structuredClone(editor.scene), result = report, timeline = tl;
+  try {
+    const [image, corpus] = await Promise.all([reportDiagram(scene, timeline), loadCorpus()]);
+    const html = reportHtml(scene, result, image, corpus);
+    if (!(await shareReport(html))) download('crashtest-report.html', html, 'text/html;charset=utf-8');
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) toast('Не удалось сохранить отчёт. Попробуйте ещё раз.');
+  } finally {
+    exporting = false;
+  }
 }
 
 function openFile(): void {

@@ -48,6 +48,7 @@ export interface AppApi {
   edit: (fn: () => void, rebuild?: boolean) => void;
   seek: (t: number) => void;
   focus: (id: string | null) => void;
+  exportReport: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +506,7 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     return;
   }
   const scene = app.scene();
+  root.append(h('button', { type: 'button', class: 'btn primary', onclick: () => app.exportReport() }, 'Скачать отчёт'));
   const labels = actorLabels(scene);
   const title = (id: string) => {
     const a = scene.actors.find((x) => x.id === id)!;

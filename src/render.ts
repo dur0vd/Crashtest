@@ -121,6 +121,7 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: Vec[], close = false): vo
 /** Кэш картинок знаков и разметки; после загрузки просит перерисовать холст. */
 class ImageCache {
   private map = new Map<string, HTMLImageElement | 'err'>();
+  private pending: Promise<void>[] = [];
   constructor(private onLoad: () => void) {}
   get(path: string): HTMLImageElement | null {
     if (!path) return null;
@@ -128,12 +129,15 @@ class ImageCache {
     if (hit === 'err') return null;
     if (hit) return hit.complete && hit.naturalWidth ? hit : null;
     const img = new Image();
-    img.onload = () => this.onLoad();
-    img.onerror = () => this.map.set(path, 'err');
+    this.pending.push(new Promise<void>((resolve) => {
+      img.onload = () => { this.onLoad(); resolve(); };
+      img.onerror = () => { this.map.set(path, 'err'); resolve(); };
+    }));
     img.src = imgUrl(path);
     this.map.set(path, img);
     return null;
   }
+  ready(): Promise<unknown> { return Promise.all(this.pending); }
 }
 
 export class Renderer {
@@ -147,6 +151,11 @@ export class Renderer {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
+  }
+
+  async imagesReady(): Promise<void> {
+    // Отчёт можно сохранить и при недоступной картинке: вместо неё останется номер знака.
+    await Promise.race([this.images.ready(), new Promise((resolve) => setTimeout(resolve, 3000))]);
   }
 
   resize(): void {

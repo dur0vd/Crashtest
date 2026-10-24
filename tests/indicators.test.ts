@@ -43,3 +43,29 @@ describe('указатели поворота', () => {
     expect(signals(s)).toHaveLength(0);
   });
 });
+
+describe('плавные перестроения', () => {
+  const gentle = () => {
+    const s = scene();
+    s.roads = [{ id: 'r1', pts: [{ x: -200, y: 0 }, { x: 200, y: 0 }], lanes: 2, center: 'dashed', oneWay: true, zone: 'city', smooth: false }];
+    s.env.duration = 12;
+    Object.assign(s.actors[0], { x: -100, y: -1.75, speed: 36, path: [{ x: 0, y: 1.75, v: 36 }, { x: 100, y: 1.75, v: 36 }] });
+    return s;
+  };
+  it('смена полосы с малым изменением курса требует сигнала', () => {
+    expect(signals(gentle())).toHaveLength(1);
+  });
+  it('заранее поданный сигнал подтверждает плавное перестроение', () => {
+    const s = gentle();
+    s.actors[0].path.forEach((w) => (w.signal = 'right'));
+    expect(signals(s)).toHaveLength(0);
+  });
+  it('обычное следование изгибу кольца не считается поворотом', () => {
+    const s = gentle();
+    const points = [{ x: 0, y: -20 }, { x: -14.142, y: -14.142 }, { x: -20, y: 0 }, { x: -14.142, y: 14.142 }, { x: 0, y: 20 }, { x: 14.142, y: 14.142 }, { x: 20, y: 0 }, { x: 14.142, y: -14.142 }, { x: 0, y: -20 }];
+    s.roads = [{ ...s.roads[0], lanes: 1, pts: points, smooth: true }];
+    Object.assign(s.actors[0], { x: 0, y: -20, heading: Math.PI, speed: 28, path: points.slice(1, 5).map((p) => ({ ...p, v: 28 })) });
+    s.env.duration = 3.5;
+    expect(signals(s)).toHaveLength(0);
+  });
+});

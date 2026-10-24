@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#12161c" />
+    <title>Crashtest — ПДД на примерах ДТП</title>
+    <meta name="description" content="Симулятор дорожных ситуаций: нарисуйте ДТП, запустите и узнайте, какие пункты ПДД и статьи КоАП и УК нарушены. Без регистрации, работает офлайн." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Crashtest — ПДД на примерах ДТП" />
+    <meta property="og:description" content="Запустите ситуацию на дороге и посмотрите, кто и что нарушил по ПДД, КоАП и УК. Без регистрации, работает офлайн." />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:image" content="https://dur0vd.github.io/Crashtest/promo/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #12161c;
+        --panel: #1a2029;
+        --line: #2c3544;
+        --text: #e9edf3;
+        --muted: #98a3b5;
+        --accent: #3e9bff;
+        --accent2: #1f6fd0;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main { max-width: 760px; margin: 0 auto; padding: 32px 16px 56px; }
+      h1 { font-size: 30px; line-height: 1.2; margin: 8px 0 12px; }
+      h2 { font-size: 20px; margin: 36px 0 10px; }
+      p { margin: 0 0 12px; }
+      .lead { font-size: 18px; color: var(--muted); }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+      .brand img { width: 28px; height: 28px; }
+      .btn {
+        display: inline-block;
+        padding: 12px 20px;
+        border-radius: 10px;
+        background: var(--accent2);
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+        margin: 8px 8px 8px 0;
+      }
+      .btn.alt { background: transparent; border: 1px solid var(--line); color: var(--text); }
+      .shot { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; margin-top: 16px; }
+      ul { padding-left: 20px; margin: 0 0 12px; }
+      li { margin-bottom: 6px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+      .muted { color: var(--muted); font-size: 14px; }
+      a { color: var(--accent); }
+      footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><img src="icon.svg" alt="" /><span>Crashtest</span></div>
+
+      <h1>ПДД на примерах: нарисуйте ДТП и узнайте, кто виноват по правилам</h1>
+      <p class="lead">
+        Расставьте машины и пешеходов, задайте скорость и маршрут, запустите — и получите разбор:
+        какие пункты ПДД, статьи КоАП и УК нарушены и можно ли было избежать столкновения.
+      </p>
+      <p>
+        <a class="btn" href="./">Открыть Crashtest</a>
+        <a class="btn alt" href="#schools">Для автошкол</a>
+      </p>
+      <p class="muted">Без регистрации и установки. Работает на телефоне и компьютере, после первого открытия — и без интернета.</p>
+
+      <img class="shot" src="promo/screenshot-desktop.png" alt="Разбор ситуации «Пешеход на нерегулируемом переходе»: ДТП, нарушение и статья КоАП" width="1600" height="900" />
+
+      <h2>Что внутри</h2>
+      <ul>
+        <li><b>14 готовых ситуаций:</b> пешеход на переходе, проезд на красный, помеха справа, гололёд, трамвай, выезд на встречную и другие.</li>
+        <li><b>Свой конструктор:</b> дороги, повороты и сужения, светофоры, знаки и разметка, транспорт от велосипеда до трамвая, груз с габаритами.</li>
+        <li><b>Разбор по нормам:</b> нарушения со ссылками на пункты ПДД и статьи КоАП и УК, очерёдность проезда перекрёстка, остановочный путь.</li>
+        <li><b>Справочник:</b> полный текст ПДД, глава 12 КоАП и глава 27 УК, знаки и разметка с картинками.</li>
+        <li><b>Ссылка на ситуацию:</b> любую сцену можно отправить в чат группы.</li>
+      </ul>
+
+      <h2 id="schools">Автошколам</h2>
+      <div class="card">
+        <p>
+          Crashtest не заменяет экзаменационные билеты. Он показывает ученикам, <b>почему</b> правило устроено именно так:
+          что происходит, когда водитель не уступил, превысил скорость или поехал на красный.
+        </p>
+        <ul>
+          <li>Преподаватель показывает ситуацию на проекторе за пару минут и обсуждает её с группой.</li>
+          <li>Ученики открывают приложение по QR-коду со своего телефона, регистрация не нужна.</li>
+          <li>Ссылку на нужную ситуацию можно отправить в чат группы как домашнее задание.</li>
+        </ul>
+        <p>Хотите показать Crashtest в вашей школе или разместить QR-код для учеников? Напишите:</p>
+        <p><b><a href="mailto:mr.cartest@mail.ru">mr.cartest@mail.ru</a></b></p>
+      </div>
+
+      <h2>Важно знать</h2>
+      <p class="muted">
+        Crashtest — учебная модель на упрощённой физике и правилах. Разбор не заменяет автотехническую
+        экспертизу, решение суда, ГИБДД или консультацию юриста. Нормы права и размеры санкций периодически
+        меняются, актуальную редакцию проверяйте на официальном портале правовой информации (pravo.gov.ru).
+      </p>
+
+      <footer class="muted">
+        <a href="privacy.html">Политика конфиденциальности</a> ·
+        <a href="terms.html">Условия использования</a>
+      </footer>
+    </main>
+  </body>
+</html>

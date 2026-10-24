@@ -536,6 +536,9 @@ function buildMenus(): void {
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
     menuItem('Как это работает', help),
+    menuItem('Для автошкол и о проекте', () => {
+      window.open('about.html', '_blank', 'noopener');
+    }),
   );
 }
 

@@ -2,6 +2,7 @@
   "name": "crashtest",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "Симулятор дорожных ситуаций с разбором по ПДД РФ, КоАП РФ и УК РФ",
   "type": "module",
   "scripts": {

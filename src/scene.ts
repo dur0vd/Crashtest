@@ -207,6 +207,8 @@ export interface Obstacle {
   kind: ObstacleKind;
 }
 
+export type TurnSignal = 'none' | 'left' | 'right';
+
 export interface Waypoint {
   x: number;
   y: number;
@@ -214,6 +216,8 @@ export interface Waypoint {
   v: number;
   /** сколько секунд стоять, если скорость в точке нулевая */
   hold?: number;
+  /** Указатель поворота на участке от предыдущей точки до этой. */
+  signal?: TurnSignal;
 }
 
 export interface DriverFlags {
@@ -489,6 +493,7 @@ export function normalizeScene(raw: unknown): Scene {
   }
   for (const a of scene.actors) {
     a.path = Array.isArray(a.path) ? a.path.filter(point).map(p => ({ ...p, v: Math.max(0, number((p as Waypoint).v, 0)), hold: Math.max(0, number((p as Waypoint).hold, 0)) })) : [];
+    for (const w of a.path) w.signal = w.signal === 'left' || w.signal === 'right' ? w.signal : 'none';
     a.flags = { drunk: a.flags?.drunk === true, noLicense: a.flags?.noLicense === true, flees: a.flags?.flees === true };
     a.delay = Math.max(0, number(a.delay, 0));
     a.speed = Math.max(0, number(a.speed, 0));

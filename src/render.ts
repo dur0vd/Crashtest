@@ -1,3 +1,4 @@
+import { signalAtPosition } from './indicators';
 import { type Geo, buildGeo, densify, roadOutlinePoly, widthsAt } from './geo';
 import { ARROW_VARIANTS, MARKING_BY_ID, type MarkingSpec } from './markings';
 import { VALUE_SIGNS, markingFile, signFile } from './signs';
@@ -858,6 +859,13 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
+        const signal = signalAtPosition(a, pose.p);
+        if (!pose.free && signal !== 'none' && (v.mode !== 'play' || Math.floor(v.t * 2) % 2 === 0)) {
+          ctx.fillStyle = '#ffae00';
+          const y = signal === 'left' ? -spec.width / 2 - 0.10 : spec.width / 2 - 0.15;
+          ctx.fillRect(spec.length / 2 - 0.4, y, 0.5, 0.25);
+          ctx.fillRect(-spec.length / 2 - 0.1, y, 0.5, 0.25);
+        }
       }
       ctx.restore();
     }

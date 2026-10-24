@@ -1,3 +1,4 @@
+import { checkTurnSignals } from './indicators';
 import {
   type Geo,
   type RoadHit,
@@ -1488,6 +1489,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
       checkPosition(ctx, i);
       checkLights(ctx, i);
       checkSigns(ctx, i);
+      checkTurnSignals(ctx, i, (f) => addFinding(ctx, f));
     } else {
       checkPedestrian(ctx, i);
     }

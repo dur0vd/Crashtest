@@ -1,3 +1,4 @@
+import { roundaboutPriority } from './roundabout';
 import { checkTurnSignals } from './indicators';
 import {
   type Geo,
@@ -793,7 +794,7 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
-type Reason = 'emergency' | 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
+type Reason = 'roundabout' | 'emergency' | 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
 
 interface Priority {
   yielder: Info | null;
@@ -853,6 +854,11 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
     };
   }
 
+  // После знаков приоритета: въезд по неглавной дороге уступает движущимся по кольцу.
+  const ring = roundaboutPriority(ctx, A, B, frame);
+  if (ring) return { yielder: ring.entering, other: ring.circulating, reason: 'roundabout',
+    explain: `${ring.entering.label} въезжал по дороге, не являющейся главной, на круговое движение со знаком 4.3 и обязан был уступить ${ring.circulating.label}, уже двигавшемуся по кольцу (п. 13.11(1)).` };
+
   // 3. трамвай на равнозначном перекрёстке
   if (A.rail !== B.rail) {
     const P = A.rail ? A : B;
@@ -885,6 +891,7 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
 }
 
 const REASON_REFS: Record<Reason, string[]> = {
+  roundabout: ['sign:4.3', 'pdd:13.11(1)', 'koap:12.13.2'],
   emergency: ['pdd:3.1', 'pdd:3.2', 'koap:12.17.2'],
   light: ['pdd:6.2', 'pdd:6.13', 'koap:12.12.1'],
   'sign-giveway': ['sign:2.4', 'pdd:13.9', 'koap:12.13.2'],

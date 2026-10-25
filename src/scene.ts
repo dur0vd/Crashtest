@@ -281,6 +281,12 @@ export interface Actor {
   delay: number;
   path: Waypoint[];
   flags: DriverFlags;
+  /** Намеренная стоянка; без флага длительность определяется по неподвижности. */
+  parking?: boolean;
+  /** Водитель оставил ТС. */
+  unattended?: boolean;
+  /** Приняты меры против самопроизвольного движения и использования ТС. */
+  secured?: boolean;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
@@ -541,6 +547,9 @@ export function normalizeScene(raw: unknown): Scene {
     } else delete a.cargo;
     a.emergency = a.emergency === true && a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type);
     if (typeof a.railwayId !== 'string') delete a.railwayId;
+    a.parking = a.parking === true;
+    a.unattended = a.unattended === true;
+    a.secured = a.secured !== false;
   }
   return scene;
 }

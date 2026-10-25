@@ -167,6 +167,20 @@ export interface Preset {
 
 export const PRESETS: Preset[] = [
   {
+    id: 'railway-red',
+    title: 'Поезд и закрытый переезд',
+    hint: 'Автомобиль въезжает на переезд при закрытом шлагбауме и красном сигнале. П. 15.3 ПДД, ч. 1 ст. 12.10 КоАП.',
+    build: () => {
+      const b = new Builder().name('Поезд и закрытый переезд').duration(12)
+        .road([[-100, 0], [100, 0]])
+        .vehicle('car', -45, 1.75, 0, 36, [[70, 1.75, 36]])
+        .vehicle('train', 0, -60, 90, 54, [[0, 110, 54]], { railwayId: 'j1' });
+      b.scene.railways.push({ id: 'j1', x: 0, y: 0, angle: Math.PI / 2, length: 300, width: 7, barrier: 'open', red: false, trainWindows: [{ start: 0, end: 12 }] });
+      return b.done();
+    },
+  },
+
+  {
     id: 'crosswalk',
     title: 'Пешеход на нерегулируемом переходе',
     hint: 'Водитель не снижает скорость перед «зеброй». Что скажет п. 14.1 ПДД и ст. 12.18 КоАП?',

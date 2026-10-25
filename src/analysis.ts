@@ -1,5 +1,6 @@
 import { roundaboutPriority } from './roundabout';
 import { checkTurnSignals } from './indicators';
+import { checkRailwayRules } from './railway';
 import {
   type Geo,
   type RoadHit,
@@ -254,7 +255,7 @@ function prepare(scene: Scene, tl: Timeline): Ctx {
 
 function collectGates(ctx: Ctx): void {
   for (const i of ctx.infos.values()) {
-    if (!i.isVeh) continue;
+    if (!i.isVeh || i.a.type === 'train') continue;
     for (let k = Math.max(1, i.k0 + 1); k <= i.kEnd; k++) {
       if (!i.tr.present[k - 1]) continue;
       const p0 = frontAt(i, k - 1);
@@ -978,6 +979,20 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
 
     const B = Bi!;
 
+    if (A.a.type === 'train' || B.a.type === 'train') {
+      const train = A.a.type === 'train' ? A : B;
+      const roadUser = train === A ? B : A;
+      title = 'Столкновение с поездом на переезде';
+      description = `${roadUser.label} столкнулся с поездом. Скорость сближения около ${impactKmh} км/ч.`;
+      addTech(roadUser, train.a.id);
+      if (ctx.findings.some((f) => f.actorId === roadUser.a.id && f.refs.includes('pdd:15.3'))) markCausal(ctx, roadUser.a.id);
+      else notes.push('Запрет въезда при приближении поезда не установлен по заданным сигналам и траекториям; одной коллизии недостаточно для вывода о нарушении.');
+      notes.push('У поезда большой тормозной путь. Модель представляет локомотив одним жёстким телом; железнодорожная экспертиза не выполняется.');
+      reports.push(finishCollision(ctx, col, title, description, tech, notes));
+      ctx.events.push({ t, text: title });
+      continue;
+    }
+
     // ---- наезд на пешехода
     if (col.kind === 'vp') {
       const veh = A.isVeh ? A : B;
@@ -1551,6 +1566,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   collectGates(ctx);
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
+    if (i.a.type === 'train') continue;
     if (i.isVeh) {
       if (!hasEmergencySignals(i.a)) {
         checkSpeed(ctx, i);
@@ -1570,6 +1586,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkSignRules(ctx, kit);
   checkMarkingRules(ctx, kit);
   checkCargoRules(ctx, kit);
+  checkRailwayRules(ctx, kit);
   const collisions = analyzeCollisions(ctx);
   nearMisses(ctx);
   missedWrongSide(ctx);

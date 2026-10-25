@@ -16,6 +16,7 @@ export type VehicleType =
   | 'bus'
   | 'trolleybus'
   | 'tram'
+  | 'train'
   | 'cart';
 
 export type PedestrianType = 'adult' | 'child';
@@ -60,6 +61,7 @@ export const VEHICLES: Record<VehicleType, VehicleSpec> = {
   bus: { name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true, height: 3.0, payload: 0 },
   trolleybus: { name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true, height: 3.4, payload: 0 },
   tram: { name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true, height: 3.4, payload: 0 },
+  train: { name: 'Поезд (локомотив)', length: 22, width: 3.2, mass: 120000, accel: 0.4, brakeFactor: 0.3, brakeCap: 0.8, vmax: 120, color: '#db5c42', exposed: false, rail: true, route: false, heavy: true, height: 4.5, payload: 0 },
   cart: { name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false, height: 2.2, payload: 600 },
 };
 
@@ -131,6 +133,21 @@ export interface TramTrack {
   /** путь выделен бордюром или разделительной полосой */
   separated: boolean;
   smooth: boolean;
+}
+
+/** Прямой железнодорожный путь и место пересечения с дорогой. Угол — вдоль рельсов. */
+export interface RailwayCrossing {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  length: number;
+  /** Ширина автомобильного проезда вдоль рельсов. */
+  width: number;
+  barrier: 'none' | 'open' | 'closed';
+  red: boolean;
+  /** Интервалы приближения/проезда поезда: красный сигнал и закрытый шлагбаум. */
+  trainWindows: { start: number; end: number }[];
 }
 
 export interface Crosswalk {
@@ -270,6 +287,8 @@ export interface Actor {
   derail?: boolean;
   /** Спецтранспорт с цветографической схемой выполняет срочное задание: синий маячок И сирена. */
   emergency?: boolean;
+  /** Путь поезда: идентификатор железнодорожного переезда. */
+  railwayId?: string;
 }
 
 export interface Env {
@@ -284,6 +303,7 @@ export interface Scene {
   roads: Road[];
   sidewalks: Sidewalk[];
   tracks: TramTrack[];
+  railways: RailwayCrossing[];
   crosswalks: Crosswalk[];
   lights: TrafficLight[];
   signs: Sign[];
@@ -300,6 +320,7 @@ export function emptyScene(): Scene {
     roads: [],
     sidewalks: [],
     tracks: [],
+    railways: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -309,15 +330,16 @@ export function emptyScene(): Scene {
   };
 }
 
-export type AnyItem = Road | Sidewalk | TramTrack | Crosswalk | TrafficLight | Sign | Marking | Obstacle | Actor;
-export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
+export type AnyItem = Road | Sidewalk | TramTrack | RailwayCrossing | Crosswalk | TrafficLight | Sign | Marking | Obstacle | Actor;
+export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'railways' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
 
-export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'crosswalks', 'lights', 'signs', 'markings', 'obstacles', 'actors'];
+export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'railways', 'crosswalks', 'lights', 'signs', 'markings', 'obstacles', 'actors'];
 
 const PREFIX: Record<Collection, string> = {
   roads: 'r',
   sidewalks: 's',
   tracks: 't',
+  railways: 'j',
   crosswalks: 'c',
   lights: 'l',
   signs: 'g',
@@ -407,6 +429,7 @@ export function normalizeScene(raw: unknown): Scene {
     roads: [],
     sidewalks: [],
     tracks: [],
+    railways: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -493,6 +516,15 @@ export function normalizeScene(raw: unknown): Scene {
     marking.solidRight = marking.solidRight === true;
     if (typeof marking.variant !== 'string' || !Object.hasOwn(ARROW_VARIANTS, marking.variant)) delete marking.variant;
   }
+  scene.railways = scene.railways.filter((r) => Number.isFinite(r.x) && Number.isFinite(r.y));
+  for (const r of scene.railways) {
+    r.angle = Number.isFinite(r.angle) ? r.angle : 0;
+    r.length = Number.isFinite(r.length) ? Math.max(10, Math.min(5000, r.length)) : 200;
+    r.width = Number.isFinite(r.width) ? Math.max(3, Math.min(100, r.width)) : 7;
+    r.barrier = ['none', 'open', 'closed'].includes(r.barrier) ? r.barrier : 'open';
+    r.red = r.red === true;
+    r.trainWindows = Array.isArray(r.trainWindows) ? r.trainWindows.filter((w) => w && Number.isFinite(w.start) && Number.isFinite(w.end) && w.start >= 0 && w.end > w.start) : [];
+  }
   for (const a of scene.actors) {
     a.path = Array.isArray(a.path) ? a.path.filter(point).map(p => ({ ...p, v: Math.max(0, number((p as Waypoint).v, 0)), hold: Math.max(0, number((p as Waypoint).hold, 0)) })) : [];
     for (const w of a.path) w.signal = w.signal === 'left' || w.signal === 'right' ? w.signal : 'none';
@@ -508,6 +540,7 @@ export function normalizeScene(raw: unknown): Scene {
       for (const key of ['marked', 'secured', 'blocksView', 'dangerous'] as const) a.cargo[key] = a.cargo[key] === true;
     } else delete a.cargo;
     a.emergency = a.emergency === true && a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type);
+    if (typeof a.railwayId !== 'string') delete a.railwayId;
   }
   return scene;
 }

@@ -1,0 +1,13 @@
+{
+  "name": "Повреждённые вложенные поля",
+  "env": { "surface": "dry", "duration": 2 },
+  "roads": [{ "id": "r1", "pts": [{ "x": -20, "y": 0 }, { "x": 20, "y": 0 }], "center": {}, "zone": {}, "wl": [{ "s": 0, "w": 3.5 }, { "s": 8, "w": -2 }, { "s": 20, "w": 0 }] }],
+  "sidewalks": [{ "id": "s1", "pts": [{ "x": -20, "y": 7 }, { "x": 20, "y": 7 }], "width": -3, "radius": { "toString": null } }],
+  "tracks": [{ "id": "t1", "pts": [{ "x": -20, "y": -2 }, { "x": 20, "y": -2 }], "radius": -5, "separated": "yes" }],
+  "crosswalks": [{ "id": "c1", "x": 5, "y": 0, "angle": { "toString": null }, "width": -4, "length": {}, "lightId": {} }],
+  "lights": [{ "id": "l1", "x": 0, "y": 4, "angle": { "toString": null }, "lineLength": -5, "green": {}, "yellow": -2, "red": null, "offset": {} }],
+  "signs": [{ "id": "g1", "x": -5, "y": 4, "angle": {}, "kind": "3.24", "value": {}, "zoneLen": {}, "plates": [{ "toString": null }, "8.2.1", "constructor", null, 18] }],
+  "markings": [{ "id": "m1", "pts": [{ "x": 0, "y": 0 }], "kind": "1.18", "angle": { "toString": null }, "radius": {}, "variant": { "toString": null } }],
+  "obstacles": [{ "id": "o1", "x": 0, "y": 10, "w": -2, "h": -2, "angle": {}, "kind": "tree" }],
+  "actors": [{ "id": "a1", "kind": "vehicle", "type": "car", "x": -12, "y": 1, "speed": 20, "heading": {}, "path": [{ "x": 12, "y": 1, "v": 20, "hold": {} }], "cargo": { "mass": {}, "front": -1, "secured": {}, "dangerous": "yes" } }]
+}

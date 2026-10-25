@@ -5,6 +5,7 @@ import {
   type Vec,
   add,
   buildPath,
+  cross,
   dist,
   dot,
   fromAngle,
@@ -85,6 +86,10 @@ interface Rt {
   h: number;
   mode: 'path' | 'free';
   vel: Vec;
+  /** угловая скорость свободного кузова, рад/с */
+  omega: number;
+  /** момент инерции прямоугольного кузова относительно центра масс, кг·м² */
+  inertia: number;
   hold: number;
   present: boolean;
   down: boolean;
@@ -198,6 +203,8 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     h: p0.a,
     mode: 'path',
     vel: { x: 0, y: 0 },
+    omega: 0,
+    inertia: (spec.mass * (spec.length * spec.length + spec.width * spec.width)) / 12,
     hold: 0,
     present: false,
     down: false,
@@ -282,6 +289,16 @@ function velocityOf(r: Rt): Vec {
   return r.mode === 'free' ? r.vel : mul(fromAngle(r.h), r.v);
 }
 
+function centerOf(r: Rt): Vec {
+  return add(r.pos, mul(fromAngle(r.h), r.shift));
+}
+
+/** Скорость точки контакта: поступательное движение центра масс плюс вращение. */
+function contactVelocity(r: Rt, point: Vec): Vec {
+  const arm = sub(point, centerOf(r));
+  return add(velocityOf(r), { x: -r.omega * arm.y, y: r.omega * arm.x });
+}
+
 function toFree(r: Rt): void {
   if (r.mode === 'free') return;
   r.vel = velocityOf(r);
@@ -321,14 +338,26 @@ export function simulate(scene: Scene): Timeline {
       if (r.mode === 'path') {
         if (k > 0 || r.a.delay > 0) stepPath(r, DT);
       } else {
+        // Груз смещает центр масс относительно опорной точки. Вращаем кузов
+        // вокруг этого центра, а не вокруг начала маршрута.
+        let center = centerOf(r);
         const sp = len(r.vel);
         if (sp > 0) {
           const dec = r.a.kind === 'pedestrian' ? 4 : mu * G;
           const nsp = Math.max(0, sp - dec * DT);
           r.vel = mul(r.vel, nsp / sp);
-          r.pos = add(r.pos, mul(r.vel, DT));
+          center = add(center, mul(r.vel, DT));
           if (nsp < 0.02) r.vel = { x: 0, y: 0 };
         }
+        if (r.omega !== 0) {
+          // Приближение сухого трения: плечо равно среднеквадратичному радиусу
+          // прямоугольника. На скользком покрытии вращение затухает дольше.
+          const radius = Math.sqrt(r.inertia / r.mass);
+          const next = Math.sign(r.omega) * Math.max(0, Math.abs(r.omega) - (mu * G * DT) / radius);
+          r.h += ((r.omega + next) / 2) * DT;
+          r.omega = next;
+        }
+        r.pos = sub(center, mul(fromAngle(r.h), r.shift));
       }
     }
 
@@ -377,17 +406,24 @@ export function simulate(scene: Scene): Timeline {
         contacts.add(key);
         const vA = velocityOf(A);
         const vB = B ? velocityOf(B) : { x: 0, y: 0 };
-        const rel = dot(sub(vA, vB), c.n);
+        const rel = dot(sub(contactVelocity(A, c.point), B ? contactVelocity(B, c.point) : vB), c.n);
         for (const r of B ? [A, B] : [A]) hit(r, rel);
         const railA = A.rail && A.mode === 'path';
         const railB = !!B && B.rail && B.mode === 'path';
+        const armA = cross(sub(c.point, centerOf(A)), c.n);
+        const armB = B ? cross(sub(c.point, centerOf(B)), c.n) : 0;
+        // Пешеход не моделируется как вращающийся кузов; рельсы удерживают трамвай.
+        const invIA = !railA && A.a.kind === 'vehicle' ? 1 / A.inertia : 0;
+        const invIB = B && !railB && B.a.kind === 'vehicle' ? 1 / B.inertia : 0;
         let dvA = 0;
         let dvB = 0;
         if (rel > 0) {
           const e = 0.12;
-          const j = ((1 + e) * rel) / (invA + invB);
+          const j = ((1 + e) * rel) / (invA + invB + armA * armA * invIA + armB * armB * invIB);
           if (!railA) A.vel = sub(A.vel, mul(c.n, j * invA));
           if (B && !railB) B.vel = add(B.vel, mul(c.n, j * invB));
+          A.omega -= j * armA * invIA;
+          if (B) B.omega += j * armB * invIB;
           dvA = j * invA;
           dvB = j * invB;
         }

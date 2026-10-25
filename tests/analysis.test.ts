@@ -14,6 +14,27 @@ const verdict = (rep: Report, id: string) => rep.verdicts.find((v) => v.actorId 
 const refsOf = (rep: Report, id: string) => rep.findings.filter((f) => f.actorId === id && f.severity === 'violation').flatMap((f) => f.refs);
 const legalRefs = (rep: Report, id: string) => verdict(rep, id).legal.flatMap((l) => l.refs);
 
+describe('классификации ДТП после добавления вращения', () => {
+  it.each([
+    ['crosswalk', ['Наезд на пешехода']],
+    ['ped-run', ['Наезд на пешехода']],
+    ['ped-red', ['Наезд на пешехода']],
+    ['red-light', ['Столкновение на перекрёстке']],
+    ['right-hand', ['Столкновение на перекрёстке']],
+    ['giveway', ['Столкновение на перекрёстке']],
+    ['head-on', ['Встречное столкновение']],
+    ['rear-end', ['Попутное столкновение (наезд сзади)']],
+    ['ice', ['Попутное столкновение (наезд сзади)']],
+    ['tram', ['Столкновение на перекрёстке']],
+    ['speeding', ['Наезд на пешехода']],
+    ['overhang', ['Попутное столкновение (наезд сзади)']],
+    ['no-right-turn', []],
+    ['ramp-merge', ['Попутное боковое столкновение']],
+  ] as [string, string[]][])('%s: сохранена классификация исходного примера', (id, titles) => {
+    expect(run(id).rep.collisions.map((c) => c.title)).toEqual(titles);
+  });
+});
+
 describe('разбор готовых ситуаций', () => {
   it('пешеходный переход: виноват водитель', () => {
     const { rep, ids } = run('crosswalk');

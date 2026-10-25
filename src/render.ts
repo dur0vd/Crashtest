@@ -183,6 +183,7 @@ export class Renderer {
     this.drawSigns(v, geo);
     this.drawTrails(v);
     this.drawPaths(v);
+    this.drawAtmosphere(v);
     this.drawActors(v);
     this.drawCollisions(v);
     this.drawSelection(v, geo);
@@ -868,6 +869,39 @@ export class Renderer {
       }
     }
     return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) : a.heading, present: true, free: false };
+  }
+
+  /** Затемнение сохраняет читаемость редактора; конусы — условная дальность света. */
+  private drawAtmosphere(v: ViewState): void {
+    const time = v.scene.env.timeOfDay ?? 'day';
+    if (time === 'day') return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.fillStyle = time === 'night' ? 'rgba(0,4,16,0.48)' : 'rgba(10,15,40,0.23)';
+    ctx.fillRect(v.cam.x - this.w / v.cam.s, v.cam.y - this.h / v.cam.s, 2 * this.w / v.cam.s, 2 * this.h / v.cam.s);
+    for (const a of v.scene.actors) {
+      if (a.kind !== 'vehicle' || a.headlights === 'off') continue;
+      const pose = this.poseOf(v, a);
+      if (!pose.present) continue;
+      const range = Math.min(v.scene.env.visibility ?? 1000, a.headlights === 'high' ? 120 : 55);
+      ctx.save();
+      ctx.translate(pose.p.x, pose.p.y);
+      ctx.rotate(pose.h);
+      const start = actorSpec(a).length / 2;
+      const light = ctx.createLinearGradient(start, 0, start + range, 0);
+      light.addColorStop(0, 'rgba(255,249,190,0.28)');
+      light.addColorStop(1, 'rgba(255,249,190,0)');
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.moveTo(start, -0.7);
+      ctx.lineTo(start + range, -range * 0.22);
+      ctx.lineTo(start + range, range * 0.22);
+      ctx.lineTo(start, 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   private drawActors(v: ViewState): void {

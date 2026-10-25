@@ -28,6 +28,7 @@ import {
   distToSegment,
   angleOf,
 } from './geom';
+import { checkVisibilityRules, visibilityAt } from './visibility';
 import { checkParkingRules, markParkingCausal } from './parking';
 import { type Collision, type Timeline, type Track, DT } from './sim';
 import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from './restrictions';
@@ -86,6 +87,8 @@ export interface TechAssessment {
   speedKmh: number;
   /** расстояние до места столкновения в момент опасности, м */
   available: number;
+  /** Дальность видимости в момент обнаружения опасности, м. */
+  visibility?: number;
   /** остановочный путь, м */
   stopDist: number;
   avoidable: boolean;
@@ -723,7 +726,7 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
   const inCorridor = (k: number): boolean => {
     if (!other.present(k)) return false;
     const l = toLocal(other.pos(k), { cx: v.tr.x[k], cy: v.tr.y[k], a: v.tr.h[k] });
-    return l.x > 0 && l.x < 150 && Math.abs(l.y) < v.hw + 1.0;
+    return l.x > 0 && l.x < visibilityAt(ctx, v, k) && Math.abs(l.y) < v.hw + 1.0;
   };
   if (!inCorridor(kLast)) return null;
   let kd = kLast;
@@ -734,9 +737,8 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
     while (kr - 1 >= v.k0 && other.present(kr - 1) && roadsAt(ctx.geo, other.pos(kr - 1)).length > 0) kr--;
     if (roadsAt(ctx.geo, other.pos(kLast)).length > 0 && kr < kd) kd = kr;
   }
-  // дальность видимости 100 м
-  const longitudinal = (k: number): number => toLocal(other.pos(k), { cx: v.tr.x[k], cy: v.tr.y[k], a: v.tr.h[k] }).x;
-  while (kd < kLast && longitudinal(kd) > 100) kd++;
+  // Даже вышедший на дорогу пешеход обнаруживается только в пределах видимости.
+  while (kd < kLast && dist(posAt(v, kd), other.pos(kd)) > visibilityAt(ctx, v, kd)) kd++;
   // другой участник резко изменил скорость — опасность возникла в этот момент
   const acc = (k: number): number => (other.speed(k) - other.speed(Math.max(0, k - 5))) / (5 * DT);
   let kb = kLast;
@@ -757,6 +759,7 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
     otherId: other.id,
     tHazard: tOf(kd),
     speedKmh: kmh(v0),
+    visibility: visibilityAt(ctx, v, kd),
     available,
     stopDist,
     avoidable: stopDist <= available + 1e-6,
@@ -1092,7 +1095,9 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           driverBlamed = true;
           notes.push('Пешеход нарушил правила перехода, но и водитель мог предотвратить наезд — возможна обоюдная ответственность.');
         } else {
-          notes.push('Пешеход вышел на проезжую часть вне перехода; у водителя не было технической возможности остановиться. Причинная связь с действиями водителя не установлена.');
+          notes.push(tr && tr.stopDist > (tr.visibility ?? Infinity)
+            ? 'Пешеход вышел вне перехода; с момента обнаружения остановиться было нельзя, однако выбранная скорость не обеспечивала остановку в пределах видимости (п. 10.1).'
+            : 'Пешеход вышел на проезжую часть вне перехода; у водителя не было технической возможности остановиться. Причинная связь с действиями водителя не установлена.');
           if (tr?.avoidableAtLimit) notes.push('При скорости в пределах допустимой наезда удалось бы избежать — превышение скорости находится в причинной связи.');
         }
       }
@@ -1589,8 +1594,20 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkCargoRules(ctx, kit);
   checkRailwayRules(ctx, kit);
   checkParkingRules(ctx, kit);
+  checkVisibilityRules(ctx, kit);
   const collisions = analyzeCollisions(ctx);
   markParkingCausal(ctx);
+  for (const collision of collisions) for (const tech of collision.tech) {
+    if (tech.avoidable) continue;
+    const i = ctx.infos.get(tech.actorId)!;
+    if (String(i.a.type) === 'train') continue;
+    const k = Math.round(tech.tHazard / DT);
+    const limited = visibilityAt(ctx, i, k);
+    if (tech.stopDist > limited) {
+      for (const f of ctx.findings) if (f.actorId === tech.actorId && f.title === 'скорость не обеспечивает остановку в пределах видимости') f.causal = true;
+      collision.notes.push(`${i.label}: видимость ограничена ${limited.toFixed(0)} м; скорость следовало выбирать с учётом остановки в пределах видимости (п. 10.1).`);
+    }
+  }
   nearMisses(ctx);
   missedWrongSide(ctx);
 
@@ -1626,6 +1643,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
 
   const assumptions = [
     `Покрытие: ${SURFACES[scene.env.surface].name.toLowerCase()} (коэффициент сцепления ${tl.mu}).`,
+    `Время суток: ${{ day: 'день', twilight: 'сумерки', night: 'ночь' }[scene.env.timeOfDay ?? 'day']}; атмосферная видимость ${scene.env.visibility ?? 1000} м. Ближний/дальний свет: 55/120 м на неосвещённой дороге.`,
     `Время реакции водителя ${REACT.toFixed(1)} с, запаздывание тормозов ${BRAKE_LAG.toFixed(1)} с.`,
     'Тяжесть вреда здоровью оценена по скорости столкновения ориентировочно; её устанавливает судебно-медицинская экспертиза.',
     'Если на перекрёстке нет знаков приоритета и светофора, он считается равнозначным.',

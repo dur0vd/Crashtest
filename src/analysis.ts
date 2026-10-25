@@ -28,6 +28,7 @@ import {
   distToSegment,
   angleOf,
 } from './geom';
+import { checkParkingRules, markParkingCausal } from './parking';
 import { type Collision, type Timeline, type Track, DT } from './sim';
 import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from './restrictions';
 import {
@@ -1587,7 +1588,9 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkMarkingRules(ctx, kit);
   checkCargoRules(ctx, kit);
   checkRailwayRules(ctx, kit);
+  checkParkingRules(ctx, kit);
   const collisions = analyzeCollisions(ctx);
+  markParkingCausal(ctx);
   nearMisses(ctx);
   missedWrongSide(ctx);
 

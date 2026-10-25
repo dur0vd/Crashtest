@@ -28,6 +28,7 @@ import {
   distToSegment,
   angleOf,
 } from './geom';
+import { collectPriorityGraphs, graphPriority, type PriorityGraph } from './priority';
 import { checkVisibilityRules, visibilityAt } from './visibility';
 import { checkParkingRules, markParkingCausal } from './parking';
 import { type Collision, type Timeline, type Track, DT } from './sim';
@@ -165,6 +166,7 @@ export interface GateEvent {
 }
 
 export interface Ctx {
+  priorityGraphs?: PriorityGraph[];
   scene: Scene;
   tl: Timeline;
   geo: Geo;
@@ -863,6 +865,9 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   const ring = roundaboutPriority(ctx, A, B, frame);
   if (ring) return { yielder: ring.entering, other: ring.circulating, reason: 'roundabout',
     explain: `${ring.entering.label} въезжал по дороге, не являющейся главной, на круговое движение со знаком 4.3 и обязан был уступить ${ring.circulating.label}, уже двигавшемуся по кольцу (п. 13.11(1)).` };
+
+  const groupPriority = graphPriority(ctx, A, B, frame);
+  if (groupPriority) return groupPriority;
 
   // 3. трамвай на равнозначном перекрёстке
   if (A.rail !== B.rail) {
@@ -1595,6 +1600,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkRailwayRules(ctx, kit);
   checkParkingRules(ctx, kit);
   checkVisibilityRules(ctx, kit);
+  collectPriorityGraphs(ctx, kit);
   const collisions = analyzeCollisions(ctx);
   markParkingCausal(ctx);
   for (const collision of collisions) for (const tech of collision.tech) {

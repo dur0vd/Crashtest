@@ -640,7 +640,7 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
       const green = cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
       ctx.pedEntry.set(i.a.id, { frame: k, onCrosswalk: !!cw, pedGreen: green, crosswalkId: cw?.item.id });
       const emergency = [...ctx.infos.values()].find((v) => emergencyApproaches(v, i, k));
-      if (emergency) addFinding(ctx, {
+      if (emergency && k > i.k0) addFinding(ctx, {
         actorId: i.a.id, severity: 'violation', t: tOf(k),
         title: 'начал переход при приближении спецтранспорта',
         detail: `${emergency.label} приближался с синим маячком и сиреной. По п. 4.7 следовало воздержаться от перехода, даже на переходе и разрешающий сигнал. В модели спецсигналы считаются воспринимаемыми в пределах 150 м; фактическую заметность оценивают отдельно.`,

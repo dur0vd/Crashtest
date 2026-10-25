@@ -67,6 +67,14 @@ describe('пешеход перед спецтранспортом', () => {
     expect(driver.some((f) => f.refs.includes('koap:12.18'))).toBe(false);
     expect(driver.some((f) => f.refs.includes('pdd:3.1') && f.severity === 'violation' && f.causal)).toBe(true);
   });
+  it('начальная позиция на дороге не доказывает запрещённое начало перехода', () => {
+    const s = crossing();
+    s.actors[1].y = -3;
+    const report = analyze(s, simulate(s));
+    expect(report.collisions.length).toBeGreaterThan(0);
+    expect(report.findings.some((f) => f.actorId === s.actors[1].id && f.refs.includes('pdd:4.7') && f.severity === 'violation')).toBe(false);
+    expect(report.findings.some((f) => f.actorId === s.actors[1].id && f.refs.includes('pdd:4.7') && f.severity === 'info')).toBe(true);
+  });
   it('переход, начатый до появления скорой, не становится нарушением автоматически', () => {
     const s = crossing();
     s.actors[0].delay = 1;

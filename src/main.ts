@@ -11,6 +11,7 @@ import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, 
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
+import { encodeShare, sceneFromHash } from './share';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -18,28 +19,9 @@ const STORE = 'crashtest.scene.v1';
 // ---------------------------------------------------------------------------
 // Загрузка и сохранение
 
-function encodeShare(scene: Scene): string {
-  const json = JSON.stringify(scene);
-  const bytes = new TextEncoder().encode(json);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function decodeShare(s: string): Scene {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return normalizeScene(JSON.parse(new TextDecoder().decode(bytes)));
-}
-
 function loadInitial(): Scene {
-  try {
-    const m = location.hash.match(/^#s=(.+)$/);
-    if (m) return decodeShare(m[1]);
-  } catch {
-    /* повреждённая ссылка — открываем пример */
-  }
+  const shared = sceneFromHash(location.hash);
+  if (shared) return shared;
   try {
     const raw = localStorage.getItem(STORE);
     if (raw) {

@@ -1,5 +1,6 @@
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
+import { ARROW_VARIANTS } from './markings';
 
 // ---------------------------------------------------------------------------
 // Каталог участников движения
@@ -384,12 +385,19 @@ export function cloneScene<T>(s: T): T {
 /** Достраивает отсутствующие поля при загрузке сохранённой сцены. */
 export function normalizeScene(raw: unknown): Scene {
   const base = emptyScene();
-  if (!raw || typeof raw !== 'object') throw new Error('Неверный формат файла');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Неверный формат файла');
+  const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const point = (value: unknown): value is Vec => record(value) && Number.isFinite(value.x) && Number.isFinite(value.y);
+  const number = (value: unknown, fallback: number): number => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  const nonnegative = (value: unknown, fallback = 0): number => Math.max(0, number(value, fallback));
+  const positive = (value: unknown, fallback: number): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+  // Не обращаемся к словарям по произвольным объектам и именам свойств прототипа.
+  const normId = (value: unknown): value is string => typeof value === 'string' && /^\d+(?:\.\d+)+$/.test(value);
   const r = raw as Partial<Scene>;
   const scene: Scene = {
     ...base,
     name: typeof r.name === 'string' ? r.name : base.name,
-    env: { ...base.env, ...(r.env ?? {}) },
+    env: { ...base.env, ...(record(r.env) ? r.env : {}) },
     roads: [],
     sidewalks: [],
     tracks: [],
@@ -400,32 +408,98 @@ export function normalizeScene(raw: unknown): Scene {
     obstacles: [],
     actors: [],
   };
+  const ids = new Set<string>();
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
-    if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
+    if (Array.isArray(arr)) (scene[c] as unknown[]) = structuredClone(arr.filter((item) => {
+      if (!record(item) || typeof item.id !== 'string' || !item.id || ids.has(item.id)) return false;
+      ids.add(item.id);
+      return true;
+    }));
   }
+  scene.env.surface = typeof scene.env.surface === 'string' && Object.hasOwn(SURFACES, scene.env.surface) ? scene.env.surface : base.env.surface;
+  scene.env.duration = Math.max(0.1, Math.min(3600, number(scene.env.duration, base.env.duration)));
+  for (const col of ['roads', 'sidewalks', 'tracks', 'markings'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(item => Array.isArray(item.pts) && item.pts.every(point) && item.pts.length >= (col === 'markings' ? 1 : 2));
+  }
+  for (const col of ['crosswalks', 'lights', 'signs', 'obstacles', 'actors'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(point);
+  }
+  scene.signs = scene.signs.filter(g => typeof g.kind === 'string' && (normId(g.kind) || Object.hasOwn(LEGACY_SIGN_KIND, g.kind)));
+  scene.actors = scene.actors.filter(a => typeof a.type === 'string' && (a.kind === 'vehicle' ? Object.hasOwn(VEHICLES, a.type) : a.kind === 'pedestrian' && Object.hasOwn(PEDESTRIANS, a.type)));
   for (const road of scene.roads) {
-    road.lanes = road.lanes ?? 1;
-    road.center = road.center ?? 'dashed';
-    road.oneWay = !!road.oneWay;
-    road.zone = road.zone ?? 'city';
-    road.smooth = !!road.smooth;
-    road.radius = Number.isFinite(road.radius) ? Math.max(0, road.radius as number) : 0;
+    road.lanes = Math.max(1, Math.min(10, Math.round(number(road.lanes, 1))));
+    road.center = ['none', 'dashed', 'solid', 'double'].includes(road.center) ? road.center : 'dashed';
+    road.oneWay = road.oneWay === true;
+    road.zone = ['city', 'outside', 'residential'].includes(road.zone) ? road.zone : 'city';
+    road.smooth = road.smooth === true;
+    road.radius = nonnegative(road.radius);
     for (const k of ['wl', 'wr'] as const) {
       const prof = road[k];
       if (!Array.isArray(prof)) delete road[k];
-      else road[k] = prof.filter((e) => e && Number.isFinite(e.s) && Number.isFinite(e.w)).sort((a, b) => a.s - b.s);
+      else road[k] = prof.filter((e) => record(e) && Number.isFinite(e.s) && Number.isFinite(e.w) && e.s >= 0 && e.w >= 0).sort((a, b) => a.s - b.s);
     }
   }
-  for (const g of scene.signs) {
-    g.kind = LEGACY_SIGN_KIND[g.kind] ?? g.kind;
-    if (!Array.isArray(g.plates)) delete g.plates;
+  for (const sidewalk of scene.sidewalks) {
+    sidewalk.width = positive(sidewalk.width, 3);
+    sidewalk.radius = nonnegative(sidewalk.radius);
+    sidewalk.smooth = sidewalk.smooth === true;
   }
-  scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
+  for (const track of scene.tracks) {
+    track.radius = nonnegative(track.radius);
+    track.smooth = track.smooth === true;
+    track.separated = track.separated === true;
+  }
+  for (const crosswalk of scene.crosswalks) {
+    crosswalk.angle = number(crosswalk.angle, 0);
+    crosswalk.width = positive(crosswalk.width, 4);
+    crosswalk.length = positive(crosswalk.length, 8);
+    if (typeof crosswalk.lightId !== 'string') delete crosswalk.lightId;
+  }
+  for (const light of scene.lights) {
+    light.angle = number(light.angle, 0);
+    light.lineLength = positive(light.lineLength, 3.5);
+    light.green = nonnegative(light.green, 10);
+    light.yellow = nonnegative(light.yellow, 3);
+    light.red = nonnegative(light.red, 12);
+    light.offset = number(light.offset, 0);
+  }
+  const sizes: Record<ObstacleKind, [number, number]> = { building: [12, 8], fence: [8, 0.4], tree: [2.2, 2.2], barrier: [3, 0.8] };
+  for (const obstacle of scene.obstacles) {
+    obstacle.kind = typeof obstacle.kind === 'string' && Object.hasOwn(sizes, obstacle.kind) ? obstacle.kind : 'building';
+    obstacle.angle = number(obstacle.angle, 0);
+    obstacle.w = positive(obstacle.w, sizes[obstacle.kind][0]);
+    obstacle.h = positive(obstacle.h, sizes[obstacle.kind][1]);
+  }
+  for (const g of scene.signs) {
+    if (Object.hasOwn(LEGACY_SIGN_KIND, g.kind)) g.kind = LEGACY_SIGN_KIND[g.kind];
+    g.angle = number(g.angle, 0);
+    if (Array.isArray(g.plates)) g.plates = g.plates.filter(normId);
+    else delete g.plates;
+    if (typeof g.value !== 'number' || !Number.isFinite(g.value) || g.value < 0) delete g.value;
+    if (typeof g.zoneLen !== 'number' || !Number.isFinite(g.zoneLen) || g.zoneLen < 0) delete g.zoneLen;
+  }
+  scene.markings = scene.markings.filter((m) => normId(m.kind));
+  for (const marking of scene.markings) {
+    marking.angle = number(marking.angle, 0);
+    marking.radius = nonnegative(marking.radius);
+    marking.smooth = marking.smooth === true;
+    marking.solidRight = marking.solidRight === true;
+    if (typeof marking.variant !== 'string' || !Object.hasOwn(ARROW_VARIANTS, marking.variant)) delete marking.variant;
+  }
   for (const a of scene.actors) {
-    a.path = a.path ?? [];
-    a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
-    a.delay = a.delay ?? 0;
+    a.path = Array.isArray(a.path) ? a.path.filter(point).map(p => ({ ...p, v: Math.max(0, number((p as Waypoint).v, 0)), hold: Math.max(0, number((p as Waypoint).hold, 0)) })) : [];
+    a.flags = { drunk: a.flags?.drunk === true, noLicense: a.flags?.noLicense === true, flees: a.flags?.flees === true };
+    a.delay = Math.max(0, number(a.delay, 0));
+    a.speed = Math.max(0, number(a.speed, 0));
+    a.heading = number(a.heading, 0);
+    a.color = typeof a.color === 'string' ? a.color : '#3e9bff';
+    a.derail = a.derail === true;
+    if (record(a.cargo)) {
+      a.cargo = { ...NO_CARGO, ...a.cargo };
+      for (const key of ['mass', 'front', 'rear', 'left', 'right', 'height'] as const) a.cargo[key] = Math.max(0, number(a.cargo[key], 0));
+      for (const key of ['marked', 'secured', 'blocksView', 'dangerous'] as const) a.cargo[key] = a.cargo[key] === true;
+    } else delete a.cargo;
   }
   return scene;
 }

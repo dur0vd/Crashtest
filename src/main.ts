@@ -12,6 +12,7 @@ import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
 import { encodeShare, sceneFromHash } from './share';
+import { reloadOnWorkerUpdate } from './updates';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -653,6 +654,19 @@ function init(): void {
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {
+    reloadOnWorkerUpdate({
+      workers: navigator.serviceWorker,
+      scene: () => {
+        if (editor.tool === 'path' || editor.drawing?.pts.length) editor.finishDrawing();
+        return editor.scene;
+      },
+      save: serialized => {
+        window.clearTimeout(saveTimer);
+        localStorage.setItem(STORE, serialized);
+      },
+      replaceHash: hash => history.replaceState(history.state, '', `${location.pathname}${location.search}${hash}`),
+      reload: () => location.reload(),
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }

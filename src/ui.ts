@@ -131,6 +131,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       box.append(
         field('Полос в каждую сторону', num(it.lanes, set((v) => (it.lanes = v)), { min: 1, max: 4 })),
         field('Разметка по оси', select([['none', 'Без разметки'], ['dashed', 'Прерывистая (1.5)'], ['solid', 'Сплошная (1.1)'], ['double', 'Двойная сплошная (1.3)']], it.center, set((v) => (it.center = v)))),
+        check('Участок дороги освещён', !!it.lit, set((v) => (it.lit = v))),
         field('Зона', select([['city', 'Населённый пункт (60)'], ['outside', 'Вне населённого пункта'], ['residential', 'Жилая зона (20)']], it.zone, set((v) => (it.zone = v)))),
         check('Одностороннее движение (по направлению рисования)', it.oneWay, (v) => {
           app.edit(() => {
@@ -344,6 +345,7 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Водитель'),
+        field('Фары', select([['off', 'Выключены'], ['low', 'Ближний свет'], ['high', 'Дальний свет']], a.headlights ?? 'low', set((v) => (a.headlights = v as Actor['headlights'])))),
         check('Стоянка (а не краткая остановка)', !!a.parking, set((v) => (a.parking = v))),
         check('Водитель оставил ТС', !!a.unattended, set((v) => (a.unattended = v))),
         check('Приняты меры против движения и использования ТС', a.secured !== false, set((v) => (a.secured = v))),
@@ -410,6 +412,8 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
     h('div', { class: 'form' },
       h('h3', {}, 'Условия'),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
+      field('Время суток', select([['day', 'День'], ['twilight', 'Сумерки'], ['night', 'Ночь']], s.env.timeOfDay ?? 'day', set((v) => (s.env.timeOfDay = v as Scene['env']['timeOfDay'])))),
+      field('Видимость (туман, осадки), м', num(s.env.visibility ?? 1000, set((v) => (s.env.visibility = v)), { min: 1, max: 10000, step: 5 }), 'Ночью на неосвещённой дороге дополнительно ограничена светом фар: ближний 55 м, дальний 120 м.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
       check('Показывать сетку', extra.grid, extra.setGrid),

@@ -115,6 +115,8 @@ export interface Road {
   center: CenterMarking;
   oneWay: boolean;
   zone: RoadZone;
+  /** Дорога освещена стационарными светильниками. */
+  lit?: boolean;
   smooth: boolean;
 }
 
@@ -281,6 +283,8 @@ export interface Actor {
   delay: number;
   path: Waypoint[];
   flags: DriverFlags;
+  /** Свет фар: выключен, ближний или дальний. */
+  headlights?: 'off' | 'low' | 'high';
   /** Намеренная стоянка; без флага длительность определяется по неподвижности. */
   parking?: boolean;
   /** Водитель оставил ТС. */
@@ -298,6 +302,9 @@ export interface Actor {
 }
 
 export interface Env {
+  /** Атмосферная дальность видимости, м. */
+  visibility?: number;
+  timeOfDay?: 'day' | 'twilight' | 'night';
   surface: SurfaceType;
   duration: number;
 }
@@ -322,7 +329,7 @@ export function emptyScene(): Scene {
   return {
     version: 1,
     name: 'Новая ситуация',
-    env: { surface: 'dry', duration: 20 },
+    env: { surface: 'dry', duration: 20, timeOfDay: 'day', visibility: 1000 },
     roads: [],
     sidewalks: [],
     tracks: [],
@@ -444,6 +451,8 @@ export function normalizeScene(raw: unknown): Scene {
     actors: [],
   };
   const ids = new Set<string>();
+  scene.env.timeOfDay = ['day', 'twilight', 'night'].includes(scene.env.timeOfDay ?? '') ? scene.env.timeOfDay : 'day';
+  scene.env.visibility = Number.isFinite(scene.env.visibility) ? Math.max(1, Math.min(10000, scene.env.visibility!)) : 1000;
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
     if (Array.isArray(arr)) (scene[c] as unknown[]) = structuredClone(arr.filter((item) => {
@@ -469,6 +478,7 @@ export function normalizeScene(raw: unknown): Scene {
     road.zone = ['city', 'outside', 'residential'].includes(road.zone) ? road.zone : 'city';
     road.smooth = road.smooth === true;
     road.radius = nonnegative(road.radius);
+    road.lit = road.lit === true;
     for (const k of ['wl', 'wr'] as const) {
       const prof = road[k];
       if (!Array.isArray(prof)) delete road[k];
@@ -547,6 +557,7 @@ export function normalizeScene(raw: unknown): Scene {
     } else delete a.cargo;
     a.emergency = a.emergency === true && a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type);
     if (typeof a.railwayId !== 'string') delete a.railwayId;
+    a.headlights = ['off', 'low', 'high'].includes(a.headlights ?? '') ? a.headlights : 'low';
     a.parking = a.parking === true;
     a.unattended = a.unattended === true;
     a.secured = a.secured !== false;

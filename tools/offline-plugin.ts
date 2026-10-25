@@ -17,9 +17,9 @@ export function offlinePlugin(): Plugin {
         .map(entry => relative(dir, join(entry.parentPath, entry.name)).replaceAll('\\', '/'))
         .filter(path => path !== 'sw.js')
         .sort();
-      const hash = createHash('sha256');
-      for (const path of files) hash.update(path).update('\0').update(readFileSync(join(dir, path))).update('\0');
       const template = readFileSync(join(config.root, 'public/sw.js'), 'utf8');
+      const hash = createHash('sha256').update(template).update('\0');
+      for (const path of files) hash.update(path).update('\0').update(readFileSync(join(dir, path))).update('\0');
       const worker = template
         .replace('__CACHE_VERSION__', hash.digest('hex').slice(0, 20))
         .replace('/* __PRECACHE_URLS__ */', JSON.stringify(files.map(path => `./${path}`)));

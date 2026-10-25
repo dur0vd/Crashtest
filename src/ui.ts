@@ -348,15 +348,16 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       button(ed.tool === 'path' ? 'Рисую… (нажмите «Готово»)' : a.path.length ? 'Дорисовать траекторию' : 'Нарисовать траекторию', () => ed.setTool(ed.tool === 'path' ? 'select' : 'path'), 'primary'),
       button('Очистить', () => app.edit(() => ((a.path = []), (ed.selWp = null)), true)),
     ),
-    h('small', {}, 'Нажимайте на карту, чтобы ставить точки. Скорость в точке — та, с которой ТС её проезжает; тормозит максимально поздно. Нулевая скорость — остановка в точке.'),
+    h('small', {}, 'Указатель действует на участке до точки. Включайте его заблаговременно, ещё до начала манёвра. Нажимайте на карту, чтобы ставить точки. Скорость в точке — та, с которой ТС её проезжает; тормозит максимально поздно. Нулевая скорость — остановка в точке.'),
   );
   if (a.path.length) {
-    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, '№'), h('th', {}, 'км/ч'), h('th', {}, 'пауза, с'), h('th', {})));
+    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, '№'), h('th', {}, 'км/ч'), h('th', {}, 'пауза, с'), ...(isVeh ? [h('th', {}, 'Указатель')] : []), h('th', {})));
     a.path.forEach((w, i) => {
       const tr = h('tr', { class: ed.selWp === i ? 'on' : '', onclick: () => ed.select(ed.sel, i) },
         h('td', {}, String(i + 1)),
         h('td', {}, num(w.v, set((v) => (w.v = v)), { min: 0, max: 250 })),
         h('td', {}, w.v < 0.3 ? num(w.hold ?? 0, set((v) => (w.hold = v)), { min: 0, max: 30, step: 0.5 }) : '—'),
+        ...(isVeh ? [h('td', {}, select([['none', 'Нет'], ['left', 'Влево'], ['right', 'Вправо']], w.signal ?? 'none', set((v: string) => (w.signal = v as typeof w.signal))))] : []),
         h('td', {}, h('button', { type: 'button', class: 'x', title: 'Удалить точку', onclick: (e: Event) => { e.stopPropagation(); app.edit(() => { a.path.splice(i, 1); ed.syncHeading(a); ed.selWp = null; }, true); } }, '✕')),
       );
       table.append(tr);

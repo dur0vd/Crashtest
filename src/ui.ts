@@ -331,6 +331,11 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       ),
     );
   }
+  if (isVeh && ['car', 'van', 'truck'].includes(a.type)) {
+    box.append(h('div', { class: 'group' }, h('h4', {}, 'Спецтранспорт'),
+      check('Синий маячок и сирена (срочное задание)', !!a.emergency, set((v) => (a.emergency = v))),
+      h('small', {}, 'Спецтранспорт с цветографической схемой. Преимущество используется только убедившись, что уступают; безопасность обязательна (п. 3.1–3.2 ПДД).')));
+  }
   if (isVeh && VEHICLES[a.type as VehicleType].rail) {
     box.append(
       h('div', { class: 'group' },

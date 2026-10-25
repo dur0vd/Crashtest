@@ -49,3 +49,38 @@ describe('спецтранспорт с синим маячком и сирен�
     expect(normalizeScene(s).actors[0].emergency).toBe(false);
   });
 });
+
+
+describe('пешеход перед спецтранспортом', () => {
+  const crossing = () => {
+    const s = PRESETS.find((p) => p.id === 'crosswalk')!.build();
+    s.actors[0].emergency = true;
+    return s;
+  };
+  it('пешеход обязан воздержаться от перехода, а скорая — обеспечить безопасность', () => {
+    const s = crossing();
+    const report = analyze(s, simulate(s));
+    const pedestrian = report.findings.filter((f) => f.actorId === s.actors[1].id);
+    const driver = report.findings.filter((f) => f.actorId === s.actors[0].id);
+    expect(pedestrian.filter((f) => f.refs.includes('pdd:4.7') && f.severity === 'violation' && f.causal)).toHaveLength(1);
+    expect(driver.some((f) => f.refs.includes('pdd:14.1'))).toBe(false);
+    expect(driver.some((f) => f.refs.includes('koap:12.18'))).toBe(false);
+    expect(driver.some((f) => f.refs.includes('pdd:3.1') && f.severity === 'violation' && f.causal)).toBe(true);
+  });
+  it('переход, начатый до появления скорой, не становится нарушением автоматически', () => {
+    const s = crossing();
+    s.actors[0].delay = 1;
+    s.actors[0].x = -40;
+    const report = analyze(s, simulate(s));
+    expect(report.collisions.length).toBeGreaterThan(0);
+    expect(report.findings.some((f) => f.actorId === s.actors[1].id && f.refs.includes('pdd:4.7') && f.severity === 'violation')).toBe(false);
+    expect(report.findings.some((f) => f.actorId === s.actors[1].id && f.refs.includes('pdd:4.7') && f.severity === 'info')).toBe(true);
+  });
+  it('при выключенных спецсигналах действует обычное преимущество пешехода', () => {
+    const s = crossing();
+    s.actors[0].emergency = false;
+    const report = analyze(s, simulate(s));
+    expect(report.findings.some((f) => f.refs.includes('pdd:4.7'))).toBe(false);
+    expect(report.findings.some((f) => f.actorId === s.actors[0].id && f.refs.includes('pdd:14.1'))).toBe(true);
+  });
+});

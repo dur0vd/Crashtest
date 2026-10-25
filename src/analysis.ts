@@ -622,6 +622,13 @@ function inLivingZone(ctx: Ctx, p: Vec): boolean {
   return a <= 150 && a < near('5.22');
 }
 
+/** Учебный предел восприятия одновременно включённых спецсигналов — 150 м. */
+function emergencyApproaches(vehicle: Info, pedestrian: Info, k: number): boolean {
+  if (!hasEmergencySignals(vehicle.a) || !vehicle.tr.present[k] || vehicle.tr.v[k] < 0.5) return false;
+  const local = toLocal(posAt(pedestrian, k), { cx: vehicle.tr.x[k], cy: vehicle.tr.y[k], a: vehicle.tr.h[k] });
+  return local.x > 0 && dist(posAt(vehicle, k), posAt(pedestrian, k)) <= 150;
+}
+
 function checkPedestrian(ctx: Ctx, i: Info): void {
   const geo = ctx.geo;
   let wasOn = false;
@@ -632,6 +639,13 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
       const cw = geo.crosswalks.find((c) => pointInObb(p, c.box, 0.6));
       const green = cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
       ctx.pedEntry.set(i.a.id, { frame: k, onCrosswalk: !!cw, pedGreen: green, crosswalkId: cw?.item.id });
+      const emergency = [...ctx.infos.values()].find((v) => emergencyApproaches(v, i, k));
+      if (emergency) addFinding(ctx, {
+        actorId: i.a.id, severity: 'violation', t: tOf(k),
+        title: 'начал переход при приближении спецтранспорта',
+        detail: `${emergency.label} приближался с синим маячком и сиреной. По п. 4.7 следовало воздержаться от перехода, даже на переходе и разрешающий сигнал. В модели спецсигналы считаются воспринимаемыми в пределах 150 м; фактическую заметность оценивают отдельно.`,
+        refs: ['pdd:4.7', 'koap:12.29.1'],
+      });
       const res = roadsAt(geo, p)[0].rg.road.zone === 'residential' || inLivingZone(ctx, p);
       if (!cw && !res) {
         const nearest = geo.crosswalks.reduce((m, c) => Math.min(m, dist(p, { x: c.item.x, y: c.item.y })), Infinity);
@@ -977,6 +991,27 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true, title: 'наезд на пешехода на тротуаре', detail: 'ТС выехало на тротуар.', refs: ['pdd:9.9', 'koap:12.15.2'] });
         } else markCausal(ctx, veh.a.id);
         driverBlamed = true;
+      } else if (hasEmergencySignals(veh.a)) {
+        const violation = ctx.findings.find((f) => f.actorId === ped.a.id && f.refs.includes('pdd:4.7') && f.severity === 'violation');
+        if (violation) {
+          violation.causal = true;
+          notes.push('Пешеход начал переход при приближении спецтранспорта с синим маячком и сиреной — следовало воздержаться от перехода по п. 4.7.');
+        } else {
+          addFinding(ctx, { actorId: ped.a.id, severity: 'info', t, title: 'обязанность освободить дорогу спецтранспорту',
+            detail: 'Пешеход, уже находившийся на проезжей части при приближении спецтранспорта, должен незамедлительно её освободить. Начало перехода до появления спецтранспорта само по себе не подтверждает нарушение; модель не устанавливает, мог ли пешеход освободить дорогу быстрее.', refs: ['pdd:4.7'] });
+        }
+        notes.push('Маячок и сирена не снимают с водителя обязанности обеспечить безопасность по п. 3.1. Обычное преимущество пешехода по п. 14.1 здесь не применяется автоматически.');
+        if (tr?.avoidable) {
+          addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true,
+            title: 'не обеспечил безопасность проезда спецтранспорта',
+            detail: 'Пешеход находился на конфликтующей траектории. По расчёту остановиться было возможно, но водитель спецтранспорта продолжил движение; п. 3.1 требует обеспечить безопасность даже при включённых маячке и сирене.',
+            refs: ['pdd:3.1', 'pdd:10.1'] });
+        } else {
+          addFinding(ctx, { actorId: veh.a.id, severity: 'info', t,
+            title: 'безопасность движения спецтранспорта требует отдельной оценки',
+            detail: tr ? 'После обнаружения опасности остановиться до наезда технически не удавалось. Это не отменяет обязанность обеспечить безопасность по п. 3.1; по одной траектории нельзя автоматически установить её нарушение.' : 'Недостаточно данных для расчёта технической возможности остановиться. Применение преимущества требует обеспечения безопасности по п. 3.1.',
+            refs: ['pdd:3.1'] });
+        }
       } else if (cw || resZone) {
         const pedRed = entry?.pedGreen === false;
         if (cw?.item.lightId && pedRed) {

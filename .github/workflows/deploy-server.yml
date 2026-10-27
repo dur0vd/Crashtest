@@ -1,0 +1,49 @@
+name: Deploy to server
+
+# Выкладка на собственный сервер по SSH. Работает, когда в Settings → Secrets and variables → Actions
+# заданы секреты DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY (закрытый SSH-ключ) и DEPLOY_PATH
+# (например /var/www/crashtest). Без них задача пропускается. Подробности — docs/DEPLOY.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SERVER: ${{ secrets.DEPLOY_HOST != '' }}
+    steps:
+      - name: Сервер не настроен
+        if: env.HAS_SERVER != 'true'
+        run: echo "Секреты DEPLOY_* не заданы — выкладка на сервер пропущена."
+      - uses: actions/checkout@v4
+        if: env.HAS_SERVER == 'true'
+      - uses: actions/setup-node@v4
+        if: env.HAS_SERVER == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: env.HAS_SERVER == 'true'
+        run: npm ci && npm test && npm run build
+      - name: Выкладка
+        if: env.HAS_SERVER == 'true'
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_KEY }}
+          DEST: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          install -m 600 /dev/null ~/key && printf '%s\n' "$KEY" > ~/key
+          SSH="ssh -i ~/key -o StrictHostKeyChecking=accept-new"
+          RELEASE="$DEST/releases/$(date +%Y%m%d-%H%M%S)"
+          $SSH "$USER@$HOST" "mkdir -p '$RELEASE'"
+          rsync -az --delete -e "$SSH" dist/ "$USER@$HOST:$RELEASE/"
+          # Атомарное переключение и хранение пяти последних версий для отката.
+          $SSH "$USER@$HOST" "ln -sfn '$RELEASE' '$DEST/current' && ls -1dt '$DEST'/releases/* | tail -n +6 | xargs -r rm -rf"
+          rm -f ~/key

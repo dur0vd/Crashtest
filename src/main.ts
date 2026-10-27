@@ -547,6 +547,7 @@ function buildMenus(): void {
     menuItem('Скопировать ссылку на ситуацию', copyLink),
     menuItem('Как это работает', help),
     menuItem('Подписка', () => showSubscription(), billingStatus()),
+    menuItem('Для автошкол и о проекте', () => window.open('about.html', '_blank', 'noopener')),
     menuItem('О программе', showAbout),
   );
 }

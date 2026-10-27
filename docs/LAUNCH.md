@@ -8,7 +8,7 @@
 2. В cloud.ru: внешний IP привязан к ВМ, группа безопасности пускает входящие 22, 80 и 443 (80 нужен Let's Encrypt).
 3. На ВМ: пользователь с `sudo` без пароля и отдельный SSH-ключ только для выкладки (`docs/DEPLOY.md`).
 4. Запустить выкладку: `setup-server.sh` поставит nginx, сертификат, Node 22 и сервис `crashtest-api`.
-5. Создать `/var/www/roadpdd/data/api.env` с `MAIL_WEBHOOK_URL` (шлюз отправки писем). Без него код входа не уходит на почту.
+5. Создать `/var/www/roadpdd/data/api.env` с `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (см. `docs/DEPLOY.md`) и перезапустить `crashtest-api`. Без этого код входа не уходит на почту.
 6. Проверить: `curl -I https://roadpdd.ru`, затем вход из браузера и письмо с кодом.
 
 ## 2. Роскомнадзор (152-ФЗ)

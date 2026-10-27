@@ -1,3 +1,6 @@
+import { roundaboutPriority } from './roundabout';
+import { checkTurnSignals } from './indicators';
+import { checkRailwayRules } from './railway';
 import {
   type Geo,
   type RoadHit,
@@ -25,6 +28,9 @@ import {
   distToSegment,
   angleOf,
 } from './geom';
+import { collectPriorityGraphs, graphPriority, type PriorityGraph } from './priority';
+import { checkVisibilityRules, visibilityAt } from './visibility';
+import { checkParkingRules, markParkingCausal } from './parking';
 import { type Collision, type Timeline, type Track, DT } from './sim';
 import { type Kit, checkCargoRules, checkMarkingRules, checkSignRules, cargoInvolved, classOf, computeGateEnds, signApplies } from './restrictions';
 import {
@@ -41,6 +47,7 @@ import {
   dimsOf,
   lightPhase,
   pedestrianGreen,
+  hasEmergencySignals,
   SURFACES,
 } from './scene';
 
@@ -81,6 +88,8 @@ export interface TechAssessment {
   speedKmh: number;
   /** расстояние до места столкновения в момент опасности, м */
   available: number;
+  /** Дальность видимости в момент обнаружения опасности, м. */
+  visibility?: number;
   /** остановочный путь, м */
   stopDist: number;
   avoidable: boolean;
@@ -157,6 +166,7 @@ export interface GateEvent {
 }
 
 export interface Ctx {
+  priorityGraphs?: PriorityGraph[];
   scene: Scene;
   tl: Timeline;
   geo: Geo;
@@ -251,7 +261,7 @@ function prepare(scene: Scene, tl: Timeline): Ctx {
 
 function collectGates(ctx: Ctx): void {
   for (const i of ctx.infos.values()) {
-    if (!i.isVeh) continue;
+    if (!i.isVeh || i.a.type === 'train') continue;
     for (let k = Math.max(1, i.k0 + 1); k <= i.kEnd; k++) {
       if (!i.tr.present[k - 1]) continue;
       const p0 = frontAt(i, k - 1);
@@ -451,6 +461,13 @@ function checkLights(ctx: Ctx, i: Info): void {
     const t = tOf(g.frame);
     const phase = lightPhase(light, t);
     if (phase === 'green') continue;
+    if (hasEmergencySignals(i.a)) {
+      addFinding(ctx, { actorId: i.a.id, severity: 'info', t,
+        title: 'спецтранспорт пересёк запрещающий сигнал',
+        detail: 'При срочном задании с синим маячком и сиреной допускается отступить от сигнала только при обеспечении безопасности. Преимущество можно использовать, убедившись, что дорогу уступают.',
+        refs: ['pdd:3.1', 'pdd:3.2'] });
+      continue;
+    }
     let bad = phase === 'red';
     let note = '';
     if (phase === 'yellow') {
@@ -613,6 +630,13 @@ function inLivingZone(ctx: Ctx, p: Vec): boolean {
   return a <= 150 && a < near('5.22');
 }
 
+/** Учебный предел восприятия одновременно включённых спецсигналов — 150 м. */
+function emergencyApproaches(vehicle: Info, pedestrian: Info, k: number): boolean {
+  if (!hasEmergencySignals(vehicle.a) || !vehicle.tr.present[k] || vehicle.tr.v[k] < 0.5) return false;
+  const local = toLocal(posAt(pedestrian, k), { cx: vehicle.tr.x[k], cy: vehicle.tr.y[k], a: vehicle.tr.h[k] });
+  return local.x > 0 && dist(posAt(vehicle, k), posAt(pedestrian, k)) <= 150;
+}
+
 function checkPedestrian(ctx: Ctx, i: Info): void {
   const geo = ctx.geo;
   let wasOn = false;
@@ -623,6 +647,13 @@ function checkPedestrian(ctx: Ctx, i: Info): void {
       const cw = geo.crosswalks.find((c) => pointInObb(p, c.box, 0.6));
       const green = cw ? pedestrianGreen(ctx.scene, cw.item, tOf(k)) : null;
       ctx.pedEntry.set(i.a.id, { frame: k, onCrosswalk: !!cw, pedGreen: green, crosswalkId: cw?.item.id });
+      const emergency = [...ctx.infos.values()].find((v) => emergencyApproaches(v, i, k));
+      if (emergency && k > i.k0) addFinding(ctx, {
+        actorId: i.a.id, severity: 'violation', t: tOf(k),
+        title: 'начал переход при приближении спецтранспорта',
+        detail: `${emergency.label} приближался с синим маячком и сиреной. По п. 4.7 следовало воздержаться от перехода, даже на переходе и разрешающий сигнал. В модели спецсигналы считаются воспринимаемыми в пределах 150 м; фактическую заметность оценивают отдельно.`,
+        refs: ['pdd:4.7', 'koap:12.29.1'],
+      });
       const res = roadsAt(geo, p)[0].rg.road.zone === 'residential' || inLivingZone(ctx, p);
       if (!cw && !res) {
         const nearest = geo.crosswalks.reduce((m, c) => Math.min(m, dist(p, { x: c.item.x, y: c.item.y })), Infinity);
@@ -697,7 +728,7 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
   const inCorridor = (k: number): boolean => {
     if (!other.present(k)) return false;
     const l = toLocal(other.pos(k), { cx: v.tr.x[k], cy: v.tr.y[k], a: v.tr.h[k] });
-    return l.x > 0 && l.x < 150 && Math.abs(l.y) < v.hw + 1.0;
+    return l.x > 0 && l.x < visibilityAt(ctx, v, k) && Math.abs(l.y) < v.hw + 1.0;
   };
   if (!inCorridor(kLast)) return null;
   let kd = kLast;
@@ -708,9 +739,8 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
     while (kr - 1 >= v.k0 && other.present(kr - 1) && roadsAt(ctx.geo, other.pos(kr - 1)).length > 0) kr--;
     if (roadsAt(ctx.geo, other.pos(kLast)).length > 0 && kr < kd) kd = kr;
   }
-  // дальность видимости 100 м
-  const longitudinal = (k: number): number => toLocal(other.pos(k), { cx: v.tr.x[k], cy: v.tr.y[k], a: v.tr.h[k] }).x;
-  while (kd < kLast && longitudinal(kd) > 100) kd++;
+  // Даже вышедший на дорогу пешеход обнаруживается только в пределах видимости.
+  while (kd < kLast && dist(posAt(v, kd), other.pos(kd)) > visibilityAt(ctx, v, kd)) kd++;
   // другой участник резко изменил скорость — опасность возникла в этот момент
   const acc = (k: number): number => (other.speed(k) - other.speed(Math.max(0, k - 5))) / (5 * DT);
   let kb = kLast;
@@ -731,6 +761,7 @@ function techFor(ctx: Ctx, v: Info, other: OtherRef, imp: number): TechAssessmen
     otherId: other.id,
     tHazard: tOf(kd),
     speedKmh: kmh(v0),
+    visibility: visibilityAt(ctx, v, kd),
     available,
     stopDist,
     avoidable: stopDist <= available + 1e-6,
@@ -770,7 +801,7 @@ function harmFor(i: Info, dvMs: number, relMs: number): HarmLevel {
   return 'none';
 }
 
-type Reason = 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
+type Reason = 'roundabout' | 'emergency' | 'light' | 'sign-giveway' | 'sign-stop' | 'sign-main' | 'tram' | 'left' | 'right';
 
 interface Priority {
   yielder: Info | null;
@@ -797,6 +828,15 @@ function signScore(ctx: Ctx, i: Info, frame: number): { score: number; kinds: st
 
 function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
   const frame = col.frame;
+  // Спецсигналы требуют уступить и при разрешающем сигнале у другого ТС.
+  const ea = hasEmergencySignals(A.a);
+  const eb = hasEmergencySignals(B.a);
+  if (ea !== eb) {
+    const P = ea ? A : B;
+    const Y = ea ? B : A;
+    return { yielder: Y, other: P, reason: 'emergency',
+      explain: `${Y.label} должен уступить спецтранспорту ${P.label} с одновременно включёнными синим маячком и сиреной. ${P.label} вправе использовать преимущество, лишь убедившись, что ему уступают, и обеспечив безопасность (п. 3.1–3.2).` };
+  }
   // 1. светофор
   const recent = (id: string) => (ctx.lightViolations.get(id) ?? []).filter((x) => x.frame <= frame && frame - x.frame < 40 * 15);
   const la = recent(A.a.id);
@@ -820,6 +860,14 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
       explain: `${Y.label} подъезжал по второстепенной дороге${stop ? ' (знак «Движение без остановки запрещено»)' : ys.kinds.includes('giveway') ? ' (знак «Уступите дорогу»)' : ''}, ${P.label} — по главной.`,
     };
   }
+
+  // После знаков приоритета: въезд по неглавной дороге уступает движущимся по кольцу.
+  const ring = roundaboutPriority(ctx, A, B, frame);
+  if (ring) return { yielder: ring.entering, other: ring.circulating, reason: 'roundabout',
+    explain: `${ring.entering.label} въезжал по дороге, не являющейся главной, на круговое движение со знаком 4.3 и обязан был уступить ${ring.circulating.label}, уже двигавшемуся по кольцу (п. 13.11(1)).` };
+
+  const groupPriority = graphPriority(ctx, A, B, frame);
+  if (groupPriority) return groupPriority;
 
   // 3. трамвай на равнозначном перекрёстке
   if (A.rail !== B.rail) {
@@ -853,6 +901,8 @@ function resolvePriority(ctx: Ctx, A: Info, B: Info, col: Collision): Priority {
 }
 
 const REASON_REFS: Record<Reason, string[]> = {
+  roundabout: ['sign:4.3', 'pdd:13.11(1)', 'koap:12.13.2'],
+  emergency: ['pdd:3.1', 'pdd:3.2', 'koap:12.17.2'],
   light: ['pdd:6.2', 'pdd:6.13', 'koap:12.12.1'],
   'sign-giveway': ['sign:2.4', 'pdd:13.9', 'koap:12.13.2'],
   'sign-stop': ['sign:2.5', 'pdd:13.9', 'koap:12.13.2'],
@@ -938,6 +988,20 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
 
     const B = Bi!;
 
+    if (A.a.type === 'train' || B.a.type === 'train') {
+      const train = A.a.type === 'train' ? A : B;
+      const roadUser = train === A ? B : A;
+      title = 'Столкновение с поездом на переезде';
+      description = `${roadUser.label} столкнулся с поездом. Скорость сближения около ${impactKmh} км/ч.`;
+      addTech(roadUser, train.a.id);
+      if (ctx.findings.some((f) => f.actorId === roadUser.a.id && f.refs.includes('pdd:15.3'))) markCausal(ctx, roadUser.a.id);
+      else notes.push('Запрет въезда при приближении поезда не установлен по заданным сигналам и траекториям; одной коллизии недостаточно для вывода о нарушении.');
+      notes.push('У поезда большой тормозной путь. Модель представляет локомотив одним жёстким телом; железнодорожная экспертиза не выполняется.');
+      reports.push(finishCollision(ctx, col, title, description, tech, notes));
+      ctx.events.push({ t, text: title });
+      continue;
+    }
+
     // ---- наезд на пешехода
     if (col.kind === 'vp') {
       const veh = A.isVeh ? A : B;
@@ -958,6 +1022,27 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true, title: 'наезд на пешехода на тротуаре', detail: 'ТС выехало на тротуар.', refs: ['pdd:9.9', 'koap:12.15.2'] });
         } else markCausal(ctx, veh.a.id);
         driverBlamed = true;
+      } else if (hasEmergencySignals(veh.a)) {
+        const violation = ctx.findings.find((f) => f.actorId === ped.a.id && f.refs.includes('pdd:4.7') && f.severity === 'violation');
+        if (violation) {
+          violation.causal = true;
+          notes.push('Пешеход начал переход при приближении спецтранспорта с синим маячком и сиреной — следовало воздержаться от перехода по п. 4.7.');
+        } else {
+          addFinding(ctx, { actorId: ped.a.id, severity: 'info', t, title: 'обязанность освободить дорогу спецтранспорту',
+            detail: 'Пешеход, уже находившийся на проезжей части при приближении спецтранспорта, должен незамедлительно её освободить. Начало перехода до появления спецтранспорта само по себе не подтверждает нарушение; модель не устанавливает, мог ли пешеход освободить дорогу быстрее.', refs: ['pdd:4.7'] });
+        }
+        notes.push('Маячок и сирена не снимают с водителя обязанности обеспечить безопасность по п. 3.1. Обычное преимущество пешехода по п. 14.1 здесь не применяется автоматически.');
+        if (tr?.avoidable) {
+          addFinding(ctx, { actorId: veh.a.id, severity: 'violation', t, causal: true,
+            title: 'не обеспечил безопасность проезда спецтранспорта',
+            detail: 'Пешеход находился на конфликтующей траектории. По расчёту остановиться было возможно, но водитель спецтранспорта продолжил движение; п. 3.1 требует обеспечить безопасность даже при включённых маячке и сирене.',
+            refs: ['pdd:3.1', 'pdd:10.1'] });
+        } else {
+          addFinding(ctx, { actorId: veh.a.id, severity: 'info', t,
+            title: 'безопасность движения спецтранспорта требует отдельной оценки',
+            detail: tr ? 'После обнаружения опасности остановиться до наезда технически не удавалось. Это не отменяет обязанность обеспечить безопасность по п. 3.1; по одной траектории нельзя автоматически установить её нарушение.' : 'Недостаточно данных для расчёта технической возможности остановиться. Применение преимущества требует обеспечения безопасности по п. 3.1.',
+            refs: ['pdd:3.1'] });
+        }
       } else if (cw || resZone) {
         const pedRed = entry?.pedGreen === false;
         if (cw?.item.lightId && pedRed) {
@@ -1015,7 +1100,9 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           driverBlamed = true;
           notes.push('Пешеход нарушил правила перехода, но и водитель мог предотвратить наезд — возможна обоюдная ответственность.');
         } else {
-          notes.push('Пешеход вышел на проезжую часть вне перехода; у водителя не было технической возможности остановиться. Причинная связь с действиями водителя не установлена.');
+          notes.push(tr && tr.stopDist > (tr.visibility ?? Infinity)
+            ? 'Пешеход вышел вне перехода; с момента обнаружения остановиться было нельзя, однако выбранная скорость не обеспечивала остановку в пределах видимости (п. 10.1).'
+            : 'Пешеход вышел на проезжую часть вне перехода; у водителя не было технической возможности остановиться. Причинная связь с действиями водителя не установлена.');
           if (tr?.avoidableAtLimit) notes.push('При скорости в пределах допустимой наезда удалось бы избежать — превышение скорости находится в причинной связи.');
         }
       }
@@ -1109,16 +1196,23 @@ function analyzeCollisions(ctx: Ctx): CollisionReport[] {
           }
         }
       }
-    } else if (atInter) {
+    } else if (atInter || hasEmergencySignals(A.a) !== hasEmergencySignals(B.a)) {
       // ---- пересечение на перекрёстке
-      title = 'Столкновение на перекрёстке';
-      description = `${A.label} и ${B.label} столкнулись на пересечении дорог, скорость сближения около ${impactKmh} км/ч.`;
+      title = atInter ? 'Столкновение на перекрёстке' : 'Столкновение со спецтранспортом';
+      description = `${A.label} и ${B.label} столкнулись ${atInter ? 'на пересечении дорог' : 'при пересечении траекторий'}, скорость сближения около ${impactKmh} км/ч.`;
       const pr = resolvePriority(ctx, A, B, col);
       notes.push(pr.explain);
       if (pr.yielder && pr.reason) {
         const Y = pr.yielder;
         const P = pr.other!;
         const refs = REASON_REFS[pr.reason];
+        if (pr.reason === 'emergency') {
+          const departed = ctx.gates.some((g) => g.actorId === P.a.id && g.light && g.frame <= frame && frame - g.frame < 600 && lightPhase(g.light, tOf(g.frame)) !== 'green');
+          addFinding(ctx, { actorId: P.a.id, severity: departed ? 'violation' : 'info', t, causal: departed,
+            title: departed ? 'не обеспечил безопасность отступления от сигнала' : 'преимущество спецтранспорта требует обеспечения безопасности',
+            detail: departed ? 'Спецтранспорт продолжил движение на запрещающий сигнал, хотя конфликтующая траектория другого ТС не освободилась. По п. 3.1 отступление допустимо только при обеспечении безопасности; включённые сигналы сами по себе не освобождают от этой обязанности.' : 'По модели подтверждена обязанность другого ТС уступить. Возможность использовать преимущество возникает только после того, как водитель убедился в уступке; выполнение этой обязанности требует отдельной оценки.',
+            refs: ['pdd:3.1'] });
+        }
         if (pr.reason === 'light') {
           for (const f of ctx.findings) if (f.actorId === Y.a.id && f.refs.includes('koap:12.12.1')) f.causal = true;
         } else if (pr.reason === 'sign-stop' && ctx.stopSkipped.has(Y.a.id)) {
@@ -1483,11 +1577,17 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   collectGates(ctx);
   computeGateEnds(ctx);
   for (const i of ctx.infos.values()) {
+    if (i.a.type === 'train') continue;
     if (i.isVeh) {
-      checkSpeed(ctx, i);
-      checkPosition(ctx, i);
+      if (!hasEmergencySignals(i.a)) {
+        checkSpeed(ctx, i);
+        checkPosition(ctx, i);
+      }
       checkLights(ctx, i);
-      checkSigns(ctx, i);
+      if (!hasEmergencySignals(i.a)) {
+        checkSigns(ctx, i);
+        checkTurnSignals(ctx, i, (f) => addFinding(ctx, f));
+      }
     } else {
       checkPedestrian(ctx, i);
     }
@@ -1497,7 +1597,23 @@ export function analyze(scene: Scene, tl: Timeline): Report {
   checkSignRules(ctx, kit);
   checkMarkingRules(ctx, kit);
   checkCargoRules(ctx, kit);
+  checkRailwayRules(ctx, kit);
+  checkParkingRules(ctx, kit);
+  checkVisibilityRules(ctx, kit);
+  collectPriorityGraphs(ctx, kit);
   const collisions = analyzeCollisions(ctx);
+  markParkingCausal(ctx);
+  for (const collision of collisions) for (const tech of collision.tech) {
+    if (tech.avoidable) continue;
+    const i = ctx.infos.get(tech.actorId)!;
+    if (String(i.a.type) === 'train') continue;
+    const k = Math.round(tech.tHazard / DT);
+    const limited = visibilityAt(ctx, i, k);
+    if (tech.stopDist > limited) {
+      for (const f of ctx.findings) if (f.actorId === tech.actorId && f.title === 'скорость не обеспечивает остановку в пределах видимости') f.causal = true;
+      collision.notes.push(`${i.label}: видимость ограничена ${limited.toFixed(0)} м; скорость следовало выбирать с учётом остановки в пределах видимости (п. 10.1).`);
+    }
+  }
   nearMisses(ctx);
   missedWrongSide(ctx);
 
@@ -1533,6 +1649,7 @@ export function analyze(scene: Scene, tl: Timeline): Report {
 
   const assumptions = [
     `Покрытие: ${SURFACES[scene.env.surface].name.toLowerCase()} (коэффициент сцепления ${tl.mu}).`,
+    `Время суток: ${{ day: 'день', twilight: 'сумерки', night: 'ночь' }[scene.env.timeOfDay ?? 'day']}; атмосферная видимость ${scene.env.visibility ?? 1000} м. Ближний/дальний свет: 55/120 м на неосвещённой дороге.`,
     `Время реакции водителя ${REACT.toFixed(1)} с, запаздывание тормозов ${BRAKE_LAG.toFixed(1)} с.`,
     'Тяжесть вреда здоровью оценена по скорости столкновения ориентировочно; её устанавливает судебно-медицинская экспертиза.',
     'Если на перекрёстке нет знаков приоритета и светофора, он считается равнозначным.',

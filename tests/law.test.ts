@@ -5,7 +5,7 @@ import { loadCorpus, resolveRef } from '../src/corpus';
 
 describe('база норм', () => {
   it('все ссылки из разбора есть в базе норм или в корпусе', async () => {
-    const src = ['src/analysis.ts', 'src/presets.ts', 'src/restrictions.ts'].map((f) => readFileSync(f, 'utf8')).join('\n');
+    const src = ['src/analysis.ts', 'src/presets.ts', 'src/restrictions.ts', 'src/parking.ts', 'src/visibility.ts', 'src/priority.ts'].map((f) => readFileSync(f, 'utf8')).join('\n');
     const used = new Set(src.match(/'(?:pdd|koap|uk|sign|marking|gk|osago):[0-9.()#a-z]*[0-9)]'/g)?.map((s) => s.slice(1, -1)));
     expect(used.size).toBeGreaterThan(30);
     const corpus = await loadCorpus();

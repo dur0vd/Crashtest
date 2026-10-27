@@ -1,0 +1,1 @@
+{"name":"Машина без груза, флагов и задержки","actors":[{"id":"a1","kind":"vehicle","type":"car","x":0,"y":0,"heading":0,"speed":36,"color":"#fff","path":[{"x":30,"y":0,"v":0}]}]}

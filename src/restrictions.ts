@@ -17,7 +17,7 @@ import {
   rightOf,
 } from './geom';
 import { ARROW_VARIANTS, MARKING_BY_ID } from './markings';
-import { type Sign, VEHICLES, dimsOf, type VehicleType } from './scene';
+import { type Sign, VEHICLES, dimsOf, hasEmergencySignals, type VehicleType } from './scene';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { DT } from './sim';
 
@@ -111,7 +111,7 @@ const CANCELLED_BY: Record<string, string[]> = {
 /** Рассчитывает, до какого кадра действует каждый пройденный знак. */
 export function computeGateEnds(ctx: Ctx): void {
   for (const i of ctx.infos.values()) {
-    if (!i.isVeh) continue;
+    if (!i.isVeh || i.a.type === 'train') continue;
     const mine = ctx.gates.filter((g) => g.actorId === i.a.id && g.sign).sort((a, b) => a.frame - b.frame);
     for (const g of mine) {
       let until = i.kEnd + 1;
@@ -204,7 +204,7 @@ export function checkSignRules(ctx: Ctx, kit: Kit): void {
     if (!g.sign) continue;
     const i = ctx.infos.get(g.actorId)!;
     const cls = classOf(i);
-    if (cls === 'tram') continue;
+    if (cls === 'tram' || hasEmergencySignals(i.a)) continue;
     const s = g.sign;
     if (!signApplies(s, cls)) continue;
     const label = `знаку ${s.kind} «${signTitle(s.kind)}»`;
@@ -295,7 +295,7 @@ export function checkMarkingRules(ctx: Ctx, kit: Kit): void {
     const dense = spec.form === 'symbol' ? m.pts : densify(m.pts, !!m.smooth, m.radius ?? 0);
 
     for (const i of ctx.infos.values()) {
-      if (!i.isVeh || classOf(i) === 'tram') continue;
+      if (!i.isVeh || i.a.type === 'train' || classOf(i) === 'tram' || hasEmergencySignals(i.a)) continue;
 
       // пересечение сплошных линий
       if (spec.form === 'line' && (spec.noCross || spec.oneSide) && dense.length >= 2) {

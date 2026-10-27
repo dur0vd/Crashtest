@@ -1,5 +1,6 @@
 import type { Vec } from './geom';
 import { LEGACY_SIGN_KIND } from './signs';
+import { ARROW_VARIANTS } from './markings';
 
 // ---------------------------------------------------------------------------
 // Каталог участников движения
@@ -15,6 +16,7 @@ export type VehicleType =
   | 'bus'
   | 'trolleybus'
   | 'tram'
+  | 'train'
   | 'cart';
 
 export type PedestrianType = 'adult' | 'child';
@@ -59,6 +61,7 @@ export const VEHICLES: Record<VehicleType, VehicleSpec> = {
   bus: { name: 'Автобус', length: 12, width: 2.55, mass: 13000, accel: 0.9, brakeFactor: 0.7, vmax: 100, color: '#e5484d', exposed: false, rail: false, route: true, heavy: true, height: 3.0, payload: 0 },
   trolleybus: { name: 'Троллейбус', length: 12, width: 2.55, mass: 14000, accel: 1.1, brakeFactor: 0.7, vmax: 70, color: '#35b6c4', exposed: false, rail: false, route: true, heavy: true, height: 3.4, payload: 0 },
   tram: { name: 'Трамвай', length: 15, width: 2.5, mass: 24000, accel: 1.0, brakeFactor: 1, brakeCap: 2.7, vmax: 70, color: '#d94f8c', exposed: false, rail: true, route: true, heavy: true, height: 3.4, payload: 0 },
+  train: { name: 'Поезд (локомотив)', length: 22, width: 3.2, mass: 120000, accel: 0.4, brakeFactor: 0.3, brakeCap: 0.8, vmax: 120, color: '#db5c42', exposed: false, rail: true, route: false, heavy: true, height: 4.5, payload: 0 },
   cart: { name: 'Гужевая повозка', length: 3.6, width: 1.5, mass: 800, accel: 0.6, brakeFactor: 0.5, vmax: 15, color: '#9a7b4f', exposed: true, rail: false, route: false, heavy: false, height: 2.2, payload: 600 },
 };
 
@@ -112,6 +115,8 @@ export interface Road {
   center: CenterMarking;
   oneWay: boolean;
   zone: RoadZone;
+  /** Дорога освещена стационарными светильниками. */
+  lit?: boolean;
   smooth: boolean;
 }
 
@@ -130,6 +135,21 @@ export interface TramTrack {
   /** путь выделен бордюром или разделительной полосой */
   separated: boolean;
   smooth: boolean;
+}
+
+/** Прямой железнодорожный путь и место пересечения с дорогой. Угол — вдоль рельсов. */
+export interface RailwayCrossing {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  length: number;
+  /** Ширина автомобильного проезда вдоль рельсов. */
+  width: number;
+  barrier: 'none' | 'open' | 'closed';
+  red: boolean;
+  /** Интервалы приближения/проезда поезда: красный сигнал и закрытый шлагбаум. */
+  trainWindows: { start: number; end: number }[];
 }
 
 export interface Crosswalk {
@@ -206,6 +226,8 @@ export interface Obstacle {
   kind: ObstacleKind;
 }
 
+export type TurnSignal = 'none' | 'left' | 'right';
+
 export interface Waypoint {
   x: number;
   y: number;
@@ -213,6 +235,8 @@ export interface Waypoint {
   v: number;
   /** сколько секунд стоять, если скорость в точке нулевая */
   hold?: number;
+  /** Указатель поворота на участке от предыдущей точки до этой. */
+  signal?: TurnSignal;
 }
 
 export interface DriverFlags {
@@ -259,13 +283,28 @@ export interface Actor {
   delay: number;
   path: Waypoint[];
   flags: DriverFlags;
+  /** Свет фар: выключен, ближний или дальний. */
+  headlights?: 'off' | 'low' | 'high';
+  /** Намеренная стоянка; без флага длительность определяется по неподвижности. */
+  parking?: boolean;
+  /** Водитель оставил ТС. */
+  unattended?: boolean;
+  /** Приняты меры против самопроизвольного движения и использования ТС. */
+  secured?: boolean;
   /** груз (только для ТС) */
   cargo?: Cargo;
   /** трамвай: при сильном ударе возможен сход с путей (иначе едет строго по рельсам) */
   derail?: boolean;
+  /** Спецтранспорт с цветографической схемой выполняет срочное задание: синий маячок И сирена. */
+  emergency?: boolean;
+  /** Путь поезда: идентификатор железнодорожного переезда. */
+  railwayId?: string;
 }
 
 export interface Env {
+  /** Атмосферная дальность видимости, м. */
+  visibility?: number;
+  timeOfDay?: 'day' | 'twilight' | 'night';
   surface: SurfaceType;
   duration: number;
 }
@@ -277,6 +316,7 @@ export interface Scene {
   roads: Road[];
   sidewalks: Sidewalk[];
   tracks: TramTrack[];
+  railways: RailwayCrossing[];
   crosswalks: Crosswalk[];
   lights: TrafficLight[];
   signs: Sign[];
@@ -289,10 +329,11 @@ export function emptyScene(): Scene {
   return {
     version: 1,
     name: 'Новая ситуация',
-    env: { surface: 'dry', duration: 20 },
+    env: { surface: 'dry', duration: 20, timeOfDay: 'day', visibility: 1000 },
     roads: [],
     sidewalks: [],
     tracks: [],
+    railways: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -302,15 +343,16 @@ export function emptyScene(): Scene {
   };
 }
 
-export type AnyItem = Road | Sidewalk | TramTrack | Crosswalk | TrafficLight | Sign | Marking | Obstacle | Actor;
-export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
+export type AnyItem = Road | Sidewalk | TramTrack | RailwayCrossing | Crosswalk | TrafficLight | Sign | Marking | Obstacle | Actor;
+export type Collection = 'roads' | 'sidewalks' | 'tracks' | 'railways' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
 
-export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'crosswalks', 'lights', 'signs', 'markings', 'obstacles', 'actors'];
+export const COLLECTIONS: Collection[] = ['roads', 'sidewalks', 'tracks', 'railways', 'crosswalks', 'lights', 'signs', 'markings', 'obstacles', 'actors'];
 
 const PREFIX: Record<Collection, string> = {
   roads: 'r',
   sidewalks: 's',
   tracks: 't',
+  railways: 'j',
   crosswalks: 'c',
   lights: 'l',
   signs: 'g',
@@ -384,15 +426,23 @@ export function cloneScene<T>(s: T): T {
 /** Достраивает отсутствующие поля при загрузке сохранённой сцены. */
 export function normalizeScene(raw: unknown): Scene {
   const base = emptyScene();
-  if (!raw || typeof raw !== 'object') throw new Error('Неверный формат файла');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Неверный формат файла');
+  const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const point = (value: unknown): value is Vec => record(value) && Number.isFinite(value.x) && Number.isFinite(value.y);
+  const number = (value: unknown, fallback: number): number => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  const nonnegative = (value: unknown, fallback = 0): number => Math.max(0, number(value, fallback));
+  const positive = (value: unknown, fallback: number): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+  // Не обращаемся к словарям по произвольным объектам и именам свойств прототипа.
+  const normId = (value: unknown): value is string => typeof value === 'string' && /^\d+(?:\.\d+)+$/.test(value);
   const r = raw as Partial<Scene>;
   const scene: Scene = {
     ...base,
     name: typeof r.name === 'string' ? r.name : base.name,
-    env: { ...base.env, ...(r.env ?? {}) },
+    env: { ...base.env, ...(record(r.env) ? r.env : {}) },
     roads: [],
     sidewalks: [],
     tracks: [],
+    railways: [],
     crosswalks: [],
     lights: [],
     signs: [],
@@ -400,32 +450,117 @@ export function normalizeScene(raw: unknown): Scene {
     obstacles: [],
     actors: [],
   };
+  const ids = new Set<string>();
+  scene.env.timeOfDay = ['day', 'twilight', 'night'].includes(scene.env.timeOfDay ?? '') ? scene.env.timeOfDay : 'day';
+  scene.env.visibility = Number.isFinite(scene.env.visibility) ? Math.max(1, Math.min(10000, scene.env.visibility!)) : 1000;
   for (const c of COLLECTIONS) {
     const arr = (r as Record<string, unknown>)[c];
-    if (Array.isArray(arr)) (scene[c] as unknown[]) = arr.filter((x) => x && typeof x === 'object');
+    if (Array.isArray(arr)) (scene[c] as unknown[]) = structuredClone(arr.filter((item) => {
+      if (!record(item) || typeof item.id !== 'string' || !item.id || ids.has(item.id)) return false;
+      ids.add(item.id);
+      return true;
+    }));
   }
+  scene.env.surface = typeof scene.env.surface === 'string' && Object.hasOwn(SURFACES, scene.env.surface) ? scene.env.surface : base.env.surface;
+  scene.env.duration = Math.max(0.1, Math.min(3600, number(scene.env.duration, base.env.duration)));
+  for (const col of ['roads', 'sidewalks', 'tracks', 'markings'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(item => Array.isArray(item.pts) && item.pts.every(point) && item.pts.length >= (col === 'markings' ? 1 : 2));
+  }
+  for (const col of ['crosswalks', 'lights', 'signs', 'obstacles', 'actors'] as const) {
+    (scene[col] as unknown[]) = scene[col].filter(point);
+  }
+  scene.signs = scene.signs.filter(g => typeof g.kind === 'string' && (normId(g.kind) || Object.hasOwn(LEGACY_SIGN_KIND, g.kind)));
+  scene.actors = scene.actors.filter(a => typeof a.type === 'string' && (a.kind === 'vehicle' ? Object.hasOwn(VEHICLES, a.type) : a.kind === 'pedestrian' && Object.hasOwn(PEDESTRIANS, a.type)));
   for (const road of scene.roads) {
-    road.lanes = road.lanes ?? 1;
-    road.center = road.center ?? 'dashed';
-    road.oneWay = !!road.oneWay;
-    road.zone = road.zone ?? 'city';
-    road.smooth = !!road.smooth;
-    road.radius = Number.isFinite(road.radius) ? Math.max(0, road.radius as number) : 0;
+    road.lanes = Math.max(1, Math.min(10, Math.round(number(road.lanes, 1))));
+    road.center = ['none', 'dashed', 'solid', 'double'].includes(road.center) ? road.center : 'dashed';
+    road.oneWay = road.oneWay === true;
+    road.zone = ['city', 'outside', 'residential'].includes(road.zone) ? road.zone : 'city';
+    road.smooth = road.smooth === true;
+    road.radius = nonnegative(road.radius);
+    road.lit = road.lit === true;
     for (const k of ['wl', 'wr'] as const) {
       const prof = road[k];
       if (!Array.isArray(prof)) delete road[k];
-      else road[k] = prof.filter((e) => e && Number.isFinite(e.s) && Number.isFinite(e.w)).sort((a, b) => a.s - b.s);
+      else road[k] = prof.filter((e) => record(e) && Number.isFinite(e.s) && Number.isFinite(e.w) && e.s >= 0 && e.w >= 0).sort((a, b) => a.s - b.s);
     }
   }
-  for (const g of scene.signs) {
-    g.kind = LEGACY_SIGN_KIND[g.kind] ?? g.kind;
-    if (!Array.isArray(g.plates)) delete g.plates;
+  for (const sidewalk of scene.sidewalks) {
+    sidewalk.width = positive(sidewalk.width, 3);
+    sidewalk.radius = nonnegative(sidewalk.radius);
+    sidewalk.smooth = sidewalk.smooth === true;
   }
-  scene.markings = scene.markings.filter((m) => m && Array.isArray(m.pts) && m.pts.length >= 1 && typeof m.kind === 'string');
+  for (const track of scene.tracks) {
+    track.radius = nonnegative(track.radius);
+    track.smooth = track.smooth === true;
+    track.separated = track.separated === true;
+  }
+  for (const crosswalk of scene.crosswalks) {
+    crosswalk.angle = number(crosswalk.angle, 0);
+    crosswalk.width = positive(crosswalk.width, 4);
+    crosswalk.length = positive(crosswalk.length, 8);
+    if (typeof crosswalk.lightId !== 'string') delete crosswalk.lightId;
+  }
+  for (const light of scene.lights) {
+    light.angle = number(light.angle, 0);
+    light.lineLength = positive(light.lineLength, 3.5);
+    light.green = nonnegative(light.green, 10);
+    light.yellow = nonnegative(light.yellow, 3);
+    light.red = nonnegative(light.red, 12);
+    light.offset = number(light.offset, 0);
+  }
+  const sizes: Record<ObstacleKind, [number, number]> = { building: [12, 8], fence: [8, 0.4], tree: [2.2, 2.2], barrier: [3, 0.8] };
+  for (const obstacle of scene.obstacles) {
+    obstacle.kind = typeof obstacle.kind === 'string' && Object.hasOwn(sizes, obstacle.kind) ? obstacle.kind : 'building';
+    obstacle.angle = number(obstacle.angle, 0);
+    obstacle.w = positive(obstacle.w, sizes[obstacle.kind][0]);
+    obstacle.h = positive(obstacle.h, sizes[obstacle.kind][1]);
+  }
+  for (const g of scene.signs) {
+    if (Object.hasOwn(LEGACY_SIGN_KIND, g.kind)) g.kind = LEGACY_SIGN_KIND[g.kind];
+    g.angle = number(g.angle, 0);
+    if (Array.isArray(g.plates)) g.plates = g.plates.filter(normId);
+    else delete g.plates;
+    if (typeof g.value !== 'number' || !Number.isFinite(g.value) || g.value < 0) delete g.value;
+    if (typeof g.zoneLen !== 'number' || !Number.isFinite(g.zoneLen) || g.zoneLen < 0) delete g.zoneLen;
+  }
+  scene.markings = scene.markings.filter((m) => normId(m.kind));
+  for (const marking of scene.markings) {
+    marking.angle = number(marking.angle, 0);
+    marking.radius = nonnegative(marking.radius);
+    marking.smooth = marking.smooth === true;
+    marking.solidRight = marking.solidRight === true;
+    if (typeof marking.variant !== 'string' || !Object.hasOwn(ARROW_VARIANTS, marking.variant)) delete marking.variant;
+  }
+  scene.railways = scene.railways.filter((r) => Number.isFinite(r.x) && Number.isFinite(r.y));
+  for (const r of scene.railways) {
+    r.angle = Number.isFinite(r.angle) ? r.angle : 0;
+    r.length = Number.isFinite(r.length) ? Math.max(10, Math.min(5000, r.length)) : 200;
+    r.width = Number.isFinite(r.width) ? Math.max(3, Math.min(100, r.width)) : 7;
+    r.barrier = ['none', 'open', 'closed'].includes(r.barrier) ? r.barrier : 'open';
+    r.red = r.red === true;
+    r.trainWindows = Array.isArray(r.trainWindows) ? r.trainWindows.filter((w) => w && Number.isFinite(w.start) && Number.isFinite(w.end) && w.start >= 0 && w.end > w.start) : [];
+  }
   for (const a of scene.actors) {
-    a.path = a.path ?? [];
-    a.flags = Object.assign({ drunk: false, noLicense: false, flees: false }, a.flags);
-    a.delay = a.delay ?? 0;
+    a.path = Array.isArray(a.path) ? a.path.filter(point).map(p => ({ ...p, v: Math.max(0, number((p as Waypoint).v, 0)), hold: Math.max(0, number((p as Waypoint).hold, 0)) })) : [];
+    for (const w of a.path) w.signal = w.signal === 'left' || w.signal === 'right' ? w.signal : 'none';
+    a.flags = { drunk: a.flags?.drunk === true, noLicense: a.flags?.noLicense === true, flees: a.flags?.flees === true };
+    a.delay = Math.max(0, number(a.delay, 0));
+    a.speed = Math.max(0, number(a.speed, 0));
+    a.heading = number(a.heading, 0);
+    a.color = typeof a.color === 'string' ? a.color : '#3e9bff';
+    a.derail = a.derail === true;
+    if (record(a.cargo)) {
+      a.cargo = { ...NO_CARGO, ...a.cargo };
+      for (const key of ['mass', 'front', 'rear', 'left', 'right', 'height'] as const) a.cargo[key] = Math.max(0, number(a.cargo[key], 0));
+      for (const key of ['marked', 'secured', 'blocksView', 'dangerous'] as const) a.cargo[key] = a.cargo[key] === true;
+    } else delete a.cargo;
+    a.emergency = a.emergency === true && a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type);
+    if (typeof a.railwayId !== 'string') delete a.railwayId;
+    a.headlights = ['off', 'low', 'high'].includes(a.headlights ?? '') ? a.headlights : 'low';
+    a.parking = a.parking === true;
+    a.unattended = a.unattended === true;
+    a.secured = a.secured !== false;
   }
   return scene;
 }
@@ -444,4 +579,9 @@ export function dimsOf(a: Actor): { length: number; width: number; height: numbe
     mass: sp.mass + c.mass,
     shift: (c.front - c.rear) / 2,
   };
+}
+
+/** Одиночный маячок, сирена и неподходящий тип ТС не создают преимущества. */
+export function hasEmergencySignals(a: Actor): boolean {
+  return a.kind === 'vehicle' && ['car', 'van', 'truck'].includes(a.type) && a.emergency === true;
 }

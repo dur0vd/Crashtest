@@ -1,3 +1,5 @@
+import { signalAtPosition } from './indicators';
+import { railwayState } from './railway';
 import { type Geo, buildGeo, densify, roadOutlinePoly, widthsAt } from './geo';
 import { ARROW_VARIANTS, MARKING_BY_ID, type MarkingSpec } from './markings';
 import { VALUE_SIGNS, markingFile, signFile } from './signs';
@@ -16,6 +18,7 @@ import {
   actorSpec,
   lightPhase,
   pedestrianGreen,
+  hasEmergencySignals,
 } from './scene';
 import type { PedestrianType, VehicleType } from './scene';
 import type { Timeline } from './sim';
@@ -29,7 +32,7 @@ export interface Camera {
 }
 
 export interface Selection {
-  col: 'roads' | 'sidewalks' | 'tracks' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
+  col: 'roads' | 'sidewalks' | 'tracks' | 'railways' | 'crosswalks' | 'lights' | 'signs' | 'markings' | 'obstacles' | 'actors';
   id: string;
 }
 
@@ -118,6 +121,7 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: Vec[], close = false): vo
 /** Кэш картинок знаков и разметки; после загрузки просит перерисовать холст. */
 class ImageCache {
   private map = new Map<string, HTMLImageElement | 'err'>();
+  private pending: Promise<void>[] = [];
   constructor(private onLoad: () => void) {}
   get(path: string): HTMLImageElement | null {
     if (!path) return null;
@@ -125,12 +129,15 @@ class ImageCache {
     if (hit === 'err') return null;
     if (hit) return hit.complete && hit.naturalWidth ? hit : null;
     const img = new Image();
-    img.onload = () => this.onLoad();
-    img.onerror = () => this.map.set(path, 'err');
+    this.pending.push(new Promise<void>((resolve) => {
+      img.onload = () => { this.onLoad(); resolve(); };
+      img.onerror = () => { this.map.set(path, 'err'); resolve(); };
+    }));
     img.src = imgUrl(path);
     this.map.set(path, img);
     return null;
   }
+  ready(): Promise<unknown> { return Promise.all(this.pending); }
 }
 
 export class Renderer {
@@ -144,6 +151,11 @@ export class Renderer {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
+  }
+
+  async imagesReady(): Promise<void> {
+    // Отчёт можно сохранить и при недоступной картинке: вместо неё останется номер знака.
+    await Promise.race([this.images.ready(), new Promise((resolve) => setTimeout(resolve, 3000))]);
   }
 
   resize(): void {
@@ -172,6 +184,7 @@ export class Renderer {
     this.drawSidewalks(geo);
     this.drawRoads(geo);
     this.drawTracks(geo);
+    this.drawRailways(v);
     this.drawMarkings(v);
     this.drawCrosswalks(v, geo);
     this.drawLights(v, geo);
@@ -179,6 +192,7 @@ export class Renderer {
     this.drawSigns(v, geo);
     this.drawTrails(v);
     this.drawPaths(v);
+    this.drawAtmosphere(v);
     this.drawActors(v);
     this.drawCollisions(v);
     this.drawSelection(v, geo);
@@ -353,6 +367,38 @@ export class Renderer {
         ctx.lineWidth = 0.12;
         ctx.stroke();
       }
+    }
+  }
+
+  private drawRailways(v: ViewState): void {
+    const { ctx } = this;
+    for (const r of v.scene.railways ?? []) {
+      const state = railwayState(r, v.t);
+      ctx.save();
+      ctx.translate(r.x, r.y);
+      ctx.rotate(r.angle);
+      ctx.strokeStyle = '#8b7355';
+      ctx.lineWidth = 0.3;
+      for (let x = -r.length / 2; x <= r.length / 2; x += 1.2) {
+        ctx.beginPath(); ctx.moveTo(x, -1.3); ctx.lineTo(x, 1.3); ctx.stroke();
+      }
+      ctx.strokeStyle = '#c5ced8';
+      ctx.lineWidth = 0.15;
+      for (const y of [-GAUGE / 2, GAUGE / 2]) { ctx.beginPath(); ctx.moveTo(-r.length / 2, y); ctx.lineTo(r.length / 2, y); ctx.stroke(); }
+      for (const side of [-1, 1]) {
+        const y = side * (GAUGE / 2 + 5);
+        ctx.fillStyle = '#202630';
+        ctx.fillRect(r.width / 2 + 0.5, y - 0.7, 1.4, 1.4);
+        for (const j of [0, 1]) {
+          ctx.beginPath(); ctx.arc(r.width / 2 + 0.85 + j * 0.7, y, 0.25, 0, 2 * Math.PI);
+          ctx.fillStyle = state.red && (Math.floor(v.t * 2) + j) % 2 === 0 ? '#ff4444' : '#601c25'; ctx.fill();
+        }
+        if (r.barrier !== 'none') {
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.35; ctx.beginPath(); ctx.moveTo(-r.width / 2, y); ctx.lineTo(state.closed ? r.width / 2 : -r.width / 2 + 0.5, state.closed ? y : y + side * r.width); ctx.stroke();
+          ctx.strokeStyle = '#e5484d'; ctx.setLineDash([0.7, 0.7]); ctx.stroke(); ctx.setLineDash([]);
+        }
+      }
+      ctx.restore();
     }
   }
 
@@ -834,6 +880,39 @@ export class Renderer {
     return { p: { x: a.x, y: a.y }, h: a.path.length ? angleOf(sub(a.path[0], a)) : a.heading, present: true, free: false };
   }
 
+  /** Затемнение сохраняет читаемость редактора; конусы — условная дальность света. */
+  private drawAtmosphere(v: ViewState): void {
+    const time = v.scene.env.timeOfDay ?? 'day';
+    if (time === 'day') return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.fillStyle = time === 'night' ? 'rgba(0,4,16,0.48)' : 'rgba(10,15,40,0.23)';
+    ctx.fillRect(v.cam.x - this.w / v.cam.s, v.cam.y - this.h / v.cam.s, 2 * this.w / v.cam.s, 2 * this.h / v.cam.s);
+    for (const a of v.scene.actors) {
+      if (a.kind !== 'vehicle' || a.headlights === 'off') continue;
+      const pose = this.poseOf(v, a);
+      if (!pose.present) continue;
+      const range = Math.min(v.scene.env.visibility ?? 1000, a.headlights === 'high' ? 120 : 55);
+      ctx.save();
+      ctx.translate(pose.p.x, pose.p.y);
+      ctx.rotate(pose.h);
+      const start = actorSpec(a).length / 2;
+      const light = ctx.createLinearGradient(start, 0, start + range, 0);
+      light.addColorStop(0, 'rgba(255,249,190,0.28)');
+      light.addColorStop(1, 'rgba(255,249,190,0)');
+      ctx.fillStyle = light;
+      ctx.beginPath();
+      ctx.moveTo(start, -0.7);
+      ctx.lineTo(start + range, -range * 0.22);
+      ctx.lineTo(start + range, range * 0.22);
+      ctx.lineTo(start, 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   private drawActors(v: ViewState): void {
     const { ctx } = this;
     for (const a of v.scene.actors) {
@@ -858,6 +937,20 @@ export class Renderer {
         ctx.fillRect(r * 0.2, -0.07, r * 0.9, 0.14);
       } else {
         this.drawVehicleBody(a, spec.length, spec.width);
+        if (hasEmergencySignals(a)) {
+          ctx.fillStyle = v.mode !== 'play' || Math.floor(v.t * 5) % 2 === 0 ? '#3bbcff' : '#153c9b';
+          ctx.shadowColor = '#39b5ff';
+          ctx.shadowBlur = 12;
+          ctx.fillRect(-0.25, -spec.width * 0.35, 0.5, spec.width * 0.7);
+          ctx.shadowBlur = 0;
+        }
+        const signal = signalAtPosition(a, pose.p);
+        if (!pose.free && signal !== 'none' && (v.mode !== 'play' || Math.floor(v.t * 2) % 2 === 0)) {
+          ctx.fillStyle = '#ffae00';
+          const y = signal === 'left' ? -spec.width / 2 - 0.10 : spec.width / 2 - 0.15;
+          ctx.fillRect(spec.length / 2 - 0.4, y, 0.5, 0.25);
+          ctx.fillRect(-spec.length / 2 - 0.1, y, 0.5, 0.25);
+        }
       }
       ctx.restore();
     }
@@ -887,6 +980,7 @@ export class Renderer {
         ctx.fillStyle = 'rgba(20,24,30,0.85)';
         ctx.fill();
         break;
+      case 'train':
       case 'tram':
         for (let i = 1; i < 3; i++) {
           ctx.fillRect(-L / 2 + (i * L) / 3 - 0.08, -W / 2, 0.16, W);
@@ -1133,6 +1227,7 @@ export class Renderer {
         if (!a.path.length || v.pathActor !== a.id) handle(rotateHandle(a), 6);
         break;
       }
+      case 'railways':
       case 'crosswalks':
       case 'lights':
       case 'signs':

@@ -1,7 +1,7 @@
 {
   "name": "Crashtest — симулятор дорожных ситуаций",
   "short_name": "Crashtest",
-  "description": "Нарисуйте дорожную ситуацию, задайте движение и получите разбор по ПДД РФ, КоАП РФ и УК РФ",
+  "description": "Учебная модель: нарисуйте дорожную ситуацию, задайте движение и посмотрите разбор по нормам ПДД РФ, КоАП РФ и УК РФ. Не экспертиза.",
   "lang": "ru",
   "start_url": "./",
   "display": "standalone",
@@ -9,6 +9,9 @@
   "background_color": "#12161c",
   "theme_color": "#12161c",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

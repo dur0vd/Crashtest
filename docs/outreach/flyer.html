@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Листовка Crashtest (А4)</title>
+    <style>
+      @page { size: A4; margin: 0; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #12161c; }
+      .page { width: 210mm; height: 297mm; padding: 16mm 16mm 12mm; display: flex; flex-direction: column; background: #fff; }
+      h1 { font-size: 34px; line-height: 1.15; margin: 0 0 8px; }
+      .lead { font-size: 18px; color: #3a4556; margin: 0 0 14px; }
+      .shot { width: 100%; border: 1px solid #c9d1dc; border-radius: 10px; }
+      ul { margin: 14px 0; padding-left: 22px; font-size: 17px; }
+      li { margin-bottom: 4px; }
+      .bottom { margin-top: auto; display: flex; align-items: center; gap: 18px; border-top: 2px solid #12161c; padding-top: 12px; }
+      .bottom img { width: 38mm; height: 38mm; }
+      .cta { font-size: 22px; font-weight: 700; line-height: 1.2; }
+      .small { font-size: 12px; color: #5a6575; margin-top: 6px; font-weight: 400; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Поймите ПДД на примерах ДТП</h1>
+      <p class="lead">Нарисуйте ситуацию на дороге, запустите — и посмотрите, какие пункты ПДД, статьи КоАП и УК нарушены.</p>
+      <img class="shot" src="../../public/promo/screenshot-desktop.png" alt="" />
+      <ul>
+        <li>Без регистрации, 5 моделей бесплатно</li>
+        <li>Работает на телефоне, после первого открытия — и без интернета</li>
+        <li>21 готовая ситуация: переход, перекрёсток, кольцо, переезд, ночь</li>
+      </ul>
+      <div class="bottom">
+        <img src="../../public/promo/qr-flyer.svg" alt="QR-код" />
+        <div class="cta">
+          Наведите камеру на QR-код
+          <div class="small">Адрес: TODO-URL · Учебная модель, не заменяет экспертизу и консультацию юриста. Контакт: mr.cartest@mail.ru</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,3 +1,4 @@
+import { railwayPoints } from './railway';
 import { buildGeo } from './geo';
 import {
   type OBB,
@@ -5,6 +6,7 @@ import {
   type Vec,
   add,
   buildPath,
+  cross,
   dist,
   dot,
   fromAngle,
@@ -85,6 +87,10 @@ interface Rt {
   h: number;
   mode: 'path' | 'free';
   vel: Vec;
+  /** угловая скорость свободного кузова, рад/с */
+  omega: number;
+  /** момент инерции прямоугольного кузова относительно центра масс, кг·м² */
+  inertia: number;
   hold: number;
   present: boolean;
   down: boolean;
@@ -176,6 +182,8 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
   const path = rp ? rp.path : buildPath(ctrl, true);
   const nodes: Node[] = [{ s: 0, V: ms(a.speed), hold: 0 }];
   a.path.forEach((w, i) => nodes.push({ s: path.nodeS[i + 1], V: ms(Math.max(0, w.v)), hold: w.hold ?? 0 }));
+  // Конец выбранного участка рельсов — также точка планового торможения.
+  if (a.type === 'train' && rp) nodes.push({ s: path.total, V: 0, hold: 0 });
   let accel = 2;
   let brake = 3;
   let plan = 3;
@@ -186,6 +194,8 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     brake = Math.min(vs.brakeCap ?? Infinity, mu * G * vs.brakeFactor);
     plan = Math.min(vs.brakeCap ?? Infinity, SURFACES.dry.mu * G * vs.brakeFactor);
   }
+  // Поезд без выбранных рельсов не движется по произвольному маршруту.
+  if (a.type === 'train' && !rp) for (const node of nodes) node.V = 0;
   const p0 = pathAt(path, 0);
   return {
     a,
@@ -198,6 +208,8 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     h: p0.a,
     mode: 'path',
     vel: { x: 0, y: 0 },
+    omega: 0,
+    inertia: (spec.mass * (spec.length * spec.length + spec.width * spec.width)) / 12,
     hold: 0,
     present: false,
     down: false,
@@ -207,7 +219,7 @@ function makeRuntime(a: Actor, mu: number, tracks: Vec[][]): Rt {
     plan,
     box: { hl: spec.length / 2, hw: spec.width / 2 },
     shift: spec.shift,
-    rail: !!rp,
+    rail: !!rp || a.type === 'train',
   };
 }
 
@@ -226,7 +238,7 @@ function stepPath(r: Rt, dt: number): void {
   while (r.next < nodes.length) {
     const nd = nodes[r.next];
     const left = nd.s - r.s;
-    if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && r.v < 1.0) {
+    if (nd.V < 0.3 && left <= Math.max(0.03, r.v * dt) && r.v < (r.a.type === 'train' ? 0.02 : 1.0)) {
       r.s = nd.s;
       r.v = 0;
       r.hold = nd.hold;
@@ -247,13 +259,15 @@ function stepPath(r: Rt, dt: number): void {
   for (let j = r.next; j < nodes.length; j++) {
     const nd = nodes[j];
     const b = nd.V < 0.3 ? r.plan : Math.min(r.plan, SERVICE_DECEL);
-    const lim = Math.sqrt(nd.V * nd.V + 2 * b * Math.max(0, nd.s - r.s));
+    const margin = r.a.type === 'train' && nd.V < 0.3 ? r.v * dt + 0.02 : 0;
+    const lim = Math.sqrt(nd.V * nd.V + 2 * b * Math.max(0, nd.s - r.s - margin));
     if (lim < allowed) allowed = lim;
   }
   // реальное замедление ограничено сцеплением, поэтому на скользкой дороге ТС может не успеть
   if (v > allowed) v = Math.max(allowed, v - r.brake * dt);
   r.v = Math.max(0, v);
   r.s += r.v * dt;
+  if (r.a.type === 'train' && r.s >= r.path.total) { r.s = r.path.total; r.v = 0; }
   const p = pathAt(r.path, r.s);
   r.pos = p.p;
   r.h = p.a;
@@ -265,7 +279,7 @@ function hit(r: Rt, rel: number): void {
     toFree(r);
     return;
   }
-  if (r.a.derail && rel >= DERAIL_REL) {
+  if (r.a.type !== 'train' && r.a.derail && rel >= DERAIL_REL) {
     r.rail = false;
     toFree(r);
     return;
@@ -282,6 +296,16 @@ function velocityOf(r: Rt): Vec {
   return r.mode === 'free' ? r.vel : mul(fromAngle(r.h), r.v);
 }
 
+function centerOf(r: Rt): Vec {
+  return add(r.pos, mul(fromAngle(r.h), r.shift));
+}
+
+/** Скорость точки контакта: поступательное движение центра масс плюс вращение. */
+function contactVelocity(r: Rt, point: Vec): Vec {
+  const arm = sub(point, centerOf(r));
+  return add(velocityOf(r), { x: -r.omega * arm.y, y: r.omega * arm.x });
+}
+
 function toFree(r: Rt): void {
   if (r.mode === 'free') return;
   r.vel = velocityOf(r);
@@ -294,7 +318,9 @@ export function simulate(scene: Scene): Timeline {
   const duration = Math.max(1, scene.env.duration);
   const n = Math.floor(duration / DT) + 1;
 
-  const rts = scene.actors.map((a) => makeRuntime(a, mu, geo.tracks.map((t) => t.pts)));
+  const rts = scene.actors.map((a) => makeRuntime(a, mu, a.type === 'train'
+    ? (scene.railways ?? []).filter((r) => r.id === a.railwayId).map(railwayPoints)
+    : geo.tracks.map((t) => t.pts)));
   const tracks = new Map<string, Track>();
   for (const r of rts) {
     tracks.set(r.a.id, {
@@ -321,14 +347,26 @@ export function simulate(scene: Scene): Timeline {
       if (r.mode === 'path') {
         if (k > 0 || r.a.delay > 0) stepPath(r, DT);
       } else {
+        // Груз смещает центр масс относительно опорной точки. Вращаем кузов
+        // вокруг этого центра, а не вокруг начала маршрута.
+        let center = centerOf(r);
         const sp = len(r.vel);
         if (sp > 0) {
           const dec = r.a.kind === 'pedestrian' ? 4 : mu * G;
           const nsp = Math.max(0, sp - dec * DT);
           r.vel = mul(r.vel, nsp / sp);
-          r.pos = add(r.pos, mul(r.vel, DT));
+          center = add(center, mul(r.vel, DT));
           if (nsp < 0.02) r.vel = { x: 0, y: 0 };
         }
+        if (r.omega !== 0) {
+          // Приближение сухого трения: плечо равно среднеквадратичному радиусу
+          // прямоугольника. На скользком покрытии вращение затухает дольше.
+          const radius = Math.sqrt(r.inertia / r.mass);
+          const next = Math.sign(r.omega) * Math.max(0, Math.abs(r.omega) - (mu * G * DT) / radius);
+          r.h += ((r.omega + next) / 2) * DT;
+          r.omega = next;
+        }
+        r.pos = sub(center, mul(fromAngle(r.h), r.shift));
       }
     }
 
@@ -377,17 +415,24 @@ export function simulate(scene: Scene): Timeline {
         contacts.add(key);
         const vA = velocityOf(A);
         const vB = B ? velocityOf(B) : { x: 0, y: 0 };
-        const rel = dot(sub(vA, vB), c.n);
+        const rel = dot(sub(contactVelocity(A, c.point), B ? contactVelocity(B, c.point) : vB), c.n);
         for (const r of B ? [A, B] : [A]) hit(r, rel);
         const railA = A.rail && A.mode === 'path';
         const railB = !!B && B.rail && B.mode === 'path';
+        const armA = cross(sub(c.point, centerOf(A)), c.n);
+        const armB = B ? cross(sub(c.point, centerOf(B)), c.n) : 0;
+        // Пешеход не моделируется как вращающийся кузов; рельсы удерживают трамвай.
+        const invIA = !railA && A.a.kind === 'vehicle' ? 1 / A.inertia : 0;
+        const invIB = B && !railB && B.a.kind === 'vehicle' ? 1 / B.inertia : 0;
         let dvA = 0;
         let dvB = 0;
         if (rel > 0) {
           const e = 0.12;
-          const j = ((1 + e) * rel) / (invA + invB);
+          const j = ((1 + e) * rel) / (invA + invB + armA * armA * invIA + armB * armB * invIB);
           if (!railA) A.vel = sub(A.vel, mul(c.n, j * invA));
           if (B && !railB) B.vel = add(B.vel, mul(c.n, j * invB));
+          A.omega -= j * armA * invIA;
+          if (B) B.omega += j * armB * invIB;
           dvA = j * invA;
           dvB = j * invB;
         }

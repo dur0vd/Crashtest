@@ -2,15 +2,23 @@ import './style.css';
 import { analyze, type Report } from './analysis';
 import { type Tool, Editor, POLY_TOOLS } from './editor';
 import { clamp } from './geom';
+import { DISCLAIMER, LAW_CHECKED } from './law';
 import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
-import { DISCLAIMER, LAW_CHECKED } from './law';
 import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
+import { encodeShare, sceneFromHash } from './share';
+import { reloadOnWorkerUpdate } from './updates';
+import { loadCorpus } from './corpus';
+import { reportDiagram } from './report-diagram';
+import { reportHtml } from './report-export';
+import { shareReport } from './report-share';
+import { showAbout, showIntroIfNeeded } from './legal';
+import { allowRun, billingStatus, initBilling, showSubscription } from './billing';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -18,28 +26,9 @@ const STORE = 'crashtest.scene.v1';
 // ---------------------------------------------------------------------------
 // Загрузка и сохранение
 
-function encodeShare(scene: Scene): string {
-  const json = JSON.stringify(scene);
-  const bytes = new TextEncoder().encode(json);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function decodeShare(s: string): Scene {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return normalizeScene(JSON.parse(new TextDecoder().decode(bytes)));
-}
-
 function loadInitial(): Scene {
-  try {
-    const m = location.hash.match(/^#s=(.+)$/);
-    if (m) return decodeShare(m[1]);
-  } catch {
-    /* повреждённая ссылка — открываем пример */
-  }
+  const shared = sceneFromHash(location.hash);
+  if (shared) return shared;
   try {
     const raw = localStorage.getItem(STORE);
     if (raw) {
@@ -75,6 +64,7 @@ const api: AppApi = {
   editor,
   scene: () => editor.scene,
   report: () => report,
+  exportReport: () => { void exportReport(); },
   edit(fn, rebuild) {
     editor.checkpoint();
     fn();
@@ -135,6 +125,7 @@ function runSim(start = true): void {
     toast('Сначала добавьте на сцену транспорт или пешехода');
     return;
   }
+  if (!allowRun(editor.scene)) return;
   tl = simulate(editor.scene);
   report = analyze(editor.scene, tl);
   enterPlay();
@@ -171,6 +162,7 @@ const TOOLS: [Tool, string, string][] = [
   ['road', '🛣️', 'Дорога'],
   ['sidewalk', '▭', 'Тротуар'],
   ['track', '🚋', 'Трамв. путь'],
+  ['railway', '🚆', 'Ж/д переезд'],
   ['crosswalk', '🦓', 'Переход'],
   ['light', '🚦', 'Светофор'],
   ['sign', '⚠️', 'Знак'],
@@ -186,6 +178,7 @@ const HINTS: Partial<Record<Tool, string>> = {
   pan: 'Перетаскивайте карту. Колесо мыши или два пальца — масштаб.',
   road: 'Нажимайте, чтобы ставить точки оси. Повороты скругляются по выбранному радиусу. Двойной клик или «Готово» — завершить. Кромки и сужения — после выбора дороги.',
   sidewalk: 'Нажимайте, чтобы ставить точки тротуара. Двойной клик или «Готово» — завершить.',
+  railway: 'Нажмите на дороге — создаётся переезд. Потяните вдоль рельсов для выбора направления. Сигналы и расписание задаются в свойствах.',
   track: 'Рисуйте путь по направлению движения трамвая. «Готово» — завершить.',
   crosswalk: 'Нажмите на дороге — переход встанет поперёк. Потяните, чтобы задать направление.',
   light: 'Нажмите у края дороги: светофор и стоп-линия встанут по ходу полосы. Потяните, чтобы задать направление.',
@@ -475,6 +468,23 @@ function download(name: string, text: string, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+let exporting = false;
+async function exportReport(): Promise<void> {
+  if (!report || !tl || exporting) return;
+  exporting = true;
+  // Данные фиксируются до ожидания картинок: редактирование не смешает два расчёта.
+  const scene = structuredClone(editor.scene), result = report, timeline = tl;
+  try {
+    const [image, corpus] = await Promise.all([reportDiagram(scene, timeline), loadCorpus()]);
+    const html = reportHtml(scene, result, image, corpus);
+    if (!(await shareReport(html))) download('crashtest-report.html', html, 'text/html;charset=utf-8');
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) toast('Не удалось сохранить отчёт. Попробуйте ещё раз.');
+  } finally {
+    exporting = false;
+  }
+}
+
 function openFile(): void {
   const inp = h('input', { type: 'file', accept: '.json,application/json' });
   inp.addEventListener('change', async () => {
@@ -536,6 +546,9 @@ function buildMenus(): void {
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
     menuItem('Как это работает', help),
+    menuItem('Подписка', () => showSubscription(), billingStatus()),
+    menuItem('Для автошкол и о проекте', () => window.open('about.html', '_blank', 'noopener')),
+    menuItem('О программе', showAbout),
   );
 }
 
@@ -653,6 +666,8 @@ function init(): void {
     });
   toggle('btnExamples', 'menuExamples');
   toggle('btnMenu', 'menuMain');
+  // Состояние подписки в меню меняется: пересобираем меню при открытии.
+  $('btnMenu').addEventListener('click', buildMenus, { capture: true });
   document.addEventListener('click', closeMenus);
   $('modalClose').addEventListener('click', () => $('modal').classList.add('hidden'));
   $('modal').addEventListener('click', (e) => e.target === $('modal') && $('modal').classList.add('hidden'));
@@ -668,9 +683,24 @@ function init(): void {
   // Закрываем обучение: первая ситуация сразу готова к запуску
   updateTools();
   syncPlayer();
+  showIntroIfNeeded();
+  void initBilling();
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {
+    reloadOnWorkerUpdate({
+      workers: navigator.serviceWorker,
+      scene: () => {
+        if (editor.tool === 'path' || editor.drawing?.pts.length) editor.finishDrawing();
+        return editor.scene;
+      },
+      save: serialized => {
+        window.clearTimeout(saveTimer);
+        localStorage.setItem(STORE, serialized);
+      },
+      replaceHash: hash => history.replaceState(history.state, '', `${location.pathname}${location.search}${hash}`),
+      reload: () => location.reload(),
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }

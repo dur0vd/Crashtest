@@ -2,7 +2,7 @@ import { type ActorVerdict, type CollisionReport, type Finding, type Report, HAR
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
-import { DISCLAIMER, LAW, LAW_CHECKED, describeRef } from './law';
+import { DISCLAIMER, DISCLAIMER_SHORT, LAW, LAW_CHECKED, describeRef } from './law';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { SIGN_GROUPS, SIGN_IDS, VALUE_SIGNS, signFile, signGroupOf, signTitle } from './signs';
 import {
@@ -48,6 +48,7 @@ export interface AppApi {
   edit: (fn: () => void, rebuild?: boolean) => void;
   seek: (t: number) => void;
   focus: (id: string | null) => void;
+  exportReport: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
     roads: 'Дорога',
     sidewalks: 'Тротуар',
     tracks: 'Трамвайный путь',
+    railways: 'Железнодорожный переезд',
     crosswalks: 'Пешеходный переход',
     lights: 'Светофор',
     signs: 'Дорожный знак',
@@ -130,6 +132,7 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
       box.append(
         field('Полос в каждую сторону', num(it.lanes, set((v) => (it.lanes = v)), { min: 1, max: 4 })),
         field('Разметка по оси', select([['none', 'Без разметки'], ['dashed', 'Прерывистая (1.5)'], ['solid', 'Сплошная (1.1)'], ['double', 'Двойная сплошная (1.3)']], it.center, set((v) => (it.center = v)))),
+        check('Участок дороги освещён', !!it.lit, set((v) => (it.lit = v))),
         field('Зона', select([['city', 'Населённый пункт (60)'], ['outside', 'Вне населённого пункта'], ['residential', 'Жилая зона (20)']], it.zone, set((v) => (it.zone = v)))),
         check('Одностороннее движение (по направлению рисования)', it.oneWay, (v) => {
           app.edit(() => {
@@ -159,6 +162,24 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
         h('small', {}, 'Направление пути важно: выезд на трамвайные пути встречного направления запрещён (п. 9.6 ПДД).'),
       );
       break;
+    case 'railways': {
+      box.append(
+        field('Направление рельсов, °', num(deg(it.angle), set((v: number) => (it.angle = rad(v))), { step: 5 })),
+        field('Длина пути, м', num(it.length, set((v) => (it.length = v)), { min: 10, max: 5000 })),
+        field('Ширина автомобильного проезда, м', num(it.width, set((v) => (it.width = v)), { min: 3, max: 100, step: 0.5 })),
+        field('Шлагбаум', select([['none', 'Нет'], ['open', 'Открыт'], ['closed', 'Закрыт']], it.barrier, set((v) => (it.barrier = v)))),
+        check('Мигающий красный сигнал', it.red, set((v) => (it.red = v))),
+        h('h4', {}, 'Расписание приближения и проезда поезда'),
+        h('small', {}, 'В эти интервалы включается красный и закрывается имеющийся шлагбаум. Движение поезда задайте отдельным участником; время появления и маршрут согласуйте с интервалами.'),
+      );
+      it.trainWindows.forEach((w: { start: number; end: number }, idx: number) => box.append(h('div', { class: 'group' },
+        field('С, с', num(w.start, set((v: number) => { w.start = v; w.end = Math.max(v + 0.1, w.end); }), { min: 0, step: 0.5 })),
+        field('До, с', num(w.end, set((v) => (w.end = v)), { min: w.start + 0.1, step: 0.5 })),
+        button('Удалить интервал', () => app.edit(() => it.trainWindows.splice(idx, 1), true)),
+      )));
+      box.append(button('Добавить интервал', () => app.edit(() => it.trainWindows.push({ start: 0, end: 20 }), true)));
+      break;
+    }
     case 'crosswalks': {
       const lights = app.scene().lights;
       box.append(
@@ -325,13 +346,26 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Водитель'),
+        field('Фары', select([['off', 'Выключены'], ['low', 'Ближний свет'], ['high', 'Дальний свет']], a.headlights ?? 'low', set((v) => (a.headlights = v as Actor['headlights'])))),
+        check('Стоянка (а не краткая остановка)', !!a.parking, set((v) => (a.parking = v))),
+        check('Водитель оставил ТС', !!a.unattended, set((v) => (a.unattended = v))),
+        check('Приняты меры против движения и использования ТС', a.secured !== false, set((v) => (a.secured = v))),
         check('Нетрезв (опьянение)', a.flags.drunk, set((v) => (a.flags.drunk = v))),
         check('Нет права управления', a.flags.noLicense, set((v) => (a.flags.noLicense = v))),
         check('Скрывается с места ДТП', a.flags.flees, set((v) => (a.flags.flees = v))),
       ),
     );
   }
-  if (isVeh && VEHICLES[a.type as VehicleType].rail) {
+  if (isVeh && ['car', 'van', 'truck'].includes(a.type)) {
+    box.append(h('div', { class: 'group' }, h('h4', {}, 'Спецтранспорт'),
+      check('Синий маячок и сирена (срочное задание)', !!a.emergency, set((v) => (a.emergency = v))),
+      h('small', {}, 'Спецтранспорт с цветографической схемой. Преимущество используется только убедившись, что уступают; безопасность обязательна (п. 3.1–3.2 ПДД).')));
+  }
+  if (isVeh && a.type === 'train') {
+    box.append(field('Железнодорожный путь', select([['', 'Не выбран — поезд стоит'], ...app.scene().railways.map((r, i) => [r.id, `Переезд ${i + 1}`] as [string, string])], a.railwayId ?? '', set((v: string) => { a.railwayId = v || undefined; }))),
+      h('p', { class: 'hint' }, 'Поезд следует только по выбранным рельсам. Поставьте его не дальше 4 м от оси. Тормозное замедление локомотива ограничено 0,8 м/с²; сход не моделируется.'));
+  }
+  if (isVeh && a.type !== 'train' && VEHICLES[a.type as VehicleType].rail) {
     box.append(
       h('div', { class: 'group' },
         h('h4', {}, 'Рельсы'),
@@ -348,15 +382,16 @@ function actorForm(box: HTMLElement, a: Actor, app: AppApi, rebuild: () => void)
       button(ed.tool === 'path' ? 'Рисую… (нажмите «Готово»)' : a.path.length ? 'Дорисовать траекторию' : 'Нарисовать траекторию', () => ed.setTool(ed.tool === 'path' ? 'select' : 'path'), 'primary'),
       button('Очистить', () => app.edit(() => ((a.path = []), (ed.selWp = null)), true)),
     ),
-    h('small', {}, 'Нажимайте на карту, чтобы ставить точки. Скорость в точке — та, с которой ТС её проезжает; тормозит максимально поздно. Нулевая скорость — остановка в точке.'),
+    h('small', {}, 'Указатель действует на участке до точки. Включайте его заблаговременно, ещё до начала манёвра. Нажимайте на карту, чтобы ставить точки. Скорость в точке — та, с которой ТС её проезжает; тормозит максимально поздно. Нулевая скорость — остановка в точке.'),
   );
   if (a.path.length) {
-    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, '№'), h('th', {}, 'км/ч'), h('th', {}, 'пауза, с'), h('th', {})));
+    const table = h('table', { class: 'wp' }, h('tr', {}, h('th', {}, '№'), h('th', {}, 'км/ч'), h('th', {}, 'пауза, с'), ...(isVeh ? [h('th', {}, 'Указатель')] : []), h('th', {})));
     a.path.forEach((w, i) => {
       const tr = h('tr', { class: ed.selWp === i ? 'on' : '', onclick: () => ed.select(ed.sel, i) },
         h('td', {}, String(i + 1)),
         h('td', {}, num(w.v, set((v) => (w.v = v)), { min: 0, max: 250 })),
         h('td', {}, w.v < 0.3 ? num(w.hold ?? 0, set((v) => (w.hold = v)), { min: 0, max: 30, step: 0.5 }) : '—'),
+        ...(isVeh ? [h('td', {}, select([['none', 'Нет'], ['left', 'Влево'], ['right', 'Вправо']], w.signal ?? 'none', set((v: string) => (w.signal = v as typeof w.signal))))] : []),
         h('td', {}, h('button', { type: 'button', class: 'x', title: 'Удалить точку', onclick: (e: Event) => { e.stopPropagation(); app.edit(() => { a.path.splice(i, 1); ed.syncHeading(a); ed.selWp = null; }, true); } }, '✕')),
       );
       table.append(tr);
@@ -378,6 +413,8 @@ export function buildEnv(root: HTMLElement, app: AppApi, extra: { grid: boolean;
     h('div', { class: 'form' },
       h('h3', {}, 'Условия'),
       field('Покрытие', select(Object.entries(SURFACES).map(([k, v]) => [k, `${v.name} (μ = ${v.mu})`] as [string, string]), s.env.surface, set((v: string) => (s.env.surface = v as Scene['env']['surface']))), 'От сцепления зависят тормозной путь и техническая возможность остановиться.'),
+      field('Время суток', select([['day', 'День'], ['twilight', 'Сумерки'], ['night', 'Ночь']], s.env.timeOfDay ?? 'day', set((v) => (s.env.timeOfDay = v as Scene['env']['timeOfDay'])))),
+      field('Видимость (туман, осадки), м', num(s.env.visibility ?? 1000, set((v) => (s.env.visibility = v)), { min: 1, max: 10000, step: 5 }), 'Ночью на неосвещённой дороге дополнительно ограничена светом фар: ближний 55 м, дальний 120 м.'),
       field('Длительность, с', num(s.env.duration, set((v) => (s.env.duration = v)), { min: 3, max: 120 })),
       h('h3', {}, 'Редактор'),
       check('Показывать сетку', extra.grid, extra.setGrid),
@@ -469,12 +506,17 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     return;
   }
   const scene = app.scene();
+  root.append(h('button', { type: 'button', class: 'btn primary', onclick: () => app.exportReport() }, 'Скачать отчёт'));
   const labels = actorLabels(scene);
   const title = (id: string) => {
     const a = scene.actors.find((x) => x.id === id)!;
     return actorTitle(a, labels);
   };
   const dot = (id: string) => h('i', { class: 'dot', style: `background:${scene.actors.find((x) => x.id === id)?.color ?? '#999'}` });
+
+  // дисклеймер вверху; для сцены по ссылке — ещё и короткая плашка
+  if (location.hash.startsWith('#s=')) root.append(h('div', { class: 'banner' }, DISCLAIMER_SHORT));
+  root.append(h('p', { class: 'disclaimer top' }, DISCLAIMER));
 
   // сводка
   root.append(

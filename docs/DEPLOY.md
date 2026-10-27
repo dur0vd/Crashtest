@@ -28,6 +28,16 @@
 
 Безопасность: ключ, который пересылался в переписке, лучше заменить отдельным ключом только для выкладки. На своём компьютере выполните `ssh-keygen -t ed25519 -f roadpdd-deploy`. Добавьте `roadpdd-deploy.pub` в `~user1/.ssh/authorized_keys`, закрытый ключ запишите в `DEPLOY_KEY`, а старый ключ удалите из `authorized_keys`.
 
+## API облачных сцен
+
+Каталог `server/` собирается в один файл (`npm run build:server` → `dist-server/index.js`). `deploy/setup-server.sh` ставит Node 22 и `sqlite3`, создаёт systemd-юнит `crashtest-api` (порт 8787 только на localhost), каталог данных `<сайт>/data` и ежедневную копию базы в `data/backups` (хранится 14 дней); nginx проксирует `/api/` на тот же origin. Workflow `deploy-server.yml` копирует `dist-server/` в `<сайт>/api/` и перезапускает юнит.
+
+Настройки — в `<сайт>/data/api.env` (формат `KEY=value`):
+- `MAIL_WEBHOOK_URL` — HTTP-шлюз отправки писем (POST JSON `{to, subject, text}`); без него код входа только печатается в журнал `journalctl -u crashtest-api`;
+- `ALLOW_ORIGIN` — разрешённый Origin для CORS, нужен приложениям Capacitor и сайту на GitHub Pages (для них при сборке задаётся `VITE_API_URL`).
+
+Перед запуском для пользователей: уведомление Роскомнадзора об обработке персональных данных (почта), проверка текста `docs/legal/privacy.md`.
+
 ## Позже: автоматическая оплата
 
 Когда подключите платёжный сервис (ЮKassa, CloudPayments, Т-Банк, Робокасса):

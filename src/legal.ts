@@ -5,6 +5,7 @@ import pkg from '../package.json';
 import privacy from '../docs/legal/privacy.md?raw';
 import terms from '../docs/legal/terms.md?raw';
 import pilot from '../docs/legal/pilot-agreement.md?raw';
+import offer from '../docs/legal/subscription-offer.md?raw';
 import thirdParty from '../docs/legal/third-party.md?raw';
 import licenseText from '../LICENSE?raw';
 import { DISCLAIMER, LAW_CHECKED } from './law';
@@ -16,7 +17,8 @@ const INTRO_KEY = 'crashtest.intro';
 
 const DOCS: { title: string; text: string }[] = [
   { title: 'Пользовательское соглашение', text: terms },
-  { title: 'Заявление о конфиденциальности', text: privacy },
+  { title: 'Оферта на подписку', text: offer },
+  { title: 'Политика конфиденциальности', text: privacy },
   { title: 'Соглашение о пилотном тестировании (шаблон для автошкол)', text: pilot },
   { title: 'Источники и лицензии', text: thirdParty },
   { title: 'Лицензия на программное обеспечение', text: licenseText },

@@ -18,6 +18,7 @@ import { reportDiagram } from './report-diagram';
 import { reportHtml } from './report-export';
 import { shareReport } from './report-share';
 import { showAbout, showIntroIfNeeded } from './legal';
+import { allowRun, billingStatus, initBilling, showSubscription } from './billing';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -124,6 +125,7 @@ function runSim(start = true): void {
     toast('Сначала добавьте на сцену транспорт или пешехода');
     return;
   }
+  if (!allowRun(editor.scene)) return;
   tl = simulate(editor.scene);
   report = analyze(editor.scene, tl);
   enterPlay();
@@ -544,6 +546,7 @@ function buildMenus(): void {
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
     menuItem('Как это работает', help),
+    menuItem('Подписка', () => showSubscription(), billingStatus()),
     menuItem('О программе', showAbout),
   );
 }
@@ -662,6 +665,8 @@ function init(): void {
     });
   toggle('btnExamples', 'menuExamples');
   toggle('btnMenu', 'menuMain');
+  // Состояние подписки в меню меняется: пересобираем меню при открытии.
+  $('btnMenu').addEventListener('click', buildMenus, { capture: true });
   document.addEventListener('click', closeMenus);
   $('modalClose').addEventListener('click', () => $('modal').classList.add('hidden'));
   $('modal').addEventListener('click', (e) => e.target === $('modal') && $('modal').classList.add('hidden'));
@@ -678,6 +683,7 @@ function init(): void {
   updateTools();
   syncPlayer();
   showIntroIfNeeded();
+  void initBilling();
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {

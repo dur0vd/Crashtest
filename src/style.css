@@ -1082,3 +1082,54 @@ button {
   flex: 1;
   font-size: 13px;
 }
+.doc.subscription .plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+.doc.subscription .plan {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.doc.subscription .plan h3 {
+  margin: 0 0 4px;
+}
+.doc.subscription .price {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.doc.subscription .plan .btn {
+  display: inline-block;
+  margin-top: 10px;
+  text-decoration: none;
+}
+.code-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: 13px/1.4 ui-monospace, monospace;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  word-break: break-all;
+}
+.code-msg.bad {
+  color: var(--danger);
+}
+.code-msg.ok {
+  color: var(--ok);
+}
+.doc.subscription .row.end {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.doc.subscription .plan a.btn.primary {
+  color: #fff;
+}

@@ -10,42 +10,23 @@
 | Почему в России | Персональные данные покупателей подписки (почта, реквизиты школ) должны храниться в РФ (ч. 5 ст. 18 Закона № 152-ФЗ). Сайт с российским IP стабильно открывается у школ. |
 | Домен | Зона `.ru`, коротко и без дефисов (например `crashtest.ru`). A-запись `@` → IP сервера, `www` → CNAME на основной домен. Включите автопродление. |
 | HTTPS | Обязателен: без него не работают офлайн-режим и установка на домашний экран. Бесплатный сертификат Let's Encrypt (`certbot`). |
-| Веб-сервер | nginx; готовый конфиг — `deploy/nginx.conf` (кэширование, заголовки безопасности, журналы без IP-адресов). |
-| Выкладка | GitHub Actions `deploy-server.yml`: при каждом слиянии в `main` собирает, тестирует и копирует сборку на сервер по SSH, хранит 5 версий для отката. |
+| Веб-сервер | nginx; конфиг `deploy/nginx.conf` ставит `deploy/setup-server.sh` (кэширование, заголовки безопасности, журналы без IP-адресов). |
+| Выкладка | GitHub Actions `deploy-server.yml`: при каждом слиянии в `main` настраивает сервер, собирает, тестирует и копирует сборку по SSH, хранит 5 версий для отката. |
 
-## Настройка сервера (один раз)
+## roadpdd.ru: запуск
 
-```bash
-apt update && apt install -y nginx certbot python3-certbot-nginx rsync
-adduser --disabled-password deploy
-mkdir -p /var/www/crashtest/releases && chown -R deploy /var/www/crashtest
-# Конфиг: замените crashtest.ru на свой домен
-cp nginx.conf /etc/nginx/sites-available/crashtest && ln -s /etc/nginx/sites-available/crashtest /etc/nginx/sites-enabled/
-certbot --nginx -d crashtest.ru -d www.crashtest.ru
-nginx -t && systemctl reload nginx
-```
+Сервер `45.132.176.226`, пользователь `user1`, сайт в `/var/www/roadpdd`. Сервер настраивает GitHub Actions (`deploy-server.yml` и скрипт `deploy/setup-server.sh`): nginx, сертификат Let's Encrypt, HTTPS, выкладка сборки. Вручную на сервер заходить не нужно.
 
-Ключ для выкладки: на своём компьютере `ssh-keygen -t ed25519 -f crashtest-deploy`, содержимое `crashtest-deploy.pub` добавьте в `/home/deploy/.ssh/authorized_keys` на сервере.
+1. **DNS.** У регистратора домена создайте A-записи `roadpdd.ru` → `45.132.176.226` и `www.roadpdd.ru` → `45.132.176.226`. Если домен куплен недавно, дождитесь делегирования (до суток).
+2. **sudo без пароля для `user1`.** Один раз на сервере под root: `echo 'user1 ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/user1 && chmod 440 /etc/sudoers.d/user1`. Если `user1` уже root, шаг не нужен.
+3. **Ключ в GitHub.** Settings → Secrets and variables → Actions → New repository secret, имя `DEPLOY_KEY`, значение — закрытый SSH-ключ `user1` целиком, от `-----BEGIN` до `-----END`.
+4. **Запуск.** Actions → Deploy to server → Run workflow. Дальше каждое слияние в `main` выкладывается само.
 
-В GitHub: Settings → Secrets and variables → Actions → New repository secret:
+Пока DNS не указывает на сервер, сайт открывается по `http://45.132.176.226`. Сертификат и HTTPS включатся сами при первой выкладке после того, как A-запись заработает. Повторить выкладку можно кнопкой Run workflow.
 
-- `DEPLOY_HOST` — IP или домен сервера;
-- `DEPLOY_USER` — `deploy`;
-- `DEPLOY_KEY` — содержимое закрытого ключа `crashtest-deploy`;
-- `DEPLOY_PATH` — `/var/www/crashtest`.
+Откат: на сервере `ls /var/www/roadpdd/releases`, затем `ln -sfn /var/www/roadpdd/releases/<версия> /var/www/roadpdd/current`.
 
-После этого запустите Actions → Deploy to server → Run workflow.
-
-## После подключения домена
-
-Скажите адрес, и в репозитории нужно обновить:
-
-- `og:image` в `index.html` и `public/about.html` (сейчас адрес GitHub Pages);
-- QR-код `public/promo/qr-flyer.svg` и адрес в листовке `docs/outreach/flyer.html`;
-- политику конфиденциальности: раздел «Хостинг» (вместо GitHub Pages — ваш сервер; IP-адреса в журналах не записываются);
-- при желании — почту на домене (`hello@домен`) вместо `mr.cartest@mail.ru`.
-
-GitHub Pages можно оставить зеркалом или отключить в Settings → Pages.
+Безопасность: ключ, который пересылался в переписке, лучше заменить отдельным ключом только для выкладки. На своём компьютере выполните `ssh-keygen -t ed25519 -f roadpdd-deploy`. Добавьте `roadpdd-deploy.pub` в `~user1/.ssh/authorized_keys`, закрытый ключ запишите в `DEPLOY_KEY`, а старый ключ удалите из `authorized_keys`.
 
 ## Позже: автоматическая оплата
 

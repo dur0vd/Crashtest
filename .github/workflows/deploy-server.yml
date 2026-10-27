@@ -1,13 +1,20 @@
 name: Deploy to server
 
-# Выкладка на собственный сервер по SSH. Работает, когда в Settings → Secrets and variables → Actions
-# заданы секреты DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY (закрытый SSH-ключ) и DEPLOY_PATH
-# (например /var/www/crashtest). Без них задача пропускается. Подробности — docs/DEPLOY.md.
+# Выкладка на сервер roadpdd.ru по SSH. Нужен один секрет репозитория DEPLOY_KEY — закрытый
+# SSH-ключ пользователя сервера (Settings → Secrets and variables → Actions). Адрес, пользователя
+# и каталог можно переопределить секретами DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH.
+# Запуск вручную с setup=true (или первый запуск) настраивает сервер: deploy/setup-server.sh
+# ставит nginx, получает сертификат и включает HTTPS. Подробности — docs/DEPLOY.md.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      setup:
+        description: 'Настроить сервер (nginx, HTTPS) перед выкладкой'
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-server
@@ -17,33 +24,52 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      HAS_SERVER: ${{ secrets.DEPLOY_HOST != '' }}
+      HAS_KEY: ${{ secrets.DEPLOY_KEY != '' }}
+      HOST: ${{ secrets.DEPLOY_HOST || '45.132.176.226' }}
+      SSH_USER: ${{ secrets.DEPLOY_USER || 'user1' }}
+      DEST: ${{ secrets.DEPLOY_PATH || '/var/www/roadpdd' }}
+      DOMAIN: roadpdd.ru
+      EMAIL: mr.cartest@mail.ru
     steps:
-      - name: Сервер не настроен
-        if: env.HAS_SERVER != 'true'
-        run: echo "Секреты DEPLOY_* не заданы — выкладка на сервер пропущена."
+      - name: Ключ не задан
+        if: env.HAS_KEY != 'true'
+        run: echo "Секрет DEPLOY_KEY не задан — выкладка на сервер пропущена."
       - uses: actions/checkout@v4
-        if: env.HAS_SERVER == 'true'
+        if: env.HAS_KEY == 'true'
       - uses: actions/setup-node@v4
-        if: env.HAS_SERVER == 'true'
+        if: env.HAS_KEY == 'true'
         with:
           node-version: 22
           cache: npm
-      - if: env.HAS_SERVER == 'true'
+      - if: env.HAS_KEY == 'true'
         run: npm ci && npm test && npm run build
-      - name: Выкладка
-        if: env.HAS_SERVER == 'true'
+      - name: SSH
+        if: env.HAS_KEY == 'true'
         env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          USER: ${{ secrets.DEPLOY_USER }}
           KEY: ${{ secrets.DEPLOY_KEY }}
-          DEST: ${{ secrets.DEPLOY_PATH }}
         run: |
-          install -m 600 /dev/null ~/key && printf '%s\n' "$KEY" > ~/key
-          SSH="ssh -i ~/key -o StrictHostKeyChecking=accept-new"
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_deploy && printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          ssh-keyscan -T 15 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "SSH=ssh -i $HOME/.ssh/id_deploy -o BatchMode=yes" >> "$GITHUB_ENV"
+      - name: Настройка сервера
+        if: env.HAS_KEY == 'true' && (github.event_name == 'push' || inputs.setup)
+        run: |
+          # tar вместо rsync: на чистом сервере rsync появляется только после настройки.
+          tar -C deploy -cf - . | $SSH "$SSH_USER@$HOST" "mkdir -p ~/crashtest-deploy && tar -C ~/crashtest-deploy -xf -"
+          $SSH "$SSH_USER@$HOST" "bash ~/crashtest-deploy/setup-server.sh '$DOMAIN' '$DEST' '$EMAIL'"
+      - name: Выкладка
+        if: env.HAS_KEY == 'true'
+        run: |
           RELEASE="$DEST/releases/$(date +%Y%m%d-%H%M%S)"
-          $SSH "$USER@$HOST" "mkdir -p '$RELEASE'"
-          rsync -az --delete -e "$SSH" dist/ "$USER@$HOST:$RELEASE/"
+          $SSH "$SSH_USER@$HOST" "mkdir -p '$RELEASE'"
+          rsync -az --delete -e "$SSH" dist/ "$SSH_USER@$HOST:$RELEASE/"
           # Атомарное переключение и хранение пяти последних версий для отката.
-          $SSH "$USER@$HOST" "ln -sfn '$RELEASE' '$DEST/current' && ls -1dt '$DEST'/releases/* | tail -n +6 | xargs -r rm -rf"
-          rm -f ~/key
+          $SSH "$SSH_USER@$HOST" "ln -sfn '$RELEASE' '$DEST/current' && ls -1dt '$DEST'/releases/* | grep -v placeholder | tail -n +6 | xargs -r rm -rf"
+      - name: Проверка
+        if: env.HAS_KEY == 'true'
+        run: |
+          curl -fsS -o /dev/null -w "https://$DOMAIN → %{http_code}\n" "https://$DOMAIN/" \
+            || curl -fsS -o /dev/null -w "http://$HOST → %{http_code} (HTTPS ещё не включён: проверьте DNS)\n" "http://$HOST/"
+      - if: always() && env.HAS_KEY == 'true'
+        run: rm -f ~/.ssh/id_deploy

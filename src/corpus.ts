@@ -11,9 +11,18 @@ export interface PddSection {
   title: string;
   points: PddPoint[];
 }
+/** Редакция документа на официальном портале правовой информации. */
+export interface Edition {
+  date: string;
+  caption: string;
+  url: string;
+  official: boolean;
+  upcoming: { date: string; caption: string }[];
+}
 export interface PddData {
   fetched: string;
   sources: Record<string, string>;
+  editions?: Record<'pdd' | 'koap' | 'uk', Edition>;
   sections: PddSection[];
   basics: { title: string; points: PddPoint[] } | null;
   faults: { id: string; title: string; items: PddPoint[] }[];

@@ -2,15 +2,16 @@ import './style.css';
 import { analyze, type Report } from './analysis';
 import { type Tool, Editor, POLY_TOOLS } from './editor';
 import { clamp } from './geom';
+import { DISCLAIMER, LAW_CHECKED } from './law';
 import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
-import { DISCLAIMER, LAW_CHECKED } from './law';
 import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
+import { showAbout, showIntroIfNeeded } from './legal';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -536,6 +537,7 @@ function buildMenus(): void {
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
     menuItem('Как это работает', help),
+    menuItem('О программе', showAbout),
   );
 }
 
@@ -668,6 +670,7 @@ function init(): void {
   // Закрываем обучение: первая ситуация сразу готова к запуску
   updateTools();
   syncPlayer();
+  showIntroIfNeeded();
   requestAnimationFrame(frame);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !import.meta.env.DEV) {

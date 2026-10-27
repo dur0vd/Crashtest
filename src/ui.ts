@@ -2,7 +2,7 @@ import { type ActorVerdict, type CollisionReport, type Finding, type Report, HAR
 import type { Editor } from './editor';
 import { deg, rad } from './geom';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
-import { DISCLAIMER, LAW, LAW_CHECKED, describeRef } from './law';
+import { DISCLAIMER, DISCLAIMER_SHORT, LAW, LAW_CHECKED, describeRef } from './law';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { SIGN_GROUPS, SIGN_IDS, VALUE_SIGNS, signFile, signGroupOf, signTitle } from './signs';
 import {
@@ -475,6 +475,10 @@ export function buildReport(root: HTMLElement, app: AppApi): void {
     return actorTitle(a, labels);
   };
   const dot = (id: string) => h('i', { class: 'dot', style: `background:${scene.actors.find((x) => x.id === id)?.color ?? '#999'}` });
+
+  // дисклеймер вверху; для сцены по ссылке — ещё и короткая плашка
+  if (location.hash.startsWith('#s=')) root.append(h('div', { class: 'banner' }, DISCLAIMER_SHORT));
+  root.append(h('p', { class: 'disclaimer top' }, DISCLAIMER));
 
   // сводка
   root.append(

@@ -33,7 +33,9 @@
 Каталог `server/` собирается в один файл (`npm run build:server` → `dist-server/index.js`). `deploy/setup-server.sh` ставит Node 22 и `sqlite3`, создаёт systemd-юнит `crashtest-api` (порт 8787 только на localhost), каталог данных `<сайт>/data` и ежедневную копию базы в `data/backups` (хранится 14 дней); nginx проксирует `/api/` на тот же origin. Workflow `deploy-server.yml` копирует `dist-server/` в `<сайт>/api/` и перезапускает юнит.
 
 Настройки — в `<сайт>/data/api.env` (формат `KEY=value`):
-- `MAIL_WEBHOOK_URL` — HTTP-шлюз отправки писем (POST JSON `{to, subject, text}`); без него код входа только печатается в журнал `journalctl -u crashtest-api`;
+- `SMTP_HOST`, `SMTP_PORT` (по умолчанию 465, неявный TLS; 587 — STARTTLS), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` — отправка кодов входа напрямую по SMTP. Для Яндекса и Mail.ru создайте пароль приложения (не основной пароль): `smtp.yandex.ru` / `smtp.mail.ru`, порт 465. Без шифрования сервер не входит;
+- `MAIL_WEBHOOK_URL` — запасной вариант: HTTP-шлюз (POST JSON `{to, subject, text}`), используется, если `SMTP_HOST` не задан; без обоих код входа только печатается в журнал `journalctl -u crashtest-api`;
+Файл должен быть доступен только `user1` (`chmod 600 api.env`); после правки: `sudo systemctl restart crashtest-api`;
 - `ALLOW_ORIGIN` — разрешённый Origin для CORS, нужен приложениям Capacitor и сайту на GitHub Pages (для них при сборке задаётся `VITE_API_URL`).
 
 Перед запуском для пользователей: уведомление Роскомнадзора об обработке персональных данных (почта), проверка текста `docs/legal/privacy.md`.

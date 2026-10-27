@@ -1,65 +1,102 @@
 #!/usr/bin/env python3
-"""Скачивает страницы КонсультантПлюс с текстами ПДД, КоАП (гл. 12) и УК (гл. 27).
+"""Скачивает актуальные редакции ПДД, КоАП и УК с официального портала правовой информации.
 
-Использование: python3 tools/fetch-law.py <каталог-кэша>
-Дальше: python3 tools/build-law.py <каталог-кэша>
+Источник: ИПС «Законодательство России», actual.pravo.gov.ru (тексты правовых актов
+с внесёнными изменениями). Используется тот же API, что и у самого сайта.
+
+Использование: python3 -I tools/fetch-law.py <каталог-кэша>
+Дальше:        python3 -I tools/build-law.py <каталог-кэша>
+
+В каталоге появятся pdd.html, koap.html, uk.html (текст редакции) и meta.json
+(номер и дата редакции, документ, дата выгрузки). Кэш в репозиторий не кладётся.
+
+API слушает порт 8000. Если прямое соединение на этот порт закрыто, а задан
+HTTPS_PROXY, запросы идут туннелем через прокси (curl -p).
 """
 import json
-import re
+import os
 import subprocess
 import sys
 import time
+import urllib.parse
+from datetime import date
 from pathlib import Path
 
-from bs4 import BeautifulSoup
+API = 'http://actual.pravo.gov.ru:8000/api/ebpi/'
+SITE = 'http://actual.pravo.gov.ru/'
 
-BASE = 'https://www.consultant.ru'
-UA = 'Mozilla/5.0 (X11; Linux x86_64) Crashtest-law-fetch'
-
+# Реквизиты документов: номер, дата подписания, ограничение «только законы» (у постановления его нет).
 DOCS = {
-    'pdd': {'id': '2709', 'pick': lambda t, i, n: True},
-    'koap': {'id': '34661', 'pick': lambda t, i, n: bool(re.match(r'^Статья 12\.\d', t))},
-    'uk': {'id': '10699', 'pick': lambda t, i, n: bool(re.match(r'^Статья 26[3-9]|^Статья 27[01]', t))},
+    'pdd': {'number': '1090', 'date': '19931023', 'laws_only': 0,
+            'title': 'Постановление Совета Министров — Правительства РФ от 23.10.1993 № 1090 «О Правилах дорожного движения»'},
+    'koap': {'number': '195-ФЗ', 'date': '20011230', 'laws_only': 1,
+             'title': 'Кодекс РФ об административных правонарушениях от 30.12.2001 № 195-ФЗ'},
+    'uk': {'number': '63-ФЗ', 'date': '19960613', 'laws_only': 1,
+           'title': 'Уголовный кодекс РФ от 13.06.1996 № 63-ФЗ'},
 }
 
 
-def get(url: str, out: Path, tries: int = 4) -> bool:
+def get(path: str, tries: int = 4) -> str:
+    cmd = ['curl', '-sS', '-m', '300', '-A', 'Crashtest-law-fetch']
+    if os.environ.get('HTTPS_PROXY'):
+        cmd += ['--proxy', os.environ['HTTPS_PROXY'], '-p']
     for k in range(tries):
-        r = subprocess.run(['curl', '-sS', '-m', '60', '-A', UA, '-o', str(out), '-w', '%{http_code}', url], capture_output=True, text=True)
-        if r.stdout.strip() == '200' and out.stat().st_size > 2000:
-            return True
-        time.sleep(2 * (k + 1))
-    return False
+        r = subprocess.run(cmd + [API + path], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.startswith('{'):
+            return r.stdout
+        time.sleep(3 * (k + 1))
+    sys.exit(f'портал не ответил: {path[:80]}')
+
+
+def query(path: str, params: dict) -> dict:
+    return json.loads(get(path + '?' + urllib.parse.urlencode(params)))
+
+
+def find(cfg: dict) -> dict:
+    attrs = [
+        {'AttrId': 6, 'AttrMode': 0, 'Words': [cfg['number']]},
+        {'AttrId': 5, 'AttrMode': 0, 'DateFrom': cfg['date'], 'DateTo': cfg['date']},
+        {'AttrId': 999, 'AttrMode': 1, 'Words': [20, '-date', '20220701', 0, cfg['laws_only']]},
+    ]
+    r = query('attrsearch/', {'bpa': 'ebpi', 'q': json.dumps(attrs, ensure_ascii=False)})
+    docs = [d for d in r.get('docs') or [] if d.get('docpass0number') == cfg['number'] and d.get('docpass0date') == cfg['date']]
+    if len(docs) != 1:
+        sys.exit(f'документ {cfg["number"]} от {cfg["date"]} не найден однозначно: {len(docs)}')
+    return docs[0]
 
 
 def main() -> None:
     cache = Path(sys.argv[1])
     cache.mkdir(parents=True, exist_ok=True)
+    meta = {'fetched': date.today().isoformat(), 'source': 'ИПС «Законодательство России», actual.pravo.gov.ru', 'docs': {}}
     for key, cfg in DOCS.items():
-        d = cache / key
-        d.mkdir(exist_ok=True)
-        root = d / 'root.html'
-        if not root.exists() and not get(f"{BASE}/document/cons_doc_LAW_{cfg['id']}/", root):
-            sys.exit(f'не удалось скачать оглавление {key}')
-        soup = BeautifulSoup(root.read_text(encoding='utf-8'), 'lxml')
-        links, seen = [], set()
-        for a in soup.find_all('a', href=True):
-            h = a['href']
-            m = re.search(rf"cons_doc_LAW_{cfg['id']}/([0-9a-f]{{40}})/", h)
-            if not m or m.group(1) in seen:
-                continue
-            seen.add(m.group(1))
-            links.append((m.group(1), a.get_text(' ', strip=True)))
-        picked = [(h, t) for i, (h, t) in enumerate(links) if cfg['pick'](t, i, len(links))]
-        (d / 'index.json').write_text(json.dumps([{'hash': h, 'title': t} for h, t in picked], ensure_ascii=False, indent=1), encoding='utf-8')
-        print(key, len(picked), 'страниц')
-        for h, t in picked:
-            f = d / f'{h}.html'
-            if f.exists():
-                continue
-            if not get(f"{BASE}/document/cons_doc_LAW_{cfg['id']}/{h}/", f):
-                print('  не скачалось:', t[:60])
-            time.sleep(0.6)
+        doc = find(cfg)
+        reds = query('redactions/', {'bpa': 'ebpi', 't': json.dumps({'hash': doc['dochash'], 'ttl': 3})}).get('redactions') or []
+        actual = [x for x in reds if x.get('actual')]
+        if len(actual) != 1:
+            sys.exit(f'{key}: нет однозначной актуальной редакции')
+        red = actual[0]
+        if not red.get('redcompleted'):
+            sys.exit(f'{key}: текст актуальной редакции на портале ещё не готов ({red.get("redcaption")})')
+        text = json.loads(get(f'redtext?bpa=ebpi&t={red["redid"]}&ttl=0')).get('redtext') or ''
+        if len(text) < 50000:
+            sys.exit(f'{key}: подозрительно короткий текст ({len(text)} символов)')
+        (cache / f'{key}.html').write_text(text, encoding='utf-8')
+        upcoming = [x for x in reds if not x.get('actual') and x.get('reddate', '') > red['reddate']]
+        meta['docs'][key] = {
+            'title': cfg['title'],
+            'docpassing': doc.get('docpassing'),
+            'hash': doc['dochash'],
+            'url': f'{SITE}content/content.html#hash={doc["dochash"]}',
+            'redaction': red['redid'],
+            'redactionDate': f'{red["reddate"][6:8]}.{red["reddate"][4:6]}.{red["reddate"][:4]}',
+            'redactionCaption': red.get('redcaption', '').strip(),
+            'official': bool(red.get('redofficial')),
+            'upcoming': [{'date': f'{x["reddate"][6:8]}.{x["reddate"][4:6]}.{x["reddate"][:4]}', 'caption': x.get('redcaption', '').strip()} for x in upcoming],
+        }
+        print(f'{key}: редакция {meta["docs"][key]["redactionDate"]}, {len(text)} символов'
+              + (f'; впереди редакций: {len(upcoming)}' if upcoming else ''))
+    (cache / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding='utf-8')
 
 
 if __name__ == '__main__':

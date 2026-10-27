@@ -64,7 +64,9 @@ function render(root: HTMLElement, c: Corpus): void {
   });
   const tabs = h('div', { class: 'ref-tabs' }, ...TABS.map(([t, label]) => h('button', { type: 'button', class: `pchip${refState.tab === t ? ' on' : ''}`, onclick: () => ((refState.tab = t), (refState.limit = 60), (refState.focus = ''), again()) }, label)));
   const list = h('div', { class: 'ref-list' });
-  const foot = h('p', { class: 'disclaimer' }, `Источник: КонсультантПлюс (ПДД, КоАП РФ гл. 12, УК РФ гл. 27); изображения знаков — Wikimedia Commons (лицензии в public/signs/SOURCES.json) и собственная отрисовка; разметка — собственная отрисовка (public/markings/SOURCES.json). Загружено ${c.pdd.fetched}. Перед практическим применением сверяйте с действующей редакцией.`);
+  const ed = c.pdd.editions;
+  const editions = ed ? ` Редакции: ПДД — с ${ed.pdd.date}, КоАП РФ — с ${ed.koap.date}, УК РФ — с ${ed.uk.date}.` : '';
+  const foot = h('p', { class: 'disclaimer' }, `Источник текстов: официальный интернет-портал правовой информации, ИПС «Законодательство России» (actual.pravo.gov.ru) — ПДД, КоАП РФ гл. 12, УК РФ гл. 27.${editions} Выгружено ${c.pdd.fetched}. Изображения знаков — Wikimedia Commons (лицензии в public/signs/SOURCES.json) и собственная отрисовка; разметка — собственная отрисовка (public/markings/SOURCES.json). Перед практическим применением сверяйте с действующей редакцией.`);
   root.replaceChildren(h('div', { class: 'ref-head' }, search, tabs), list, foot);
 
   function more(shown: number, total: number): HTMLElement | null {

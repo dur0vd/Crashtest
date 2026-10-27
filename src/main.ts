@@ -471,6 +471,7 @@ const cloudError = (e: unknown): string => (e instanceof CloudError ? e.message 
 function cloudLogin(): void {
   const email = h('input', { type: 'email', placeholder: 'Почта', autocomplete: 'email' });
   const code = h('input', { type: 'text', placeholder: 'Код из письма', inputmode: 'numeric', class: 'hidden' });
+  const consent = h('input', { type: 'checkbox' });
   const go = h('button', { type: 'button', class: 'btn' }, 'Получить код');
   let sent = false;
   go.addEventListener('click', async () => {
@@ -482,7 +483,8 @@ function cloudLogin(): void {
         go.textContent = 'Войти';
         toast('Код отправлен на почту');
       } else {
-        await cloud.verify(email.value, code.value);
+        if (!consent.checked) { toast('Нужно согласие на обработку почты'); return; }
+        await cloud.verify(email.value, code.value, true);
         $('modal').classList.add('hidden');
         buildMenus();
         toast('Вы вошли');
@@ -494,7 +496,9 @@ function cloudLogin(): void {
   showModal(h('div', {},
     h('h2', {}, 'Вход'),
     h('p', {}, 'Вход нужен только для хранения ситуаций на сервере. Без него приложение работает как раньше. Почта используется лишь для входа; удалить аккаунт можно в меню.'),
-    email, code, go));
+    email, code,
+    h('label', {}, consent, ' Согласен на обработку адреса почты для входа и хранения ситуаций на сервере в РФ (', h('a', { href: 'legal/privacy.html', target: '_blank', rel: 'noopener' }, 'политика'), ').'),
+    go));
 }
 
 async function cloudSave(): Promise<void> {

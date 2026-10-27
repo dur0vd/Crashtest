@@ -46,8 +46,8 @@ export class Cloud {
     return this.call('POST', '/api/auth/request', { email }, false);
   }
 
-  async verify(email: string, code: string): Promise<void> {
-    const r = await this.call('POST', '/api/auth/verify', { email, code }, false);
+  async verify(email: string, code: string, consent: boolean): Promise<void> {
+    const r = await this.call('POST', '/api/auth/verify', { email, code, consent }, false);
     this.host.store({ token: r.token, email: r.email });
   }
 

@@ -52,7 +52,7 @@ describe('облачный клиент', () => {
 
   it('вход сохраняет токен, выход стирает', async () => {
     const t = setup((_m, p) => ({ json: p.endsWith('verify') ? { token: 'z'.repeat(30), email: 'a@b.ru' } : { ok: true } }));
-    await t.cloud.verify('a@b.ru', '123456');
+    await t.cloud.verify('a@b.ru', '123456', true);
     expect(t.session?.token).toBe('z'.repeat(30));
     await t.cloud.logout();
     expect(t.session).toBeNull();

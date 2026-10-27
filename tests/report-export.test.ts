@@ -15,6 +15,9 @@ describe('Самодостаточный отчёт', () => {
     expect(html).toContain(report.collisions[0].title);
     expect(html).toContain('остановочный путь');
     expect(html).toContain(DISCLAIMER);
+    // Оговорка стоит до выводов и повторяется на каждой печатной странице.
+    expect(html.indexOf('Учебная модель, не экспертиза')).toBeLessThan(html.indexOf('Классификация и вывод'));
+    expect(html).toMatch(/@media print\{[^}]*\}\.stamp\{display:block;position:fixed/);
     expect(html).toContain('data:image/png;base64,aGVsbG8=');
     expect(html).toContain('window.print()');
     const references = [...html.matchAll(/href="#(law-\d+)"/g)].map((match) => match[1]);

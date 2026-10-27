@@ -2,6 +2,7 @@ import type { Ctx } from './analysis';
 import { add, dot, fromAngle, mul, obbCorners, sub, type Vec } from './geom';
 import type { Kit } from './restrictions';
 import { GAUGE, type RailwayCrossing } from './scene';
+import { visibilityAt } from './visibility';
 
 export function railwayPoints(r: RailwayCrossing): Vec[] {
   const d = mul(fromAngle(r.angle), r.length / 2);
@@ -39,7 +40,9 @@ export function checkRailwayRules(ctx: Ctx, kit: Kit): void {
           const q = local(kit.posAt(train, k));
           const alongSpeed = dot(fromAngle(train.tr.h[k]), along) * train.tr.v[k];
           const occupiesCrossing = Math.abs(q.x) <= train.hl + r.width / 2;
-          const approaches = q.x * alongSpeed < 0 && Math.abs(q.x) <= train.hl + 50;
+          // Поезд считается приближающимся, пока водитель может его видеть (ч. 1 ст. 12.10 КоАП:
+          // «в пределах видимости»); дальность — та же учебная видимость, что и в расчёте техвозможности.
+          const approaches = q.x * alongSpeed < 0 && Math.abs(q.x) <= train.hl + Math.max(50, visibilityAt(ctx, i, k));
           return train.tr.v[k] > 0.1 && (occupiesCrossing || approaches);
         });
         // После полного выезда следующее пересечение проверяется заново.

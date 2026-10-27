@@ -36,6 +36,18 @@ describe('железнодорожный переезд', () => {
     s.actors.push(actor('car', { x: -12 }), actor('train', { railwayId: 'j1', x: 0, y: -40 * direction, heading: direction * Math.PI / 2, speed: 36, path: [{ x: 0, y: 120 * direction, v: 36 }] }));
     expect(findings(s).some((f) => f.refs.includes('pdd:15.3'))).toBe(true);
   });
+  it('поезд в пределах видимости запрещает въезд на нерегулируемый переезд, даже если он далеко', () => {
+    const s = scene(); s.env.duration = 4;
+    s.railways[0].barrier = 'none'; s.railways[0].length = 1000;
+    s.actors.push(actor('car', { x: -12 }), actor('train', { railwayId: 'j1', x: 0, y: -300, heading: Math.PI / 2, speed: 90, path: [{ x: 0, y: 150, v: 90 }] }));
+    expect(findings(s).some((f) => f.refs.includes('pdd:15.3'))).toBe(true);
+  });
+  it('поезд за пределами видимости (туман) въезд не запрещает', () => {
+    const s = scene(); s.env.duration = 4; s.env.visibility = 100;
+    s.railways[0].barrier = 'none'; s.railways[0].length = 1000;
+    s.actors.push(actor('car', { x: -12 }), actor('train', { railwayId: 'j1', x: 0, y: -300, heading: Math.PI / 2, speed: 90, path: [{ x: 0, y: 150, v: 90 }] }));
+    expect(findings(s).filter((f) => f.refs.includes('pdd:15.3'))).toHaveLength(0);
+  });
   it('повторный въезд после разворота оценивается по новому сигналу', () => {
     const s = scene(); s.env.duration = 16;
     s.railways[0].trainWindows = [{ start: 7, end: 16 }];

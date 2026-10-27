@@ -1,7 +1,8 @@
 {
   "name": "crashtest",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "Симулятор дорожных ситуаций с разбором по ПДД РФ, КоАП РФ и УК РФ",
   "type": "module",
   "scripts": {
@@ -11,10 +12,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "cap:sync": "npm run build && cap sync",
+    "cap:assets": "capacitor-assets generate --ios --android --iconBackgroundColor \"#12161c\" --iconBackgroundColorDark \"#12161c\" --splashBackgroundColor \"#12161c\" --splashBackgroundColorDark \"#12161c\"",
     "cap:android": "npm run cap:sync && cap open android",
     "cap:ios": "npm run cap:sync && cap open ios"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",

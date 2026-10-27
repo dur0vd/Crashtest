@@ -247,7 +247,7 @@ stamp = date.today().isoformat()
 meta = {
     'fetched': stamp,
     'sources': {
-        'pdd': 'КонсультантПлюс, ПДД (последняя редакция, cons_doc_LAW_2709); изображения знаков и разметки — PDF «ПДД 2026 от pddmaster.ru» (редакция от 01.09.2025)',
+        'pdd': 'КонсультантПлюс, ПДД (последняя редакция, cons_doc_LAW_2709); изображения знаков — Wikimedia Commons (лицензии в public/signs/SOURCES.json) и собственная отрисовка; разметка — собственная отрисовка (public/markings/SOURCES.json)',
         'koap': 'КонсультантПлюс, КоАП РФ (cons_doc_LAW_34661), глава 12',
         'uk': 'КонсультантПлюс, УК РФ (cons_doc_LAW_10699), глава 27',
     },

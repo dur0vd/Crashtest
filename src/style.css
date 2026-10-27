@@ -778,6 +778,55 @@ button {
 .doc h3 {
   margin: 18px 0 6px;
 }
+.doc .disclaimer {
+  margin-top: 8px;
+}
+.doc.intro .row.end {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.doc ul {
+  padding-left: 20px;
+}
+.linkbtn {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.md p,
+.md li {
+  margin: 6px 0;
+}
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+.banner {
+  background: rgba(255, 178, 36, 0.12);
+  border: 1px solid var(--warn);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+.disclaimer.top {
+  margin: 0 0 10px;
+}
 
 /* ---------- телефон ---------- */
 @media (max-width: 860px) {

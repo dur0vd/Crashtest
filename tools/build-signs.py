@@ -13,6 +13,10 @@ public/signs/SOURCES.json указан внешний файл (например
 import json
 import math
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sign_art  # noqa: E402 — пиктограммы знаков, соседний модуль
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OUT = os.path.join(ROOT, 'public/signs')
@@ -89,17 +93,20 @@ def main():
             s['img'] = file_rel
             if sid in external:
                 continue
-            w, h, body = shape(sid, str(s['group']))
+            # группа знака — по номеру (поле group в signs.json — число номеров в подписи, не группа)
+            art = sign_art.draw(sid)
+            w, h, body = art if art else shape(sid, sid.split('.')[0])
             with open(os.path.join(OUT, f'{sid}.svg'), 'w', encoding='utf-8') as f:
                 f.write(svg(w, h, body))
             items.append({
                 'file': file_rel,
                 'ids': [sid],
-                'source': 'собственная отрисовка (скрипт tools/build-signs.py): заглушка, пиктограмма не нарисована',
+                'source': ('собственная отрисовка (tools/sign_art.py) по ГОСТ Р 52290-2004, упрощённая' if art
+                           else 'собственная отрисовка (скрипт tools/build-signs.py): заглушка, пиктограмма не нарисована'),
                 'license': 'проприетарная, как и приложение: правообладатель — владелец проекта',
                 'author': 'владелец проекта Crashtest',
                 'attribution': None,
-                'status': 'заглушка',
+                'status': 'собственная отрисовка' if art else 'заглушка',
             })
 
     # индекс знаков: один файл на номер (см. src/signs.ts)
@@ -121,7 +128,8 @@ def main():
     with open(MANIFEST, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
         f.write('\n')
-    print(f'знаков: {len(index)}, собственных заглушек: {len(items)}, внешних: {len(kept)}')
+    drawn = sum(1 for i in items if i['status'] != 'заглушка')
+    print(f'знаков: {len(index)}, нарисовано: {drawn}, заглушек: {len(items) - drawn}, внешних: {len(kept)}')
 
 
 if __name__ == '__main__':

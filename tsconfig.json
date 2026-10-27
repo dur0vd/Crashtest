@@ -15,14 +15,17 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "types": [
-      "vite/client"
+      "vite/client",
+      "node"
     ],
     "resolveJsonModule": true
   },
   "include": [
     "src",
+    "server",
     "tests",
     "vite.config.ts",
+    "vite.server.config.ts",
     "capacitor.config.ts"
   ]
 }

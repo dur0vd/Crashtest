@@ -31,6 +31,42 @@ if [ ! -e "$SITE/current" ]; then
   ln -sfn "$SITE/releases/placeholder" "$SITE/current"
 fi
 
+# API облачных сцен: Node 22 (node:sqlite), systemd-юнит, ежедневная копия базы.
+API="$SITE/api"
+DATA="$SITE/data"
+$SUDO apt-get install -y -qq sqlite3 >/dev/null
+if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO -E bash - >/dev/null
+  $SUDO apt-get install -y -qq nodejs >/dev/null
+fi
+mkdir -p "$API" "$DATA/backups"
+$SUDO tee /etc/systemd/system/crashtest-api.service >/dev/null <<UNIT
+[Unit]
+Description=Crashtest API
+After=network.target
+
+[Service]
+User=$(whoami)
+Environment=PORT=8787 DB_PATH=$DATA/crashtest.sqlite
+EnvironmentFile=-$DATA/api.env
+ExecStart=$(command -v node) $API/index.js
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=$DATA
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+$SUDO systemctl daemon-reload
+$SUDO systemctl enable crashtest-api >/dev/null
+$SUDO tee /etc/cron.daily/crashtest-backup >/dev/null <<BACKUP
+#!/bin/sh
+sqlite3 "$DATA/crashtest.sqlite" ".backup $DATA/backups/\$(date +%F).sqlite" 2>/dev/null
+find "$DATA/backups" -name "*.sqlite" -mtime +14 -delete
+BACKUP
+$SUDO chmod +x /etc/cron.daily/crashtest-backup
+
 if command -v ufw >/dev/null && $SUDO ufw status | grep -q "Status: active"; then
   $SUDO ufw allow 80/tcp >/dev/null
   $SUDO ufw allow 443/tcp >/dev/null

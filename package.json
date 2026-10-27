@@ -14,11 +14,14 @@
     "cap:sync": "npm run build && cap sync",
     "cap:assets": "capacitor-assets generate --ios --android --iconBackgroundColor \"#12161c\" --iconBackgroundColorDark \"#12161c\" --splashBackgroundColor \"#12161c\" --splashBackgroundColorDark \"#12161c\"",
     "cap:android": "npm run cap:sync && cap open android",
-    "cap:ios": "npm run cap:sync && cap open ios"
+    "cap:ios": "npm run cap:sync && cap open ios",
+    "server": "npm run build:server && node dist-server/index.js",
+    "build:server": "vite build --config vite.server.config.ts"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
+    "@types/node": "^22.20.5",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"

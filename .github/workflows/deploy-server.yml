@@ -42,7 +42,7 @@ jobs:
           node-version: 22
           cache: npm
       - if: env.HAS_KEY == 'true'
-        run: npm ci && npm test && npm run build
+        run: npm ci && npm test && npm run build && npm run build:server
       - name: SSH
         if: env.HAS_KEY == 'true'
         env:
@@ -66,6 +66,12 @@ jobs:
           rsync -az --delete -e "$SSH" dist/ "$SSH_USER@$HOST:$RELEASE/"
           # Атомарное переключение и хранение пяти последних версий для отката.
           $SSH "$SSH_USER@$HOST" "ln -sfn '$RELEASE' '$DEST/current' && ls -1dt '$DEST'/releases/* | grep -v placeholder | tail -n +6 | xargs -r rm -rf"
+      - name: Выкладка API
+        if: env.HAS_KEY == 'true'
+        run: |
+          # Юнит создаёт deploy/setup-server.sh; настройки (MAIL_WEBHOOK_URL и др.) — в $DEST/data/api.env.
+          rsync -az --delete -e "$SSH" dist-server/ "$SSH_USER@$HOST:$DEST/api/"
+          $SSH "$SSH_USER@$HOST" "sudo -n systemctl restart crashtest-api"
       - name: Проверка
         if: env.HAS_KEY == 'true'
         run: |

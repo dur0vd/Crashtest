@@ -4,3 +4,5 @@ dist
 *.log
 tools/out/signs-review.html
 tools/__pycache__/
+dist-server
+*.sqlite*

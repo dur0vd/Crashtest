@@ -19,6 +19,7 @@ import { reportHtml } from './report-export';
 import { shareReport } from './report-share';
 import { showAbout, showIntroIfNeeded } from './legal';
 import { allowRun, billingStatus, initBilling, showSubscription } from './billing';
+import { Cloud, CloudError } from './cloud';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -450,6 +451,105 @@ function menuItem(label: string, on: () => void, sub?: string): HTMLElement {
   return h('button', { type: 'button', class: 'mi', onclick: () => (closeMenus(), on()) }, h('b', {}, label), sub ? h('small', {}, sub) : null);
 }
 
+// ---------------------------------------------------------------------------
+// Облако (необязательно: без входа всё работает как раньше, офлайн)
+
+const CLOUD_KEY = 'crashtest.cloud';
+const cloud = new Cloud({
+  fetch: (...a) => fetch(...a),
+  baseUrl: import.meta.env.VITE_API_URL ?? '',
+  load: () => {
+    try { return JSON.parse(localStorage.getItem(CLOUD_KEY) ?? 'null'); } catch { return null; }
+  },
+  store: (s) => {
+    try { s ? localStorage.setItem(CLOUD_KEY, JSON.stringify(s)) : localStorage.removeItem(CLOUD_KEY); } catch { /* хранилище недоступно */ }
+  },
+});
+
+const cloudError = (e: unknown): string => (e instanceof CloudError ? e.message : 'Не удалось выполнить действие');
+
+function cloudLogin(): void {
+  const email = h('input', { type: 'email', placeholder: 'Почта', autocomplete: 'email' });
+  const code = h('input', { type: 'text', placeholder: 'Код из письма', inputmode: 'numeric', class: 'hidden' });
+  const consent = h('input', { type: 'checkbox' });
+  const go = h('button', { type: 'button', class: 'btn' }, 'Получить код');
+  let sent = false;
+  go.addEventListener('click', async () => {
+    try {
+      if (!sent) {
+        await cloud.requestCode(email.value);
+        sent = true;
+        code.classList.remove('hidden');
+        go.textContent = 'Войти';
+        toast('Код отправлен на почту');
+      } else {
+        if (!consent.checked) { toast('Нужно согласие на обработку почты'); return; }
+        await cloud.verify(email.value, code.value, true);
+        $('modal').classList.add('hidden');
+        buildMenus();
+        toast('Вы вошли');
+      }
+    } catch (e) {
+      toast(cloudError(e));
+    }
+  });
+  showModal(h('div', {},
+    h('h2', {}, 'Вход'),
+    h('p', {}, 'Вход нужен только для хранения ситуаций на сервере. Без него приложение работает как раньше. Почта используется лишь для входа; удалить аккаунт можно в меню.'),
+    email, code,
+    h('label', {}, consent, ' Согласен на обработку адреса почты для входа и хранения ситуаций на сервере в РФ (', h('a', { href: 'legal/privacy.html', target: '_blank', rel: 'noopener' }, 'политика'), ').'),
+    go));
+}
+
+async function cloudSave(): Promise<void> {
+  try {
+    await cloud.save(editor.scene);
+    toast('Сохранено в облаке');
+  } catch (e) {
+    if (e instanceof CloudError && e.status === 409 && e.remote && window.confirm('Ситуация изменена на другом устройстве. Загрузить версию с сервера? (Отмена — сохранить копией)')) {
+      await cloud.open((cloud.session?.sceneId) as string).then(loadScene);
+    } else if (e instanceof CloudError && e.status === 409) {
+      cloud.unlink();
+      await cloudSave();
+    } else {
+      toast(cloudError(e));
+    }
+  }
+}
+
+async function cloudList(): Promise<void> {
+  try {
+    const items = await cloud.list();
+    showModal(h('div', {},
+      h('h2', {}, 'Мои ситуации'),
+      items.length ? null : h('p', {}, 'Пока ничего не сохранено.'),
+      ...items.map(it => h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn', onclick: async () => {
+          try { loadScene(await cloud.open(it.id)); $('modal').classList.add('hidden'); } catch (e) { toast(cloudError(e)); }
+        } }, `${it.name || 'Без названия'} · ${new Date(it.updatedAt).toLocaleDateString('ru-RU')}`),
+        h('button', { type: 'button', class: 'btn', onclick: async () => {
+          if (!window.confirm('Удалить ситуацию из облака?')) return;
+          try { await cloud.remove(it.id); await cloudList(); } catch (e) { toast(cloudError(e)); }
+        } }, 'Удалить')))));
+  } catch (e) {
+    toast(cloudError(e));
+  }
+}
+
+function cloudMenu(): HTMLElement[] {
+  const s = cloud.session;
+  if (!s) return [menuItem('Войти (облако)', cloudLogin, 'Хранить ситуации на сервере')];
+  return [
+    menuItem('Сохранить в облако', cloudSave, s.email),
+    menuItem('Мои ситуации в облаке', cloudList),
+    menuItem('Выйти', async () => { await cloud.logout(); buildMenus(); }),
+    menuItem('Удалить аккаунт и данные', async () => {
+      if (!window.confirm('Удалить аккаунт и все ситуации на сервере? Это необратимо.')) return;
+      try { await cloud.deleteAccount(); buildMenus(); toast('Аккаунт удалён'); } catch (e) { toast(cloudError(e)); }
+    }),
+  ];
+}
+
 function loadScene(s: Scene): void {
   if (mode === 'play') leavePlay();
   editor.setScene(s, true);
@@ -541,10 +641,11 @@ function buildMenus(): void {
   ex.replaceChildren(...PRESETS.map((p) => menuItem(p.title, () => loadScene(p.build()), p.hint)));
   const main = $('menuMain');
   main.replaceChildren(
-    menuItem('Новая ситуация', () => loadScene(emptyScene())),
+    menuItem('Новая ситуация', () => (cloud.unlink(), loadScene(emptyScene()))),
     menuItem('Сохранить в файл', () => download(`${editor.scene.name || 'crashtest'}.json`, JSON.stringify(editor.scene, null, 2), 'application/json')),
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
+    ...cloudMenu(),
     menuItem('Как это работает', help),
     menuItem('Подписка', () => showSubscription(), billingStatus()),
     menuItem('Для автошкол и о проекте', () => window.open('about.html', '_blank', 'noopener')),

@@ -26,6 +26,8 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
+  // API всегда идёт в сеть: ответы с токеном не должны попадать в кэш.
+  if (url.pathname.startsWith(SCOPE.pathname + 'api/')) return;
   const navigation = event.request.mode === 'navigate' || url.pathname === SCOPE.pathname || url.pathname === SCOPE.pathname + 'index.html';
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);

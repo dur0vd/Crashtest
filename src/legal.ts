@@ -11,7 +11,7 @@ import { DISCLAIMER, LAW_CHECKED } from './law';
 import { closeModal, h, openModal } from './ui';
 
 /** Версия вступительного текста. Поднимайте её при изменении текста, чтобы окно показалось снова. */
-export const INTRO_VERSION = '1';
+export const INTRO_VERSION = '2';
 const INTRO_KEY = 'crashtest.intro';
 
 const DOCS: { title: string; text: string }[] = [

@@ -1,9 +1,11 @@
 // Простой офлайн-кэш: приложение целиком работает без сети.
-const CACHE = 'crashtest-v1';
+// Имя кэша содержит версию сборки: tools/stamp-sw.mjs подставляет её в dist/sw.js после vite build,
+// поэтому после обновления старый кэш удаляется и пользователи получают новые файлы.
+const CACHE = 'crashtest-__APP_VERSION__';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest', './icon.svg'])));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest', './icon.svg', './icons/icon-192.png', './icons/apple-touch-icon.png'])));
 });
 
 self.addEventListener('activate', (e) => {

@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
-import { openDb } from '../server/db';
+import { openDb, purgeInactive, RETENTION_MS } from '../server/db';
 import { PRESETS } from '../src/presets';
 import legacy from './fixtures/legacy-minimal.json';
 
@@ -24,7 +24,7 @@ async function start() {
   };
   const login = async (email: string) => {
     await call('POST', '/api/auth/request', { email });
-    return (await call('POST', '/api/auth/verify', { email, code: sent[email] })).json.token as string;
+    return (await call('POST', '/api/auth/verify', { email, code: sent[email], consent: true })).json.token as string;
   };
   return { call, login };
 }
@@ -38,17 +38,18 @@ describe('сервер: вход', () => {
     expect((await call('POST', '/api/auth/request', { email: 'a@b.ru' })).status).toBe(200);
     expect((await call('POST', '/api/auth/request', { email: 'a@b.ru' })).status).toBe(429);
     expect((await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: '000000x' })).status).toBe(400);
-    const ok = await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: sent['a@b.ru'] });
+    expect((await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: sent['a@b.ru'] })).status).toBe(400); // без согласия
+    const ok = await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: sent['a@b.ru'], consent: true });
     expect(ok.status).toBe(200);
     expect(ok.json.token).toBeTruthy();
-    expect((await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: sent['a@b.ru'] })).status).toBe(400);
+    expect((await call('POST', '/api/auth/verify', { email: 'a@b.ru', code: sent['a@b.ru'], consent: true })).status).toBe(400);
   });
 
   it('просроченный код и блокировка после 5 ошибок', async () => {
     const { call } = await start();
     await call('POST', '/api/auth/request', { email: 'c@d.ru' });
-    for (let i = 0; i < 5; i++) await call('POST', '/api/auth/verify', { email: 'c@d.ru', code: 'bad' });
-    expect((await call('POST', '/api/auth/verify', { email: 'c@d.ru', code: sent['c@d.ru'] })).status).toBe(400);
+    for (let i = 0; i < 5; i++) await call('POST', '/api/auth/verify', { email: 'c@d.ru', code: 'bad', consent: true });
+    expect((await call('POST', '/api/auth/verify', { email: 'c@d.ru', code: sent['c@d.ru'], consent: true })).status).toBe(400);
   });
 
   it('без токена сцены недоступны', async () => {
@@ -96,5 +97,18 @@ describe('сервер: облачные сцены', () => {
     await call('POST', '/api/scenes', { scene: PRESETS[0].build() }, t);
     expect((await call('DELETE', '/api/account', undefined, t)).status).toBe(200);
     expect((await call('GET', '/api/scenes', undefined, t)).status).toBe(401);
+  });
+});
+
+describe('сервер: срок хранения', () => {
+  it('неактивные аккаунты удаляются вместе со сценами, активные остаются', () => {
+    const db = openDb(':memory:');
+    const t = 1_000_000_000_000;
+    db.prepare('INSERT INTO users (id, email, created_at, last_seen) VALUES (1, ?, ?, ?)').run('old@x.ru', t - 3 * RETENTION_MS, t - 2 * RETENTION_MS);
+    db.prepare('INSERT INTO users (id, email, created_at, last_seen) VALUES (2, ?, ?, ?)').run('new@x.ru', t - 3 * RETENTION_MS, t - 1000);
+    db.prepare("INSERT INTO scenes (id, user_id, name, data, updated_at) VALUES ('s1', 1, 'n', '{}', 0)").run();
+    expect(purgeInactive(db, t)).toBe(1);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM scenes').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT email FROM users').all()).toEqual([{ email: 'new@x.ru' }]);
   });
 });

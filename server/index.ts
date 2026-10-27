@@ -1,4 +1,4 @@
-import { openDb } from './db';
+import { openDb, purgeInactive } from './db';
 import { createApp, type Mailer } from './app';
 
 const port = Number(process.env.PORT ?? 8787);
@@ -17,6 +17,11 @@ const mailer: Mailer = {
     if (!r.ok) throw new Error(`Почтовый шлюз ответил ${r.status}`);
   },
 };
+
+// Раз в сутки (и при запуске) удаляем аккаунты, неактивные дольше срока хранения.
+const purge = () => { const n = purgeInactive(db, Date.now()); if (n) console.log(`Удалено неактивных аккаунтов: ${n}`); };
+purge();
+setInterval(purge, 24 * 3600_000).unref();
 
 createApp({ db, mailer, allowOrigin: process.env.ALLOW_ORIGIN }).listen(port, '127.0.0.1', () => {
   console.log(`Crashtest API: http://127.0.0.1:${port}`);

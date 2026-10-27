@@ -83,6 +83,8 @@ export function createApp(opts: AppOptions): Server {
       const body = await readJson(req);
       const email = String(body.email ?? '').trim().toLowerCase();
       const code = String(body.code ?? '').trim();
+      // Согласие на обработку почты (152-ФЗ) фиксируется до проверки кода: без него аккаунт не создаётся.
+      if (body.consent !== true) throw new HttpError(400, 'Нужно согласие на обработку персональных данных');
       const row = db.prepare('SELECT code_hash, expires_at, attempts FROM login_codes WHERE email = ?').get(email) as { code_hash: string; expires_at: number; attempts: number } | undefined;
       if (!row || row.expires_at < now() || row.attempts >= MAX_ATTEMPTS) throw new HttpError(400, 'Код недействителен, запросите новый');
       const given = Buffer.from(sha(`${email}:${code}`));
@@ -91,7 +93,8 @@ export function createApp(opts: AppOptions): Server {
         throw new HttpError(400, 'Неверный код');
       }
       db.prepare('DELETE FROM login_codes WHERE email = ?').run(email);
-      db.prepare('INSERT OR IGNORE INTO users (email, created_at) VALUES (?, ?)').run(email, now());
+      db.prepare('INSERT OR IGNORE INTO users (email, created_at, consent_at) VALUES (?, ?, ?)').run(email, now(), now());
+      db.prepare('UPDATE users SET last_seen = ?, consent_at = COALESCE(consent_at, ?) WHERE email = ?').run(now(), now(), email);
       const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as { id: number };
       const token = randomBytes(32).toString('base64url');
       db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha(token), user.id, now() + SESSION_TTL);

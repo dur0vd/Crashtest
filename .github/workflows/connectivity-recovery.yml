@@ -1,0 +1,65 @@
+name: Проверка доступности RoadPDD
+
+on:
+  push:
+    branches: [fix/roadpdd-connectivity-20261029]
+    paths: [.github/workflows/connectivity-recovery.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadpdd-connectivity-recovery
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HOST: ${{ secrets.DEPLOY_HOST || '45.132.176.226' }}
+      SSH_USER: ${{ secrets.DEPLOY_USER || 'user1' }}
+    steps:
+      - name: Подготовить SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/roadpdd-ssh"
+          test -n "$DEPLOY_KEY"
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/roadpdd-ssh/key"
+          ssh-keyscan -T 15 "$HOST" > "$RUNNER_TEMP/roadpdd-ssh/scanned" 2>/dev/null
+          ssh-keygen -lf "$RUNNER_TEMP/roadpdd-ssh/scanned" -E sha256 | grep -F 'SHA256:7E8pLc2UjJmAC350ux1rx1ZPNr0GU0/B9LlB/3xOJnk'
+          awk '$2 == "ssh-ed25519"' "$RUNNER_TEMP/roadpdd-ssh/scanned" > "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
+          test -s "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
+      - name: Проверить локальный HTTPS и наличие правил веб-портов без изменения ВМ
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/roadpdd-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile="$RUNNER_TEMP/roadpdd-ssh/known_hosts" -o ConnectTimeout=15 "$SSH_USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          # Выводим только результаты проверок, без сетевой конфигурации или данных.
+          curl -fsS --resolve roadpdd.ru:443:127.0.0.1 --max-time 10 -o /dev/null https://roadpdd.ru/
+          echo 'LOCAL_HTTPS_OK'
+          if command -v ufw >/dev/null && sudo -n ufw status | grep -q '^Status: active'; then
+            echo 'UFW_ACTIVE'
+            for port in 80 443; do
+              if sudo -n iptables -C ufw-user-input -p tcp --dport "$port" -j ACCEPT 2>/dev/null; then
+                echo "WEB_PORT_${port}_HAS_ALLOW_RULE"
+              else
+                echo "WEB_PORT_${port}_NO_SINGLE_PORT_ALLOW_RULE"
+              fi
+            done
+          else
+            echo 'UFW_NOT_ACTIVE'
+          fi
+          REMOTE
+      - name: Проверить HTTPS извне
+        run: |
+          set -euo pipefail
+          for url in https://roadpdd.ru/ https://www.roadpdd.ru/; do
+            curl -fsS --retry 2 --retry-delay 2 --connect-timeout 5 --max-time 10 -o /dev/null -w "$url status=%{http_code} tls=%{ssl_verify_result}\n" "$url"
+          done
+      - name: Удалить временный ключ
+        if: always()
+        run: rm -f "$RUNNER_TEMP/roadpdd-ssh/key" "$RUNNER_TEMP/roadpdd-ssh/scanned" "$RUNNER_TEMP/roadpdd-ssh/known_hosts"

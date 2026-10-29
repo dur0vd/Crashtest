@@ -1,0 +1,97 @@
+name: Диагностика ВМ только чтение
+on:
+  push:
+    branches: [audit/vm-readonly-20261029]
+    paths: [.github/workflows/vm-readonly-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      HOST: ${{ secrets.DEPLOY_HOST || '45.132.176.226' }}
+      SSH_USER: ${{ secrets.DEPLOY_USER || 'user1' }}
+    steps:
+      - name: Подключиться и прочитать состояние
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/roadpdd-ssh"
+          test -n "$DEPLOY_KEY" || { echo "DEPLOY_KEY не настроен"; exit 1; }
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/roadpdd-ssh/key"
+          ssh-keyscan -T 15 "$HOST" > "$RUNNER_TEMP/roadpdd-ssh/known_hosts" 2>/dev/null
+          test -s "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
+          ssh-keygen -lf "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
+          SSH_OPTS=(-i "$RUNNER_TEMP/roadpdd-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/roadpdd-ssh/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15)
+          ssh "${SSH_OPTS[@]}" "$SSH_USER@$HOST" 'bash -s' <<'REMOTE'
+          set -u
+          printf '\n=== time ===\n'
+          date -Is
+          uptime
+          printf '\n=== services ===\n'
+          systemctl show nginx crashtest-api -p Id -p ActiveState -p SubState -p ExecMainStatus
+          printf '\n=== listeners ===\n'
+          ss -ltn '( sport = :80 or sport = :443 or sport = :8787 )'
+          printf '\n=== disk ===\n'
+          df -h / /var/www/roadpdd
+          printf '\n=== release ===\n'
+          readlink -f /var/www/roadpdd/current
+          sha256sum /var/www/roadpdd/current/index.html /var/www/roadpdd/current/assets/*
+          printf '\n=== nginx config check ===\n'
+          sudo -n nginx -t 2>&1
+          printf '\n=== HTTP from VM ===\n'
+          for url in http://127.0.0.1/ https://roadpdd.ru/ https://www.roadpdd.ru/ https://roadpdd.ru/manifest.webmanifest https://roadpdd.ru/api/scenes; do
+            printf '\nURL %s\n' "$url"
+            curl -sS --connect-timeout 8 --max-time 15 -o /dev/null -D - -w 'http_code=%{http_code} remote_ip=%{remote_ip} time=%{time_total} tls_verify=%{ssl_verify_result}\n' "$url" 2>&1 || true
+          done
+          printf '\n=== loopback HTTPS with verified service identity ===\n'
+          curl -sS --resolve roadpdd.ru:443:127.0.0.1 --connect-timeout 8 --max-time 15 -o /dev/null -D - -w 'http_code=%{http_code} time=%{time_total} tls_verify=%{ssl_verify_result}\n' https://roadpdd.ru/ 2>&1 || true
+          REMOTE
+          ssh "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -M -S "$RUNNER_TEMP/roadpdd-ssh/control" -N -f -L 127.0.0.1:18443:127.0.0.1:443 "$SSH_USER@$HOST"
+      - name: Проверить интерфейс опубликованной сборки через ВМ
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/roadpdd-browser" playwright@1.56.1 --no-audit --no-fund
+          cat > "$RUNNER_TEMP/roadpdd-browser/audit.cjs" <<'NODE'
+          const { chromium } = require(process.env.RUNNER_TEMP + '/roadpdd-browser/node_modules/playwright');
+          (async () => {
+            const browser = await chromium.launch({executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--host-resolver-rules=MAP roadpdd.ru 127.0.0.1']});
+            const result = {target:'production origin via verified TLS SSH forward', time:new Date().toISOString(), viewports:[]};
+            for (const size of [{width:1440,height:900},{width:390,height:844},{width:360,height:800}]) {
+              const context = await browser.newContext({viewport:size,hasTouch:size.width<600,isMobile:size.width<600});
+              const page = await context.newPage();
+              const row = {size, errors:[], failed:[]};
+              page.on('pageerror',e=>row.errors.push(e.message));
+              page.on('requestfailed',r=>row.failed.push({url:r.url(),error:r.failure()}));
+              const response = await page.goto('https://roadpdd.ru:18443/',{waitUntil:'networkidle',timeout:30000});
+              row.status=response.status(); row.headers=await response.allHeaders();
+              row.title=await page.title();
+              if(await page.locator('#modal').isVisible()) await page.locator('#modalClose').click();
+              await page.locator('#btnExamples').click();
+              row.examples=await page.locator('#menuExamples').evaluate(el=>({x:el.getBoundingClientRect().x,width:el.getBoundingClientRect().width,right:el.getBoundingClientRect().right,viewport:innerWidth}));
+              await page.locator('#menuExamples button').first().click();
+              await page.locator('#btnPlay').click();
+              await page.waitForTimeout(1200);
+              if(await page.locator('#btnPlay').innerText()==='⏸') await page.locator('#btnPlay').click();
+              row.seek=await page.locator('#seek').boundingBox();
+              row.playLabel=await page.locator('#btnPlay').getAttribute('aria-label');
+              row.time=await page.locator('#timeLabel').innerText();
+              if(size.width<600) await page.locator('#btnSheet').click();
+              await page.locator('[data-tab="report"]').click();
+              row.reportChars=(await page.locator('#pane-report').innerText()).length;
+              result.viewports.push(row);
+              await context.close();
+            }
+            console.log('BROWSER_RESULTS ' + JSON.stringify(result));
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          NODE
+          node "$RUNNER_TEMP/roadpdd-browser/audit.cjs"
+      - name: Удалить временный ключ
+        if: always()
+        run: |
+          ssh -S "$RUNNER_TEMP/roadpdd-ssh/control" -O exit "$SSH_USER@$HOST" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/roadpdd-ssh/key" "$RUNNER_TEMP/roadpdd-ssh/known_hosts"

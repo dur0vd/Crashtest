@@ -13,6 +13,13 @@ jobs:
       HOST: ${{ secrets.DEPLOY_HOST || '45.132.176.226' }}
       SSH_USER: ${{ secrets.DEPLOY_USER || 'user1' }}
     steps:
+      - name: Проверить публичный адрес с внешнего runner
+        run: |
+          set -u
+          for url in http://roadpdd.ru/ https://roadpdd.ru/ https://www.roadpdd.ru/; do
+            printf '\nEXTERNAL %s\n' "$url"
+            curl -sS --connect-timeout 5 --max-time 8 -o /dev/null -w 'status=%{http_code} remote_ip=%{remote_ip} connect=%{time_connect} tls=%{ssl_verify_result} total=%{time_total}\n' "$url" 2>&1 || true
+          done
       - name: Подключиться и прочитать состояние
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
@@ -35,6 +42,11 @@ jobs:
           systemctl show nginx crashtest-api -p Id -p ActiveState -p SubState -p ExecMainStatus
           printf '\n=== listeners ===\n'
           ss -ltn '( sport = :80 or sport = :443 or sport = :8787 )'
+          printf '\n=== host firewall summary ===\n'
+          if command -v ufw >/dev/null; then sudo -n ufw status verbose 2>&1 | sed -n '1,5p'; fi
+          if command -v iptables >/dev/null; then sudo -n iptables -S 2>/dev/null | awk '{ if ($1 == "-P" && $2 == "INPUT") print; if ($0 ~ /-j (DROP|REJECT)/) n++ } END { print "Filter DROP/REJECT rules: " n+0 }'; fi
+          printf '\n=== verified loopback API ===\n'
+          curl -sS --resolve roadpdd.ru:443:127.0.0.1 --connect-timeout 5 --max-time 8 -o /dev/null -w 'api_status=%{http_code} tls_verify=%{ssl_verify_result} time=%{time_total}\n' https://roadpdd.ru/api/scenes 2>&1 || true
           printf '\n=== disk ===\n'
           df -h / /var/www/roadpdd
           printf '\n=== release ===\n'

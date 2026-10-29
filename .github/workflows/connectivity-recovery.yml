@@ -1,4 +1,4 @@
-name: Проверка доступности RoadPDD
+name: Восстановление доступа к RoadPDD
 
 on:
   push:
@@ -33,25 +33,24 @@ jobs:
           ssh-keygen -lf "$RUNNER_TEMP/roadpdd-ssh/scanned" -E sha256 | grep -F 'SHA256:7E8pLc2UjJmAC350ux1rx1ZPNr0GU0/B9LlB/3xOJnk'
           awk '$2 == "ssh-ed25519"' "$RUNNER_TEMP/roadpdd-ssh/scanned" > "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
           test -s "$RUNNER_TEMP/roadpdd-ssh/known_hosts"
-      - name: Проверить локальный HTTPS и наличие правил веб-портов без изменения ВМ
+      - name: Проверить сайт локально и разрешить веб-порты в UFW
         run: |
           set -euo pipefail
           ssh -i "$RUNNER_TEMP/roadpdd-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile="$RUNNER_TEMP/roadpdd-ssh/known_hosts" -o ConnectTimeout=15 "$SSH_USER@$HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          # Выводим только результаты проверок, без сетевой конфигурации или данных.
+          # Не выводим конфигурацию ВМ, правила сети, ключи и данные пользователей.
           curl -fsS --resolve roadpdd.ru:443:127.0.0.1 --max-time 10 -o /dev/null https://roadpdd.ru/
           echo 'LOCAL_HTTPS_OK'
           if command -v ufw >/dev/null && sudo -n ufw status | grep -q '^Status: active'; then
-            echo 'UFW_ACTIVE'
-            for port in 80 443; do
-              if sudo -n iptables -C ufw-user-input -p tcp --dport "$port" -j ACCEPT 2>/dev/null; then
-                echo "WEB_PORT_${port}_HAS_ALLOW_RULE"
-              else
-                echo "WEB_PORT_${port}_NO_SINGLE_PORT_ALLOW_RULE"
-              fi
-            done
+            backup="/var/backups/roadpdd-firewall-$(date +%Y%m%d-%H%M%S)"
+            sudo -n install -d -m 700 "$backup"
+            sudo -n tar -czf "$backup/ufw.tar.gz" -C /etc ufw >/dev/null
+            # Добавляем только публичные веб-порты. SSH и остальные правила сохраняются.
+            sudo -n ufw allow 80/tcp >/dev/null
+            sudo -n ufw allow 443/tcp >/dev/null
+            echo 'WEB_PORTS_ALLOWED_UFW_BACKUP_SAVED'
           else
-            echo 'UFW_NOT_ACTIVE'
+            echo 'UFW_NOT_ACTIVE_NO_CHANGES'
           fi
           REMOTE
       - name: Проверить HTTPS извне

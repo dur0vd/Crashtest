@@ -71,9 +71,9 @@ export interface ViewState {
 }
 
 const C = {
-  grass: '#1b2a22',
-  grassGrid: 'rgba(255,255,255,0.05)',
-  asphalt: '#3a3f47',
+  grass: '#202b32',
+  grassGrid: 'rgba(171,192,215,0.055)',
+  asphalt: '#485362',
   sidewalk: '#8b929c',
   mark: '#f2f4f8',
   rail: '#a8b0ba',

@@ -1,4 +1,6 @@
 import './style.css';
+import './workspace.css';
+import { icon, type IconName } from './icons';
 import { analyze, type Report } from './analysis';
 import { type Tool, Editor, POLY_TOOLS } from './editor';
 import { clamp } from './geom';
@@ -7,7 +9,7 @@ import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
-import { type AppApi, buildEnv, buildInspector, buildReport, h, openSignPicker, setRefOpener, signThumb } from './ui';
+import { type AppApi, buildEnv, buildInspector, buildReport, closeModal, h, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
@@ -157,21 +159,14 @@ function toast(text: string): void {
   (toast as unknown as { id?: number }).id = window.setTimeout(() => el.classList.add('hidden'), 2600);
 }
 
-const TOOLS: [Tool, string, string][] = [
-  ['select', '↖', 'Выбрать'],
-  ['pan', '✋', 'Рука'],
-  ['road', '🛣️', 'Дорога'],
-  ['sidewalk', '▭', 'Тротуар'],
-  ['track', '🚋', 'Трамв. путь'],
-  ['railway', '🚆', 'Ж/д переезд'],
-  ['crosswalk', '🦓', 'Переход'],
-  ['light', '🚦', 'Светофор'],
-  ['sign', '⚠️', 'Знак'],
-  ['marking', '═', 'Разметка'],
-  ['obstacle', '🏢', 'Препятствие'],
-  ['vehicle', '🚗', 'Транспорт'],
-  ['ped', '🚶', 'Пешеход'],
-  ['path', '〰️', 'Траектория'],
+const TOOLS: [Tool, string][] = [
+  ['select', 'Выбрать'], ['pan', 'Переместить'],
+  ['road', 'Дорога'], ['sidewalk', 'Тротуар'],
+  ['track', 'Трамв. путь'], ['railway', 'Переезд'],
+  ['crosswalk', 'Переход'], ['light', 'Светофор'],
+  ['sign', 'Знак'], ['marking', 'Разметка'],
+  ['vehicle', 'Транспорт'], ['ped', 'Пешеход'],
+  ['obstacle', 'Объект'], ['path', 'Траектория'],
 ];
 
 const HINTS: Partial<Record<Tool, string>> = {
@@ -193,11 +188,16 @@ const HINTS: Partial<Record<Tool, string>> = {
 
 function buildTools(): void {
   const nav = $('tools');
-  nav.replaceChildren(
-    ...TOOLS.map(([tool, icon, label]) =>
-      h('button', { type: 'button', class: 'tool', 'data-tool': tool, title: label, onclick: () => pickTool(tool) }, h('span', { class: 'ti' }, icon), h('span', { class: 'tl' }, label)),
-    ),
-  );
+  nav.replaceChildren(...[
+    ['Редактор', TOOLS.slice(0, 2)],
+    ['Инфраструктура', TOOLS.slice(2, 10)],
+    ['Участники', TOOLS.slice(10)],
+  ].map(([title, tools]) => h('div', { class: 'tool-section' },
+    h('span', { class: 'tool-heading' }, title as string),
+    h('div', { class: 'tool-grid' }, ...(tools as typeof TOOLS).map(([tool, label]) =>
+      h('button', { type: 'button', class: 'tool', 'data-tool': tool, 'aria-label': label, 'aria-pressed': 'false', title: label, onclick: () => pickTool(tool) }, icon(tool), h('span', { class: 'tl' }, label)),
+    )),
+  )));
 }
 
 function pickTool(tool: Tool): void {
@@ -210,7 +210,11 @@ function pickTool(tool: Tool): void {
 }
 
 function updateTools(): void {
-  document.querySelectorAll<HTMLElement>('.tool').forEach((b) => b.classList.toggle('on', b.dataset.tool === editor.tool));
+  document.querySelectorAll<HTMLElement>('.tool').forEach((b) => {
+    const selected = b.dataset.tool === editor.tool;
+    b.classList.toggle('on', selected);
+    b.setAttribute('aria-pressed', String(selected));
+  });
   renderPalette();
   updateHint();
   refreshInspector();
@@ -316,6 +320,7 @@ function renderPalette(): void {
 }
 
 function refreshInspector(): void {
+  updateSceneStats();
   buildInspector($('pane-props'), api);
   buildEnv($('pane-env'), api, {
     grid,
@@ -328,6 +333,11 @@ function refreshInspector(): void {
   updateUndo();
 }
 
+function updateSceneStats(): void {
+  const s = editor.scene;
+  $('sceneStats').textContent = `Участников: ${s.actors.length} · Дорог: ${s.roads.length}`;
+}
+
 function updateUndo(): void {
   ($('btnUndo') as HTMLButtonElement).disabled = !editor.canUndo;
   ($('btnRedo') as HTMLButtonElement).disabled = !editor.canRedo;
@@ -335,13 +345,21 @@ function updateUndo(): void {
 
 type TabName = 'props' | 'env' | 'report' | 'ref';
 function showTab(tab: TabName): void {
-  document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll<HTMLElement>('.tab').forEach((b) => {
+    const selected = b.dataset.tab === tab;
+    b.classList.toggle('on', selected);
+    b.setAttribute('aria-selected', String(selected));
+    b.tabIndex = selected ? 0 : -1;
+  });
+  $('inspectorTitle').textContent = { props: 'Свойства объекта', env: 'Условия моделирования', report: 'Разбор ситуации', ref: 'Справочник норм' }[tab];
   for (const n of ['props', 'env', 'report', 'ref'] as TabName[]) $(`pane-${n}`).classList.toggle('hidden', n !== tab);
   if (tab === 'ref' && !$('pane-ref').childElementCount) buildReference($('pane-ref'));
 }
 
 function openSheet(open: boolean): void {
   document.body.classList.toggle('sheet', open);
+  $('btnSheet').setAttribute('aria-expanded', String(open));
+  $('side').inert = isMobile() && !open;
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +367,7 @@ function openSheet(open: boolean): void {
 
 function syncFollow(): void {
   $('zoomFollow').classList.toggle('on', follow);
+  $('zoomFollow').setAttribute('aria-pressed', String(follow));
 }
 
 function syncPlayer(): void {
@@ -358,8 +377,17 @@ function syncPlayer(): void {
   seek.value = String(Math.round(t / DT));
   seek.disabled = !tl;
   $('timeLabel').textContent = `${t.toFixed(1)} / ${dur.toFixed(1)} с`;
-  $('btnPlay').textContent = playing ? '⏸' : '▶';
+  const label = playing ? 'Пауза' : tl ? 'Продолжить' : 'Запустить';
+  const play = $('btnPlay');
+  // Во время воспроизведения обновляется время, а не содержимое кнопки каждый кадр.
+  if (play.getAttribute('aria-label') !== label || !play.querySelector('svg')) {
+    play.replaceChildren(icon(playing ? 'pause' : 'play'), h('span', {}, label));
+    play.setAttribute('aria-label', label);
+  }
   $('btnPlay').title = playing ? 'Пауза' : tl ? 'Продолжить' : 'Запустить симуляцию';
+  $('playbackState').textContent = playing ? 'Воспроизведение' : tl ? 'На паузе' : 'Готова к запуску';
+  $('stageMode').textContent = mode === 'edit' ? 'Редактирование' : 'Симуляция';
+  document.body.classList.toggle('playing', mode === 'play');
   ($('btnEdit') as HTMLElement).classList.toggle('hidden', mode !== 'play');
 }
 
@@ -445,6 +473,7 @@ function frame(now: number): void {
 
 function closeMenus(): void {
   document.querySelectorAll('.dropdown').forEach((d) => d.classList.add('hidden'));
+  for (const id of ['btnExamples', 'btnMenu']) $(id).setAttribute('aria-expanded', 'false');
 }
 
 function menuItem(label: string, on: () => void, sub?: string): HTMLElement {
@@ -668,6 +697,13 @@ function save(): void {
 // Запуск
 
 function init(): void {
+  const controls: [string, IconName, string?][] = [
+    ['btnUndo', 'undo'], ['btnRedo', 'redo'], ['btnMenu', 'menu'],
+    ['btnExamples', 'examples', 'Примеры'], ['zoomIn', 'plus'], ['zoomOut', 'minus'],
+    ['zoomFit', 'fit'], ['zoomFollow', 'follow'], ['btnRestart', 'restart'],
+    ['btnEdit', 'edit', 'Править'], ['btnSheet', 'panel'], ['sheetClose', 'close'], ['modalClose', 'close'],
+  ];
+  for (const [id, glyph, label] of controls) $(id).replaceChildren(icon(glyph), ...(label ? [h('span', {}, label)] : []));
   buildTools();
   buildMenus();
   $<HTMLInputElement>('sceneName').value = editor.scene.name;
@@ -692,6 +728,7 @@ function init(): void {
     if (final) {
       save();
       updateUndo();
+      updateSceneStats();
     }
   };
 
@@ -753,9 +790,19 @@ function init(): void {
       openSheet(true);
     });
   });
-  document.querySelectorAll<HTMLElement>('.tab').forEach((b) => b.addEventListener('click', () => (showTab(b.dataset.tab as TabName), openSheet(true))));
+  const tabs = [...document.querySelectorAll<HTMLElement>('.tab')];
+  tabs.forEach((b, index) => {
+    b.addEventListener('click', () => (showTab(b.dataset.tab as TabName), openSheet(true)));
+    b.addEventListener('keydown', (e) => {
+      const next = e.key === 'ArrowRight' ? (index + 1) % tabs.length : e.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+      if (next < 0) return;
+      e.preventDefault();
+      showTab(tabs[next].dataset.tab as TabName);
+      tabs[next].focus();
+    });
+  });
   $('btnSheet').addEventListener('click', () => openSheet(!document.body.classList.contains('sheet')));
-  $('sheetClose').addEventListener('click', () => openSheet(false));
+  $('sheetClose').addEventListener('click', () => { openSheet(false); $('btnSheet').focus(); });
 
   const toggle = (btn: string, menu: string) =>
     $(btn).addEventListener('click', (e) => {
@@ -764,17 +811,27 @@ function init(): void {
       const wasHidden = m.classList.contains('hidden');
       closeMenus();
       m.classList.toggle('hidden', !wasHidden);
+      $(btn).setAttribute('aria-expanded', String(wasHidden));
     });
   toggle('btnExamples', 'menuExamples');
   toggle('btnMenu', 'menuMain');
   // Состояние подписки в меню меняется: пересобираем меню при открытии.
   $('btnMenu').addEventListener('click', buildMenus, { capture: true });
   document.addEventListener('click', closeMenus);
-  $('modalClose').addEventListener('click', () => $('modal').classList.add('hidden'));
-  $('modal').addEventListener('click', (e) => e.target === $('modal') && $('modal').classList.add('hidden'));
+  document.addEventListener('keydown', (e) => {
+    if (!$('modal').classList.contains('hidden')) return;
+    if (e.key !== 'Escape') return;
+    const menuButton = ['btnExamples', 'btnMenu'].find(id => $(id).getAttribute('aria-expanded') === 'true');
+    closeMenus();
+    if (menuButton) $(menuButton).focus();
+    else if (isMobile() && document.body.classList.contains('sheet')) { openSheet(false); $('btnSheet').focus(); }
+  });
+  $('modalClose').addEventListener('click', closeModal);
+  $('modal').addEventListener('click', (e) => e.target === $('modal') && closeModal());
 
   const resize = () => {
     renderer.resize();
+    $('side').inert = isMobile() && !document.body.classList.contains('sheet');
     dirty = true;
   };
   new ResizeObserver(resize).observe($('stage'));
@@ -783,6 +840,9 @@ function init(): void {
 
   // Закрываем обучение: первая ситуация сразу готова к запуску
   updateTools();
+  buildReport($('pane-report'), api);
+  showTab('props');
+  syncFollow();
   syncPlayer();
   showIntroIfNeeded();
   void initBilling();

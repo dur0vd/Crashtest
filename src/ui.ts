@@ -1,5 +1,6 @@
 import { type ActorVerdict, type CollisionReport, type Finding, type Report, HARM_LABEL } from './analysis';
 import type { Editor } from './editor';
+import { icon } from './icons';
 import { deg, rad } from './geom';
 import { imgUrl, loadCorpus, resolveRef } from './corpus';
 import { DISCLAIMER, DISCLAIMER_SHORT, LAW, LAW_CHECKED, describeRef } from './law';
@@ -97,13 +98,16 @@ export function buildInspector(root: HTMLElement, app: AppApi): void {
   if (!sel) {
     root.append(
       h('div', { class: 'empty' },
-        h('h3', {}, 'Ничего не выбрано'),
-        h('p', {}, 'Выберите инструмент слева и нарисуйте дорогу, затем поставьте транспорт и пешеходов. Нажмите на объект, чтобы изменить его свойства.'),
-        h('ol', { class: 'steps' },
-          h('li', {}, 'Нарисуйте дорогу, тротуары, переходы, знаки и светофоры.'),
-          h('li', {}, 'Поставьте участников и задайте каждому траекторию и скорость.'),
-          h('li', {}, 'Нажмите ▶ — симуляция покажет, что произойдёт, а вкладка «Разбор» — как это оценивается по ПДД, КоАП и УК РФ.'),
+        h('div', { class: 'empty-icon' }, icon('select')),
+        h('span', { class: 'eyebrow' }, 'Всё начинается со схемы'),
+        h('h3', {}, 'Исследуйте дорожную ситуацию'),
+        h('p', {}, 'Выберите объект на схеме, чтобы настроить его свойства. Или создайте свою ситуацию с помощью инструментов.'),
+        h('div', { class: 'guide-steps' },
+          h('div', {}, h('span', { class: 'step-number' }, '01'), h('div', {}, h('b', {}, 'Постройте сцену'), h('p', {}, 'Дороги, переходы и знаки — основа вашей модели.'))),
+          h('div', {}, h('span', { class: 'step-number' }, '02'), h('div', {}, h('b', {}, 'Задайте движение'), h('p', {}, 'Добавьте участников, траектории и скорость.'))),
+          h('div', {}, h('span', { class: 'step-number' }, '03'), h('div', {}, h('b', {}, 'Запустите симуляцию'), h('p', {}, 'Посмотрите результат и учебный разбор по ПДД.'))),
         ),
+        h('div', { class: 'keyboard-tip' }, icon('pan'), h('span', {}, 'Зажмите пробел, чтобы перемещать схему.')),
       ),
     );
     return;
@@ -604,13 +608,83 @@ export function signThumb(id: string, size: number): HTMLElement {
   return f ? h('img', { src: imgUrl(f), alt: id, class: 'sign-thumb', style: `width:${size}px;height:${size}px` }) : h('span', { class: 'sign-thumb ph', style: `width:${size}px;height:${size}px` }, id);
 }
 
+let modalReturnFocus: HTMLElement | null = null;
+let modalKeyboardBound = false;
+
+function canFocusModalControl(el: HTMLElement | null): el is HTMLElement {
+  return !!el && el.isConnected && !el.closest('[inert]') && !el.matches(':disabled')
+    && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+}
+
+function modalControls(modal: HTMLElement): HTMLElement[] {
+  return [...modal.querySelectorAll<HTMLElement>('button, a[href], input:not([type="hidden"]), select, textarea, [tabindex]')]
+    .filter(el => el.tabIndex >= 0 && canFocusModalControl(el));
+}
+
+function bindModalKeyboard(modal: HTMLElement): void {
+  if (modalKeyboardBound) return;
+  modalKeyboardBound = true;
+
+  // Сочетания редактора не должны менять сцену за открытым диалогом.
+  modal.addEventListener('keydown', e => e.stopPropagation());
+  document.addEventListener('keydown', e => {
+    if (modal.classList.contains('hidden')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeModal();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const controls = modalControls(modal);
+    const current = controls.indexOf(document.activeElement as HTMLElement);
+    if (!controls.length) {
+      e.preventDefault();
+      e.stopPropagation();
+      modal.focus({ preventScroll: true });
+    } else if (current < 0 || (e.shiftKey ? current === 0 : current === controls.length - 1)) {
+      e.preventDefault();
+      e.stopPropagation();
+      controls[e.shiftKey ? controls.length - 1 : 0].focus({ preventScroll: true });
+    }
+  }, { capture: true });
+}
+
 export function closeModal(): void {
-  document.getElementById('modal')?.classList.add('hidden');
+  const modal = document.getElementById('modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  modal.classList.add('hidden');
+  const target = [modalReturnFocus, document.getElementById('btnSheet'), document.querySelector<HTMLElement>('.tab[aria-selected="true"]')]
+    .find(canFocusModalControl);
+  modalReturnFocus = null;
+  target?.focus({ preventScroll: true });
 }
 
 export function openModal(body: HTMLElement): void {
-  document.getElementById('modalBody')?.replaceChildren(body);
-  document.getElementById('modal')?.classList.remove('hidden');
+  const modal = document.getElementById('modal');
+  const content = document.getElementById('modalBody');
+  if (!modal || !content) return;
+  // Переходы между документами внутри диалога сохраняют исходную точку возврата.
+  if (modal.classList.contains('hidden')) {
+    const active = document.activeElement;
+    modalReturnFocus = active instanceof HTMLElement && active !== document.body && !modal.contains(active) ? active : null;
+  }
+  content.replaceChildren(body);
+  const heading = content.querySelector<HTMLElement>('h1, h2, h3');
+  if (heading) {
+    if (!heading.id) heading.id = 'modal-heading';
+    modal.setAttribute('aria-labelledby', heading.id);
+    modal.removeAttribute('aria-label');
+  } else {
+    modal.removeAttribute('aria-labelledby');
+    modal.setAttribute('aria-label', 'Диалог');
+  }
+  modal.tabIndex = -1;
+  modal.classList.remove('hidden');
+  bindModalKeyboard(modal);
+  const input = [...content.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea')].find(canFocusModalControl);
+  const target = input ?? document.getElementById('modalClose') ?? modalControls(modal)[0] ?? modal;
+  target.focus({ preventScroll: true });
 }
 
 export interface SignPickerOpts {

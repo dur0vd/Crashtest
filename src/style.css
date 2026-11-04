@@ -1,16 +1,18 @@
 :root {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --panel2: #212936;
-  --line: #2c3544;
-  --text: #e9edf3;
-  --muted: #98a3b5;
-  --accent: #3e9bff;
-  --accent2: #1f6fd0;
+  --bg: #101319;
+  --panel: #181c24;
+  --panel2: #222834;
+  --line: #303746;
+  --text: #eef2fa;
+  --muted: #a3adbf;
+  --accent: #8ab4ff;
+  --accent2: #3869ed;
+  --selected: #243658;
+  --shadow: 0 12px 36px #0003;
   --danger: #e5484d;
   --ok: #3ddc84;
   --warn: #ffb224;
-  --radius: 10px;
+  --radius: 14px;
   color-scheme: dark;
 }
 
@@ -25,7 +27,7 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 13px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   overflow: clip;
   overscroll-behavior: none;
   -webkit-user-select: none;
@@ -54,14 +56,24 @@ select {
 
 button {
   cursor: pointer;
+  transition: background-color 140ms, border-color 140ms, color 140ms;
 }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+* { scrollbar-width: thin; scrollbar-color: #465064 transparent; }
+input[type='checkbox'], input[type='range'] { accent-color: var(--accent2); }
+.ui-icon { width: 20px; height: 20px; flex: none; vertical-align: middle; }
 
 .hidden {
   display: none !important;
 }
 
 /* ---------- верхняя панель ---------- */
-.top {
+header.top {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -287,7 +299,7 @@ button {
   border-radius: 8px;
   padding: 4px 6px;
 }
-.hint {
+#hint {
   position: absolute;
   left: 10px;
   bottom: 10px;
@@ -866,7 +878,7 @@ button {
     max-height: 38vh;
     overflow: auto;
   }
-  .hint {
+  #hint {
     display: none;
   }
   .drawbar {

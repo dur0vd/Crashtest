@@ -71,6 +71,14 @@ export class Cloud {
     return normalizeScene(r.scene);
   }
 
+  /** Не привязывает сцену, если пользователь уже покинул экран загрузки. */
+  async openIf(id: string, isCurrent: () => boolean): Promise<Scene | null> {
+    const r = await this.call('GET', `/api/scenes/${id}`);
+    if (!isCurrent()) return null;
+    this.link(id, r.updatedAt);
+    return normalizeScene(r.scene);
+  }
+
   /** Создаёт сцену либо обновляет ту, что открыта из облака; при конфликте бросает CloudError(409). */
   async save(scene: Scene): Promise<void> {
     const s = this.host.load();

@@ -1,6 +1,7 @@
 // Подписка в интерфейсе: пробный режим, окно тарифов и ввод кода активации.
 // Логика проверки — в license.ts; здесь хранение на устройстве и окна.
 
+import './billing.css';
 import keys from './license-keys.json';
 import { FREE_MODELS, type License, type TrialState, canRun, formatDate, markRun, modelKey, todayIso, verifyCode } from './license';
 import { BILLING } from './plans';
@@ -55,7 +56,7 @@ export function activeLicense(): License | null {
 export function billingStatus(): string {
   const l = activeLicense();
   if (l) return `${l.plan === 'school' ? 'автошкола' : 'подписка'} до ${formatDate(l.until)}`;
-  return `пробный режим: ${Math.min(trial.used.length, FREE_MODELS)} из ${FREE_MODELS} моделей`;
+  return `Пробный режим: использовано ${Math.min(trial.used.length, FREE_MODELS)} из ${FREE_MODELS} моделей`;
 }
 
 /** Проверяет доступ перед запуском модели; без доступа открывает окно подписки. */
@@ -74,19 +75,47 @@ export function allowRun(scene: Scene): boolean {
 
 const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
-function buyLink(plan: 'personal' | 'school'): HTMLElement {
+function buyLink(plan: 'personal' | 'school', onBack?: () => void): HTMLElement {
   const p = BILLING.plans[plan];
   const subject = encodeURIComponent(`Подписка Crashtest: ${p.title}`);
   const body = encodeURIComponent(plan === 'school'
     ? 'Здравствуйте! Хотим оформить подписку для автошколы на месяц.\nНазвание автошколы:\nИНН (для счёта):\n'
-    : 'Здравствуйте! Хочу оформить личную подписку на месяц.\nИмя (будет указано в коде):\n');
-  const link = h('a', { class: 'btn primary', href: `mailto:${BILLING.contact}?subject=${subject}&body=${body}` }, plan === 'school' ? 'Запросить счёт' : 'Запросить оплату');
-  if (plan === 'personal') {
-    void paymentApi<{ available: boolean }>('/config').then(config => {
-      if (config.available) link.replaceWith(h('button', { type: 'button', class: 'btn primary', onclick: showCheckout }, 'Оплатить онлайн'));
-    }).catch(() => { /* При недоступности API остаётся оформление по почте. */ });
+    : 'Здравствуйте! Хочу оформить личную подписку на месяц.\n');
+  const mail = h('a', { class: plan === 'school' ? 'btn primary' : 'billing-mail', href: `mailto:${BILLING.contact}?subject=${subject}&body=${body}` }, plan === 'school' ? 'Запросить счёт' : 'Написать по поводу оплаты');
+  if (plan === 'school') return mail;
+
+  const card = h('button', { type: 'button', class: 'btn primary', disabled: true, onclick: () => showCheckout(onBack) }, 'Проверяем оплату…');
+  const state = h('p', { class: 'billing-availability', role: 'status' });
+  const retry = h('button', { type: 'button', class: 'billing-retry', onclick: () => { void check(); }, hidden: true }, 'Проверить ещё раз');
+  const controls = h('div', { class: 'billing-payment-controls' }, card, state, retry, mail);
+  async function check(): Promise<void> {
+    card.disabled = true;
+    card.textContent = 'Проверяем оплату…';
+    state.textContent = '';
+    retry.hidden = true;
+    try {
+      const config = await paymentApi<{ available: boolean }>('/config');
+      if (typeof config.available !== 'boolean') throw new Error('Неверный ответ сервиса');
+      if (config.available) {
+        card.disabled = false;
+        card.textContent = 'Оплатить картой';
+        state.textContent = 'Разовый платёж на защищённой странице Т-Банка.';
+      } else {
+        card.textContent = 'Оплата картой недоступна';
+        state.textContent = 'Онлайн-оплата сейчас не подключена. Для оформления напишите нам.';
+      }
+    } catch {
+      card.textContent = 'Оплата картой недоступна';
+      state.textContent = 'Не удалось проверить доступность оплаты. Проверьте интернет или напишите нам.';
+      retry.hidden = false;
+    }
   }
-  return link;
+  void check();
+  return controls;
+}
+
+class PaymentError extends Error {
+  constructor(readonly status: number) { super('Сервис оплаты недоступен'); }
 }
 
 async function paymentApi<T>(path: string, body?: { email: string }): Promise<T> {
@@ -94,38 +123,45 @@ async function paymentApi<T>(path: string, body?: { email: string }): Promise<T>
     cache: 'no-store', signal: AbortSignal.timeout(10_000),
     ...(body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
   });
-  if (!response.ok) throw new Error('Сервис оплаты недоступен');
+  if (!response.ok) throw new PaymentError(response.status);
   return response.json() as Promise<T>;
 }
 
-function showCheckout(): void {
-  const email = h('input', { type: 'email', class: 'code-input', required: true, maxlength: 64, autocomplete: 'email', spellcheck: 'false' });
-  const submit = h('button', { type: 'submit', class: 'btn primary' }, 'Перейти к оплате');
-  const status = h('p', { role: 'status' });
+function showCheckout(onBack?: () => void): void {
+  const email = h('input', { type: 'email', class: 'code-input billing-email', required: true, maxlength: 64, autocomplete: 'email', spellcheck: 'false', placeholder: 'you@example.ru' });
+  const submit = h('button', { type: 'submit', class: 'btn primary' }, 'Перейти к оплате картой');
+  const status = h('p', { class: 'billing-form-status', role: 'status', 'aria-live': 'polite' });
   const form = h('form', { onsubmit: async (event: SubmitEvent) => {
     event.preventDefault();
     if (submit.disabled) return;
     submit.disabled = true;
     status.textContent = 'Создаём платёж…';
     try {
-      const { url } = await paymentApi<{ url: string }>('', { email: email.value });
+      const { url } = await paymentApi<{ url: string }>('', { email: email.value.trim() });
       if (form.closest('#modal:not(.hidden)')) location.assign(url);
-    } catch {
-      status.textContent = 'Не удалось создать платёж. Попробуйте ещё раз.';
+    } catch (error) {
+      status.textContent = error instanceof PaymentError && error.status === 400
+        ? 'Проверьте адрес почты и попробуйте ещё раз.'
+        : error instanceof PaymentError && error.status === 429
+          ? 'Слишком много запросов. Подождите немного и попробуйте снова.'
+          : 'Не удалось перейти к оплате. Проверьте соединение и попробуйте ещё раз или напишите нам.';
     } finally {
       submit.disabled = false;
     }
   } },
-    h('label', {}, 'Почта для кода активации и чека', email),
+    h('label', { class: 'billing-field' }, 'Почта для кода активации и чека', email),
+    h('p', { class: 'disclaimer' }, 'Укажите адрес, к которому у вас есть доступ. После подтверждения платежа мы отправим на него код активации.'),
     h('p', { class: 'disclaimer' }, 'Оплачивая подписку, вы принимаете ',
       h('a', { href: 'legal/offer.html', target: '_blank', rel: 'noopener' }, 'оферту'), '. ',
       h('a', { href: 'legal/privacy.html', target: '_blank', rel: 'noopener' }, 'Обработка данных')),
     status,
     h('div', { class: 'row end' },
-      h('button', { type: 'button', class: 'btn', onclick: () => showSubscription() }, 'Назад'), submit));
-  openModal(h('div', { class: 'doc subscription' },
+      h('button', { type: 'button', class: 'btn', onclick: () => showSubscription(undefined, onBack) }, 'Назад'), submit));
+  openModal(h('div', { class: 'doc subscription billing-checkout' },
+    h('span', { class: 'billing-kicker' }, 'ОФОРМЛЕНИЕ ПОДПИСКИ'),
     h('h2', {}, 'Личная подписка'),
-    h('p', {}, `${rub(BILLING.plans.personal.price)} за 30 дней. Разовый платёж через Т-Банк.`),
+    h('div', { class: 'billing-order' }, h('div', {}, h('strong', {}, 'Доступ на 30 дней'), h('span', {}, 'Без автоматического продления')), h('b', {}, rub(BILLING.plans.personal.price))),
+    h('p', {}, 'Далее откроется защищённая страница Т-Банка для оплаты картой.'),
     form));
 }
 
@@ -146,14 +182,16 @@ function showPaymentStatus(url: URL, id: string): void {
         return;
       }
       if (result.status === 'confirmed' && result.sent) {
-        status.textContent = 'Оплата подтверждена. Код активации отправлен на почту, указанную при покупке.';
+        status.textContent = 'Оплата подтверждена. Код активации отправлен на почту, указанную при покупке. Вставьте его в разделе «Код активации».';
         retry.hidden = true;
         return;
       }
-      status.textContent = result.status === 'confirmed' ? 'Оплата подтверждена. Готовим письмо с кодом активации.' : 'Ожидаем подтверждения от банка.';
+      status.textContent = result.status === 'confirmed' ? 'Оплата подтверждена. Готовим письмо с кодом активации. Доставка может занять некоторое время.' : 'Ожидаем подтверждения от банка. Если вы уже оплатили, не создавайте платёж повторно.';
       if (++attempts < 6) timer = window.setTimeout(() => { void check(); }, 5_000);
-    } catch {
-      status.textContent = 'Не удалось проверить статус. Попробуйте ещё раз.';
+    } catch (error) {
+      status.textContent = error instanceof PaymentError && error.status === 404
+        ? `Платёж не найден. Если деньги списаны, напишите на ${BILLING.contact}.`
+        : 'Не удалось проверить статус. Проверьте соединение и попробуйте ещё раз. Если деньги списаны, не оплачивайте повторно до проверки.';
     } finally {
       retry.disabled = false;
     }
@@ -170,7 +208,7 @@ function showPaymentStatus(url: URL, id: string): void {
 }
 
 /** Окно подписки: состояние, тарифы, ввод кода. */
-export function showSubscription(reason?: string): void {
+export function showSubscription(reason?: string, onBack?: () => void): void {
   const l = activeLicense();
   const input = h('textarea', { class: 'code-input', rows: 3, placeholder: 'CT1.…', 'aria-label': 'Код активации', spellcheck: 'false' });
   const msg = h('p', { class: 'code-msg', role: 'status' });
@@ -185,7 +223,7 @@ export function showSubscription(reason?: string): void {
     write(CODE_KEY, input.value.trim().replace(/\s+/g, ''));
     msg.textContent = `Подписка активна до ${formatDate(r.until)} включительно.`;
     msg.className = 'code-msg ok';
-    setTimeout(() => showSubscription(), 900);
+    setTimeout(() => showSubscription(undefined, onBack), 900);
   };
   const plan = (id: 'personal' | 'school') => {
     const p = BILLING.plans[id];
@@ -193,7 +231,7 @@ export function showSubscription(reason?: string): void {
       h('h3', {}, p.title),
       h('p', { class: 'price' }, `${rub(p.price)} в месяц`),
       h('p', { class: 'disclaimer' }, p.note),
-      buyLink(id),
+      buyLink(id, onBack),
     );
   };
   openModal(
@@ -203,12 +241,12 @@ export function showSubscription(reason?: string): void {
         ? h('p', {}, `Подписка «${l.plan === 'school' ? 'Автошкола' : 'Личная'}»${l.name ? ` — ${l.name}` : ''}, действует по ${formatDate(l.until)} включительно.`)
         : h('p', {}, `Без подписки доступны ${FREE_MODELS} разных моделей: расстановка участников и объектов. Перемещать их, менять скорости и траектории можно сколько угодно. Использовано: ${Math.min(trial.used.length, FREE_MODELS)} из ${FREE_MODELS}. Редактор, примеры и справочник открыты всегда.`),
       h('div', { class: 'plans' }, plan('personal'), plan('school')),
-      h('p', { class: 'disclaimer' }, `Подписка на 30 дней без автоматического продления. После оплаты вы получите код активации на почту. Вопросы — ${BILLING.contact}. Условия — в «Оферте на подписку» (меню → О программе).`),
+      h('p', { class: 'disclaimer' }, `Подписка действует 30 дней без автоматического продления. Код активации отправляется на почту после подтверждения оплаты. Вопросы — ${BILLING.contact}. Условия — в «Оферте на подписку» (меню → О программе).`),
       h('h3', {}, 'Код активации'),
       input,
       msg,
       h('div', { class: 'row end' },
-        h('button', { type: 'button', class: 'btn', onclick: closeModal }, 'Закрыть'),
+        h('button', { type: 'button', class: 'btn', onclick: onBack ?? closeModal }, onBack ? 'В кабинет' : 'Закрыть'),
         h('button', { type: 'button', class: 'btn primary', onclick: () => { void activate(); } }, 'Активировать'),
       ),
     ),

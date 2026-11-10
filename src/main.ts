@@ -9,7 +9,7 @@ import { PRESETS } from './presets';
 import { Renderer } from './render';
 import { type Scene, VEHICLES, PEDESTRIANS, emptyScene, normalizeScene } from './scene';
 import { DT, type Timeline, simulate } from './sim';
-import { type AppApi, buildEnv, buildInspector, buildReport, closeModal, h, openSignPicker, setRefOpener, signThumb } from './ui';
+import { type AppApi, buildEnv, buildInspector, buildReport, closeModal, h, openModal, openSignPicker, setRefOpener, signThumb } from './ui';
 import { ARROW_VARIANTS, MARKINGS, MARKING_BY_ID } from './markings';
 import { VALUE_SIGNS, signTitle } from './signs';
 import { buildReference, focusRef } from './reference';
@@ -22,6 +22,7 @@ import { shareReport } from './report-share';
 import { showAbout, showIntroIfNeeded } from './legal';
 import { allowRun, billingStatus, initBilling, showSubscription } from './billing';
 import { Cloud, CloudError } from './cloud';
+import { showAccount } from './account';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const STORE = 'crashtest.scene.v1';
@@ -494,89 +495,81 @@ const cloud = new Cloud({
     try { s ? localStorage.setItem(CLOUD_KEY, JSON.stringify(s)) : localStorage.removeItem(CLOUD_KEY); } catch { /* хранилище недоступно */ }
   },
 });
+// Сцена из ссылки не должна обновлять ранее открытую облачную запись.
+if (sceneFromHash(location.hash)) cloud.unlink();
 
 const cloudError = (e: unknown): string => (e instanceof CloudError ? e.message : 'Не удалось выполнить действие');
 
 function cloudLogin(): void {
-  const email = h('input', { type: 'email', placeholder: 'Почта', autocomplete: 'email' });
-  const code = h('input', { type: 'text', placeholder: 'Код из письма', inputmode: 'numeric', class: 'hidden' });
+  const email = h('input', { type: 'email', placeholder: 'Почта', 'aria-label': 'Адрес почты', autocomplete: 'email' });
+  const code = h('input', { type: 'text', placeholder: 'Код из письма', 'aria-label': 'Код из письма', autocomplete: 'one-time-code', inputmode: 'numeric', class: 'hidden' });
   const consent = h('input', { type: 'checkbox' });
-  const go = h('button', { type: 'button', class: 'btn' }, 'Получить код');
+  const go = h('button', { type: 'button', class: 'btn primary' }, 'Получить код');
+  const status = h('p', { role: 'status', 'aria-live': 'polite' });
   let sent = false;
   go.addEventListener('click', async () => {
+    go.disabled = true;
+    status.textContent = sent ? 'Проверяем код…' : 'Отправляем код…';
     try {
       if (!sent) {
         await cloud.requestCode(email.value);
         sent = true;
+        email.readOnly = true;
         code.classList.remove('hidden');
         go.textContent = 'Войти';
-        toast('Код отправлен на почту');
+        status.textContent = 'Код отправлен на почту. Введите его ниже.';
+        code.focus();
       } else {
-        if (!consent.checked) { toast('Нужно согласие на обработку почты'); return; }
+        if (!consent.checked) { status.textContent = 'Отметьте согласие на обработку почты.'; return; }
         await cloud.verify(email.value, code.value, true);
-        $('modal').classList.add('hidden');
+        closeModal();
         buildMenus();
         toast('Вы вошли');
+        account();
       }
     } catch (e) {
-      toast(cloudError(e));
+      status.textContent = cloudError(e);
+    } finally {
+      go.disabled = false;
     }
   });
   showModal(h('div', {},
     h('h2', {}, 'Вход'),
     h('p', {}, 'Вход нужен только для хранения ситуаций на сервере. Без него приложение работает как раньше. Почта используется лишь для входа; удалить аккаунт можно в меню.'),
-    email, code,
+    email, code, status,
     h('label', {}, consent, ' Согласен на обработку адреса почты для входа и хранения ситуаций на сервере в РФ (', h('a', { href: 'legal/privacy.html', target: '_blank', rel: 'noopener' }, 'политика'), ').'),
     go));
 }
 
-async function cloudSave(): Promise<void> {
+async function cloudSave(): Promise<string> {
   try {
     await cloud.save(editor.scene);
     toast('Сохранено в облаке');
+    return 'Ситуация сохранена в облаке.';
   } catch (e) {
     if (e instanceof CloudError && e.status === 409 && e.remote && window.confirm('Ситуация изменена на другом устройстве. Загрузить версию с сервера? (Отмена — сохранить копией)')) {
-      await cloud.open((cloud.session?.sceneId) as string).then(loadScene);
+      try {
+        await cloud.open((cloud.session?.sceneId) as string).then(loadScene);
+        return 'Загружена версия с сервера.';
+      } catch (error) {
+        const message = cloudError(error);
+        toast(message);
+        return message;
+      }
     } else if (e instanceof CloudError && e.status === 409) {
       cloud.unlink();
-      await cloudSave();
+      return cloudSave();
     } else {
-      toast(cloudError(e));
+      const message = cloudError(e);
+      toast(message);
+      return message;
     }
   }
 }
 
-async function cloudList(): Promise<void> {
-  try {
-    const items = await cloud.list();
-    showModal(h('div', {},
-      h('h2', {}, 'Мои ситуации'),
-      items.length ? null : h('p', {}, 'Пока ничего не сохранено.'),
-      ...items.map(it => h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'btn', onclick: async () => {
-          try { loadScene(await cloud.open(it.id)); $('modal').classList.add('hidden'); } catch (e) { toast(cloudError(e)); }
-        } }, `${it.name || 'Без названия'} · ${new Date(it.updatedAt).toLocaleDateString('ru-RU')}`),
-        h('button', { type: 'button', class: 'btn', onclick: async () => {
-          if (!window.confirm('Удалить ситуацию из облака?')) return;
-          try { await cloud.remove(it.id); await cloudList(); } catch (e) { toast(cloudError(e)); }
-        } }, 'Удалить')))));
-  } catch (e) {
-    toast(cloudError(e));
-  }
-}
-
-function cloudMenu(): HTMLElement[] {
-  const s = cloud.session;
-  if (!s) return [menuItem('Войти (облако)', cloudLogin, 'Хранить ситуации на сервере')];
-  return [
-    menuItem('Сохранить в облако', cloudSave, s.email),
-    menuItem('Мои ситуации в облаке', cloudList),
-    menuItem('Выйти', async () => { await cloud.logout(); buildMenus(); }),
-    menuItem('Удалить аккаунт и данные', async () => {
-      if (!window.confirm('Удалить аккаунт и все ситуации на сервере? Это необратимо.')) return;
-      try { await cloud.deleteAccount(); buildMenus(); toast('Аккаунт удалён'); } catch (e) { toast(cloudError(e)); }
-    }),
-  ];
+function account(): void {
+  closeMenus();
+  showAccount(cloud, { login: cloudLogin, save: cloudSave, open: loadScene, subscription: () => showSubscription(undefined, account), billingStatus, sessionChanged: buildMenus });
 }
 
 function loadScene(s: Scene): void {
@@ -620,7 +613,9 @@ function openFile(): void {
     const f = inp.files?.[0];
     if (!f) return;
     try {
-      loadScene(normalizeScene(JSON.parse(await f.text())));
+      const scene = normalizeScene(JSON.parse(await f.text()));
+      cloud.unlink();
+      loadScene(scene);
       toast('Ситуация загружена');
     } catch {
       toast('Не удалось прочитать файл');
@@ -640,8 +635,7 @@ async function copyLink(): Promise<void> {
 }
 
 function showModal(body: HTMLElement): void {
-  $('modalBody').replaceChildren(body);
-  $('modal').classList.remove('hidden');
+  openModal(body);
 }
 
 function help(): void {
@@ -667,14 +661,14 @@ function help(): void {
 
 function buildMenus(): void {
   const ex = $('menuExamples');
-  ex.replaceChildren(...PRESETS.map((p) => menuItem(p.title, () => loadScene(p.build()), p.hint)));
+  ex.replaceChildren(...PRESETS.map((p) => menuItem(p.title, () => (cloud.unlink(), loadScene(p.build())), p.hint)));
   const main = $('menuMain');
   main.replaceChildren(
     menuItem('Новая ситуация', () => (cloud.unlink(), loadScene(emptyScene()))),
     menuItem('Сохранить в файл', () => download(`${editor.scene.name || 'crashtest'}.json`, JSON.stringify(editor.scene, null, 2), 'application/json')),
     menuItem('Открыть из файла', openFile),
     menuItem('Скопировать ссылку на ситуацию', copyLink),
-    ...cloudMenu(),
+    menuItem('Личный кабинет', account, cloud.session?.email ?? 'Вход и облачные ситуации'),
     menuItem('Как это работает', help),
     menuItem('Подписка', () => showSubscription(), billingStatus()),
     menuItem('Для автошкол и о проекте', () => window.open('about.html', '_blank', 'noopener')),
@@ -699,13 +693,14 @@ function save(): void {
 function init(): void {
   const controls: [string, IconName, string?][] = [
     ['btnUndo', 'undo'], ['btnRedo', 'redo'], ['btnMenu', 'menu'],
-    ['btnExamples', 'examples', 'Примеры'], ['zoomIn', 'plus'], ['zoomOut', 'minus'],
+    ['btnExamples', 'examples', 'Примеры'], ['btnAccount', 'account', 'Кабинет'], ['zoomIn', 'plus'], ['zoomOut', 'minus'],
     ['zoomFit', 'fit'], ['zoomFollow', 'follow'], ['btnRestart', 'restart'],
     ['btnEdit', 'edit', 'Править'], ['btnSheet', 'panel'], ['sheetClose', 'close'], ['modalClose', 'close'],
   ];
   for (const [id, glyph, label] of controls) $(id).replaceChildren(icon(glyph), ...(label ? [h('span', {}, label)] : []));
   buildTools();
   buildMenus();
+  $('btnAccount').addEventListener('click', account);
   $<HTMLInputElement>('sceneName').value = editor.scene.name;
   $<HTMLInputElement>('sceneName').addEventListener('change', (e) => {
     editor.checkpoint();

@@ -16,6 +16,15 @@ function setup(handler: (method: string, path: string, body: any) => { status?: 
 }
 
 describe('облачный клиент', () => {
+  it('не привязывает сцену, если пользователь покинул кабинет до ответа', async () => {
+    const scene = PRESETS[0].build();
+    const t = setup(() => ({ json: { scene, updatedAt: 15 } }));
+    expect(await t.cloud.openIf('scene', () => false)).toBeNull();
+    expect(t.session?.sceneId).toBeUndefined();
+    expect((await t.cloud.openIf('scene', () => true))?.name).toBe(scene.name);
+    expect(t.session?.sceneId).toBe('scene');
+  });
+
   it('первое сохранение — POST, дальнейшие — PUT с baseUpdatedAt', async () => {
     const bodies: any[] = [];
     const t = setup((m, _p, b) => {

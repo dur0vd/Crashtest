@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeScene } from '../src/scene';
+import type { Payments } from './payments';
 
 export interface Mailer {
   sendCode(email: string, code: string): Promise<void>;
@@ -11,6 +12,7 @@ export interface AppOptions {
   db: DatabaseSync;
   mailer: Mailer;
   now?: () => number;
+  payments?: Payments;
   /** Разрешённый Origin для CORS (сайт на другом домене или Capacitor); по умолчанию — только свой. */
   allowOrigin?: string;
 }
@@ -29,12 +31,12 @@ class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, maxBody = MAX_BODY): Promise<Record<string, unknown>> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY) throw new HttpError(413, 'Слишком большой запрос');
+    if (size > maxBody) throw new HttpError(413, 'Слишком большой запрос');
     chunks.push(chunk as Buffer);
   }
   if (!size) return {};
@@ -47,7 +49,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 
 /** Обработчик API; сервер собирается отдельно, чтобы тесты работали без сети. */
 export function createApp(opts: AppOptions): Server {
-  const { db, mailer } = opts;
+  const { db, mailer, payments } = opts;
   const now = opts.now ?? Date.now;
 
   function send(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void {
@@ -66,6 +68,39 @@ export function createApp(opts: AppOptions): Server {
     const url = new URL(req.url ?? '/', 'http://x');
     const path = url.pathname;
     const method = req.method ?? 'GET';
+
+    if (method === 'GET' && path === '/api/payments/config') {
+      return send(res, 200, { available: Boolean(payments) });
+    }
+
+    if (payments && method === 'POST' && path === '/api/payments') {
+      if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        throw new HttpError(415, 'Нужен запрос в формате JSON');
+      }
+      const body = await readJson(req, 1024);
+      const email = typeof body.email === 'string' ? body.email.trim() : '';
+      if (email.length > 64 || !EMAIL.test(email) || /[<>"]/u.test(email)) throw new HttpError(400, 'Неверный адрес почты');
+      try {
+        return send(res, 201, await payments.start(email));
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : 'Ошибка создания платежа');
+        throw new HttpError(502, 'Не удалось создать платёж. Попробуйте ещё раз.');
+      }
+    }
+
+    if (payments && method === 'POST' && path === '/api/payments/tbank') {
+      if (!payments.notify(await readJson(req))) throw new HttpError(400, 'Неверное уведомление об оплате');
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('OK');
+      return;
+    }
+
+    const paymentOrder = /^\/api\/payments\/([a-f0-9-]{36})$/.exec(path);
+    if (payments && method === 'GET' && paymentOrder) {
+      const status = await payments.status(paymentOrder[1]);
+      if (!status) throw new HttpError(404, 'Платёж не найден');
+      return send(res, 200, status);
+    }
 
     if (method === 'POST' && path === '/api/auth/request') {
       const email = String((await readJson(req)).email ?? '').trim().toLowerCase();

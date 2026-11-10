@@ -52,6 +52,7 @@ Crashtest — статический сайт (PWA) с отдельным API. �
    | --- | --- |
    | `TBANK_TERMINAL_KEY` | Идентификатор терминала из кабинета Т-Банка |
    | `TBANK_PASSWORD` | Пароль этого терминала |
+   | `NODE_EXTRA_CA_CERTS` | Абсолютный путь к PEM-файлу с доверенными сертификатами Т-Банка, например `/var/www/roadpdd/data/tbank-ca.pem`. [Инструкция Т-Банка по TLS](https://developer.tbank.ru/eacq/intro/certificates/) |
    | `CRASHTEST_KEY` | Абсолютный путь к закрытому ключу кодов |
    | `TBANK_SITE_URL` | HTTPS-адрес сайта для уведомлений и возврата покупателя. По умолчанию `https://roadpdd.ru` |
    | `TBANK_RECEIPT_FFD` | Версия ФФД терминала, `1.05` или `1.2` |

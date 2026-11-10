@@ -4,5 +4,11 @@
     "x": "6sO3kriqjX2ahJuHERgzDx_flFm2p-yl6EmhT96bypE",
     "y": "A4dySqoGk0HBasLC8EC6J2M-RwNHrym6jGktY1U5nh4",
     "crv": "P-256"
+  },
+  {
+    "kty": "EC",
+    "x": "zFBwYFmvAxq9LM8f7rJKHC1MXaplj8LzjNpYsw1c4j8",
+    "y": "kTH6ACIo2SVfs8CAPMVJhRGM2_bWyEfgSqSXBMZHu_g",
+    "crv": "P-256"
   }
 ]

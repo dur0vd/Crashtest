@@ -33,6 +33,20 @@ export function openDb(path: string): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS scenes_user ON scenes(user_id, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS payment_orders (
+      id TEXT PRIMARY KEY,
+      terminal_key TEXT NOT NULL,
+      payment_id TEXT,
+      amount INTEGER NOT NULL,
+      email TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      checked_at INTEGER NOT NULL DEFAULT 0,
+      license_code TEXT,
+      next_delivery_at INTEGER NOT NULL DEFAULT 0,
+      sent_at INTEGER,
+      UNIQUE (terminal_key, payment_id)
+    );
   `);
   // База, созданная до появления согласия и срока хранения.
   const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map(c => c.name);

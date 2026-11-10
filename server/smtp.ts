@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { connect as netConnect, type Socket } from 'node:net';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
-import type { Mailer } from './app';
 
 export interface SmtpConfig {
   host: string;
@@ -137,10 +136,4 @@ export async function sendSmtp(cfg: SmtpConfig, to: string, subject: string, tex
   } finally {
     s.socket.destroy();
   }
-}
-
-export function smtpMailer(cfg: SmtpConfig): Mailer {
-  return {
-    sendCode: (email, code) => sendSmtp(cfg, email, 'Код входа в Crashtest', `Ваш код: ${code}. Он действует 10 минут. Если вы не запрашивали вход, просто проигнорируйте письмо.`),
-  };
 }

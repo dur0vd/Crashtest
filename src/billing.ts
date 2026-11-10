@@ -3,19 +3,9 @@
 
 import keys from './license-keys.json';
 import { FREE_MODELS, type License, type TrialState, canRun, formatDate, markRun, modelKey, todayIso, verifyCode } from './license';
+import { BILLING } from './plans';
 import type { Scene } from './scene';
 import { closeModal, h, openModal } from './ui';
-
-/** Цены и способы оплаты. Ссылку на оплату вставьте сюда, когда подключите платёжный сервис. */
-export const BILLING = {
-  contact: 'mr.cartest@mail.ru',
-  plans: {
-    personal: { title: 'Личная подписка', price: 199, note: 'для одного ученика на его устройствах' },
-    school: { title: 'Автошкола', price: 3990, note: 'для преподавателей и всех учеников школы' },
-  },
-  /** Ссылки на оплату по тарифам; пустая строка — оплата по запросу на почту. */
-  payUrl: { personal: '', school: '' },
-} as const;
 
 const CODE_KEY = 'crashtest.license';
 const TRIAL_KEY = 'crashtest.trial';
@@ -52,6 +42,9 @@ export async function initBilling(): Promise<void> {
     const r = await verifyCode(code, keys as JsonWebKey[], todayIso());
     license = typeof r === 'string' ? null : r;
   }
+  const url = new URL(location.href);
+  const paymentId = url.searchParams.get('payment');
+  if (paymentId && /^[a-f0-9-]{36}$/.test(paymentId)) showPaymentStatus(url, paymentId);
 }
 
 export function activeLicense(): License | null {
@@ -83,13 +76,97 @@ const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
 function buyLink(plan: 'personal' | 'school'): HTMLElement {
   const p = BILLING.plans[plan];
-  const url = BILLING.payUrl[plan];
-  if (url) return h('a', { class: 'btn primary', href: url, target: '_blank', rel: 'noopener' }, 'Оплатить');
   const subject = encodeURIComponent(`Подписка Crashtest: ${p.title}`);
   const body = encodeURIComponent(plan === 'school'
     ? 'Здравствуйте! Хотим оформить подписку для автошколы на месяц.\nНазвание автошколы:\nИНН (для счёта):\n'
     : 'Здравствуйте! Хочу оформить личную подписку на месяц.\nИмя (будет указано в коде):\n');
-  return h('a', { class: 'btn primary', href: `mailto:${BILLING.contact}?subject=${subject}&body=${body}` }, 'Запросить оплату');
+  const link = h('a', { class: 'btn primary', href: `mailto:${BILLING.contact}?subject=${subject}&body=${body}` }, plan === 'school' ? 'Запросить счёт' : 'Запросить оплату');
+  if (plan === 'personal') {
+    void paymentApi<{ available: boolean }>('/config').then(config => {
+      if (config.available) link.replaceWith(h('button', { type: 'button', class: 'btn primary', onclick: showCheckout }, 'Оплатить онлайн'));
+    }).catch(() => { /* При недоступности API остаётся оформление по почте. */ });
+  }
+  return link;
+}
+
+async function paymentApi<T>(path: string, body?: { email: string }): Promise<T> {
+  const response = await fetch(`./api/payments${path}`, {
+    cache: 'no-store', signal: AbortSignal.timeout(10_000),
+    ...(body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}),
+  });
+  if (!response.ok) throw new Error('Сервис оплаты недоступен');
+  return response.json() as Promise<T>;
+}
+
+function showCheckout(): void {
+  const email = h('input', { type: 'email', class: 'code-input', required: true, maxlength: 64, autocomplete: 'email', spellcheck: 'false' });
+  const submit = h('button', { type: 'submit', class: 'btn primary' }, 'Перейти к оплате');
+  const status = h('p', { role: 'status' });
+  const form = h('form', { onsubmit: async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    status.textContent = 'Создаём платёж…';
+    try {
+      const { url } = await paymentApi<{ url: string }>('', { email: email.value });
+      if (form.closest('#modal:not(.hidden)')) location.assign(url);
+    } catch {
+      status.textContent = 'Не удалось создать платёж. Попробуйте ещё раз.';
+    } finally {
+      submit.disabled = false;
+    }
+  } },
+    h('label', {}, 'Почта для кода активации и чека', email),
+    h('p', { class: 'disclaimer' }, 'Оплачивая подписку, вы принимаете ',
+      h('a', { href: 'legal/offer.html', target: '_blank', rel: 'noopener' }, 'оферту'), '. ',
+      h('a', { href: 'legal/privacy.html', target: '_blank', rel: 'noopener' }, 'Обработка данных')),
+    status,
+    h('div', { class: 'row end' },
+      h('button', { type: 'button', class: 'btn', onclick: () => showSubscription() }, 'Назад'), submit));
+  openModal(h('div', { class: 'doc subscription' },
+    h('h2', {}, 'Личная подписка'),
+    h('p', {}, `${rub(BILLING.plans.personal.price)} за 30 дней. Разовый платёж через Т-Банк.`),
+    form));
+}
+
+function showPaymentStatus(url: URL, id: string): void {
+  const status = h('p', { role: 'status' }, 'Проверяем платёж…');
+  const retry = h('button', { type: 'button', class: 'btn', onclick: () => { void check(); } }, 'Проверить статус');
+  let timer = 0;
+  let attempts = 0;
+  async function check() {
+    window.clearTimeout(timer);
+    if (retry.disabled || !status.closest('#modal:not(.hidden)')) return;
+    retry.disabled = true;
+    try {
+      const result = await paymentApi<{ status: 'pending' | 'confirmed' | 'cancelled'; sent: boolean }>(`/${id}`);
+      if (result.status === 'cancelled') {
+        status.textContent = 'Платёж не завершён или возвращён.';
+        retry.hidden = true;
+        return;
+      }
+      if (result.status === 'confirmed' && result.sent) {
+        status.textContent = 'Оплата подтверждена. Код активации отправлен на почту, указанную при покупке.';
+        retry.hidden = true;
+        return;
+      }
+      status.textContent = result.status === 'confirmed' ? 'Оплата подтверждена. Готовим письмо с кодом активации.' : 'Ожидаем подтверждения от банка.';
+      if (++attempts < 6) timer = window.setTimeout(() => { void check(); }, 5_000);
+    } catch {
+      status.textContent = 'Не удалось проверить статус. Попробуйте ещё раз.';
+    } finally {
+      retry.disabled = false;
+    }
+  }
+  openModal(h('div', { class: 'doc subscription' },
+    h('h2', {}, 'Оплата подписки'), status,
+    h('div', { class: 'row end' }, retry, h('button', { type: 'button', class: 'btn primary', onclick: () => {
+      window.clearTimeout(timer);
+      url.searchParams.delete('payment');
+      history.replaceState(history.state, '', url);
+      showSubscription();
+    } }, 'К подписке'))));
+  void check();
 }
 
 /** Окно подписки: состояние, тарифы, ввод кода. */
